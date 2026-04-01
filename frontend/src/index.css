@@ -1,0 +1,270 @@
+:root {
+  --bg:        #0a0a0c;
+  --bg-panel:  #111116;
+  --bg-card:   #16161e;
+  --border:    #2a2a38;
+  --border-hi: #44445a;
+  --text:      #c8c8d8;
+  --text-dim:  #6a6a82;
+  --text-hi:   #e8e8f0;
+  --gold:      #c9a84c;
+  --gold-dim:  #7a6030;
+  --red:       #c04040;
+  --red-dim:   #6a2020;
+  --green:     #4a9a6a;
+  --blue:      #4a7aaa;
+  --star1:     #888;
+  --star2:     #aaa;
+  --star3:     #88b8c8;
+  --star4:     #88c888;
+  --star5:     #c8a840;
+  --star6:     #c87840;
+  --star7:     #c840c8;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: 'Crimson Pro', Georgia, serif;
+  font-size: 16px;
+  min-height: 100vh;
+}
+
+h1, h2, h3, .title-font {
+  font-family: 'Cinzel', serif;
+  letter-spacing: 0.05em;
+}
+
+/* App layout */
+.app {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+  max-width: 1200px;
+  margin: 0 auto;
+}
+
+.app-header {
+  padding: 1.2rem 2rem;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.app-header h1 {
+  font-size: 1.4rem;
+  color: var(--gold);
+  text-shadow: 0 0 20px rgba(201, 168, 76, 0.3);
+}
+
+.gold-display {
+  font-family: 'Cinzel', serif;
+  color: var(--gold);
+  font-size: 0.9rem;
+}
+
+/* Tabs */
+.tabs {
+  display: flex;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-panel);
+}
+
+.tab-btn {
+  padding: 0.75rem 1.5rem;
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: var(--text-dim);
+  font-family: 'Cinzel', serif;
+  font-size: 0.8rem;
+  letter-spacing: 0.08em;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.tab-btn:hover { color: var(--text); }
+.tab-btn.active {
+  color: var(--gold);
+  border-bottom-color: var(--gold);
+}
+
+/* Page content */
+.page { padding: 1.5rem 2rem; flex: 1; }
+
+/* Cards */
+.card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 1rem;
+}
+
+.card:hover { border-color: var(--border-hi); }
+
+/* Hero card */
+.hero-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 1rem;
+  cursor: pointer;
+  transition: border-color 0.2s, transform 0.1s;
+  position: relative;
+}
+
+.hero-card:hover { border-color: var(--border-hi); transform: translateY(-1px); }
+.hero-card.selected { border-color: var(--gold); }
+.hero-card.dead { opacity: 0.4; pointer-events: none; }
+
+.hero-card .hero-name {
+  font-family: 'Cinzel', serif;
+  font-size: 0.95rem;
+  color: var(--text-hi);
+  margin-bottom: 0.2rem;
+}
+
+.hero-card .hero-title {
+  font-size: 0.82rem;
+  color: var(--text-dim);
+  font-style: italic;
+  margin-bottom: 0.5rem;
+}
+
+/* Stars */
+.stars { display: flex; gap: 2px; }
+.star { font-size: 0.75rem; }
+.birth-star-1 .star { color: var(--star1); }
+.birth-star-2 .star { color: var(--star2); }
+.birth-star-3 .star { color: var(--star3); }
+.birth-star-4 .star { color: var(--star4); }
+.birth-star-5 .star { color: var(--star5); }
+.birth-star-6 .star { color: var(--star6); }
+.birth-star-7 .star { color: var(--star7); }
+
+/* Morale bar */
+.morale-bar-wrap { margin-top: 0.5rem; }
+.morale-label { font-size: 0.72rem; color: var(--text-dim); margin-bottom: 2px; display: flex; justify-content: space-between; }
+.morale-bar-bg { height: 4px; background: var(--border); border-radius: 2px; overflow: hidden; }
+.morale-bar-fill {
+  height: 100%;
+  border-radius: 2px;
+  transition: width 0.4s;
+}
+.morale-bar-fill.steady  { background: var(--green); }
+.morale-bar-fill.shaken  { background: var(--gold); }
+.morale-bar-fill.fearful { background: #c87030; }
+.morale-bar-fill.broken  { background: var(--red); }
+
+/* HP bar */
+.hp-bar-wrap { margin-top: 0.4rem; }
+.hp-bar-bg { height: 4px; background: var(--border); border-radius: 2px; overflow: hidden; }
+.hp-bar-fill { height: 100%; background: var(--red); border-radius: 2px; transition: width 0.4s; }
+
+/* Stat row */
+.stats-row {
+  display: flex;
+  gap: 0.8rem;
+  font-size: 0.78rem;
+  color: var(--text-dim);
+  margin-top: 0.5rem;
+  flex-wrap: wrap;
+}
+.stat span { color: var(--text); font-weight: 600; }
+
+/* Grid layouts */
+.hero-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 1rem;
+}
+
+/* Buttons */
+.btn {
+  padding: 0.5rem 1.2rem;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  background: var(--bg-card);
+  color: var(--text);
+  font-family: 'Cinzel', serif;
+  font-size: 0.78rem;
+  letter-spacing: 0.06em;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+.btn:hover { border-color: var(--border-hi); color: var(--text-hi); }
+.btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+.btn-gold {
+  border-color: var(--gold-dim);
+  color: var(--gold);
+}
+.btn-gold:hover { border-color: var(--gold); background: rgba(201,168,76,0.08); }
+
+.btn-danger {
+  border-color: var(--red-dim);
+  color: var(--red);
+}
+.btn-danger:hover { border-color: var(--red); }
+
+.btn-primary {
+  border-color: var(--blue);
+  color: #8ab8e8;
+}
+.btn-primary:hover { background: rgba(74,122,170,0.1); }
+
+/* Combat log */
+.combat-log {
+  font-size: 0.82rem;
+  font-family: 'Crimson Pro', serif;
+  line-height: 1.7;
+  color: var(--text-dim);
+  max-height: 300px;
+  overflow-y: auto;
+  padding: 1rem;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+}
+
+.combat-log .log-death { color: var(--red); }
+.combat-log .log-victory { color: var(--green); }
+.combat-log .log-crit { color: var(--gold); }
+
+/* Narrative */
+.narrative {
+  font-style: italic;
+  color: var(--text);
+  line-height: 1.7;
+  padding: 1rem;
+  border-left: 2px solid var(--gold-dim);
+  margin: 1rem 0;
+  font-size: 0.95rem;
+}
+
+/* Section headers */
+.section-header {
+  font-family: 'Cinzel', serif;
+  font-size: 0.75rem;
+  letter-spacing: 0.12em;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  margin-bottom: 1rem;
+  padding-bottom: 0.4rem;
+  border-bottom: 1px solid var(--border);
+}
+
+/* Utility */
+.flex { display: flex; }
+.gap-1 { gap: 0.5rem; }
+.gap-2 { gap: 1rem; }
+.mb-1 { margin-bottom: 0.5rem; }
+.mb-2 { margin-bottom: 1rem; }
+.text-gold { color: var(--gold); }
+.text-red { color: var(--red); }
+.text-green { color: var(--green); }
+.text-dim { color: var(--text-dim); }
+.text-sm { font-size: 0.82rem; }
