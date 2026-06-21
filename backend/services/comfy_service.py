@@ -1,7 +1,7 @@
 import json
 import time
 import random
-import httpx
+import requests
 import os
 
 COMFY_URL = "http://127.0.0.1:8188"
@@ -10,7 +10,7 @@ LORA_NAME = os.getenv("COMFY_LORA", None)
 LORA_STRENGTH = float(os.getenv("COMFY_LORA_STRENGTH", "0.8"))
 
 
-def _build_workflow(prompt: str, negative: str = "", seed: int = None) -> dict:
+def _build_workflow(prompt: str, negative: str = "", seed: int = None, init_image_name: str = None, denoise: float = 0.45) -> dict:
     if seed is None:
         seed = random.randint(0, 2**32 - 1)
 
@@ -18,6 +18,7 @@ def _build_workflow(prompt: str, negative: str = "", seed: int = None) -> dict:
         "masterpiece, best quality, amazing quality, very aesthetic, "
         "dark fantasy, anime style, " + prompt
     )
+
     neg = negative or (
         "blurry, low quality, watermark, text, signature, bad anatomy, "
         "deformed, ugly, disfigured, worst quality, jpeg artifacts"
@@ -31,10 +32,6 @@ def _build_workflow(prompt: str, negative: str = "", seed: int = None) -> dict:
         "4": {
             "inputs": {"ckpt_name": CHECKPOINT},
             "class_type": "CheckpointLoaderSimple"
-        },
-        "5": {
-            "inputs": {"width": 832, "height": 1216, "batch_size": 1},
-            "class_type": "EmptyLatentImage"
         },
         "8": {
             "inputs": {"samples": ["3", 0], "vae": ["4", 2]},
@@ -69,6 +66,25 @@ def _build_workflow(prompt: str, negative: str = "", seed: int = None) -> dict:
         "inputs": {"text": neg, "clip": clip_source},
         "class_type": "CLIPTextEncode"
     }
+    if init_image_name:
+        workflow["11"] = {
+            "inputs": {"image": init_image_name, "upload": "image"},
+            "class_type": "LoadImage"
+        }
+        workflow["12"] = {
+            "inputs": {"pixels": ["11", 0], "vae": ["4", 2]},
+            "class_type": "VAEEncode"
+        }
+        latent_image_source = ["12", 0]
+        denoise_val = denoise
+    else:
+        workflow["5"] = {
+            "inputs": {"width": 832, "height": 1216, "batch_size": 1},
+            "class_type": "EmptyLatentImage"
+        }
+        latent_image_source = ["5", 0]
+        denoise_val = 1.0
+
     workflow["3"] = {
         "inputs": {
             "seed": seed,
@@ -76,11 +92,11 @@ def _build_workflow(prompt: str, negative: str = "", seed: int = None) -> dict:
             "cfg": 7.0,
             "sampler_name": "euler_ancestral",
             "scheduler": "normal",
-            "denoise": 1.0,
+            "denoise": denoise_val,
             "model": model_source,
             "positive": ["6", 0],
             "negative": ["7", 0],
-            "latent_image": ["5", 0]
+            "latent_image": latent_image_source
         },
         "class_type": "KSampler"
     }
@@ -90,7 +106,7 @@ def _build_workflow(prompt: str, negative: str = "", seed: int = None) -> dict:
 
 def _queue_prompt(workflow: dict) -> str | None:
     try:
-        response = httpx.post(
+        response = requests.post(
             f"{COMFY_URL}/prompt",
             json={"prompt": workflow},
             timeout=10.0
@@ -108,7 +124,7 @@ def _wait_for_result(prompt_id: str, timeout: int = 180) -> str | None:
     start = time.time()
     while time.time() - start < timeout:
         try:
-            resp = httpx.get(f"{COMFY_URL}/history/{prompt_id}", timeout=5.0)
+            resp = requests.get(f"{COMFY_URL}/history/{prompt_id}", timeout=5.0)
             history = resp.json()
             if prompt_id in history:
                 outputs = history[prompt_id].get("outputs", {})
@@ -123,7 +139,7 @@ def _wait_for_result(prompt_id: str, timeout: int = 180) -> str | None:
 
 def _download_image(filename: str, save_path: str) -> bool:
     try:
-        resp = httpx.get(
+        resp = requests.get(
             f"{COMFY_URL}/view",
             params={"filename": filename, "type": "output"},
             timeout=30.0
@@ -140,18 +156,36 @@ def _download_image(filename: str, save_path: str) -> bool:
 
 def is_comfy_running() -> bool:
     try:
-        httpx.get(f"{COMFY_URL}/system_stats", timeout=3.0)
+        requests.get(f"{COMFY_URL}/system_stats", timeout=3.0)
         return True
     except Exception:
         return False
 
 
-def generate_portrait_comfy(prompt: str, save_path: str) -> bool:
+def _upload_image(file_path: str) -> str | None:
+    try:
+        filename = os.path.basename(file_path)
+        with open(file_path, "rb") as f:
+            files = {"image": (filename, f, "image/png")}
+            resp = requests.post(f"{COMFY_URL}/upload/image", files=files, timeout=30.0)
+            resp.raise_for_status()
+            data = resp.json()
+            return data.get("name")
+    except Exception as e:
+        print(f"[ComfyUI] Failed to upload image {file_path}: {e}")
+        return None
+
+
+def generate_portrait_comfy(prompt: str, save_path: str, init_image_path: str = None, denoise: float = 0.45) -> bool:
     if not is_comfy_running():
         print("[ComfyUI] Server not running — skipping.")
         return False
 
-    workflow = _build_workflow(prompt)
+    init_image_name = None
+    if init_image_path and os.path.exists(init_image_path):
+        init_image_name = _upload_image(init_image_path)
+
+    workflow = _build_workflow(prompt, init_image_name=init_image_name, denoise=denoise)
     prompt_id = _queue_prompt(workflow)
     if not prompt_id:
         return False

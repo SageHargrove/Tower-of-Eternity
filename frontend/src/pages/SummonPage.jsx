@@ -1,27 +1,42 @@
 import React, { useState, useEffect } from 'react'
-import { pullHeroes, getOdds, getBase } from '../api/client'
+import { pullHeroes, getOdds, getBase, getPityInfo, redeemSpark } from '../api/client'
 import HeroCard from '../components/HeroCard'
+import SummoningOverlay from '../components/SummoningOverlay'
 
 export default function SummonPage({ onGoldChange }) {
   const [gold, setGold] = useState(0)
+  const [gems, setGems] = useState(0)
   const [odds, setOdds] = useState(null)
+  const [pityInfo, setPityInfo] = useState(null)
   const [pulling, setPulling] = useState(false)
+  const [redeeming, setRedeeming] = useState(false)
   const [results, setResults] = useState([])
   const [error, setError] = useState(null)
-  const [usePortrait, setUsePortrait] = useState(false)
+  const [usePortrait, setUsePortrait] = useState(true)
+  const [expandedId, setExpandedId] = useState(null)
+  const [showAnimation, setShowAnimation] = useState(false)
 
   useEffect(() => {
-    getBase().then(b => setGold(b.gold))
-    getOdds().then(setOdds)
+    refreshData()
   }, [])
+
+  async function refreshData() {
+    getBase().then(b => { setGold(b.gold); setGems(b.gems || 0); })
+    getOdds().then(setOdds)
+    getPityInfo().then(setPityInfo)
+  }
 
   async function doPull(count) {
     setPulling(true)
     setError(null)
+    setResults([])
     try {
       const data = await pullHeroes(count, usePortrait)
       setResults(data.pulled)
-      setGold(g => g - data.cost)
+      const cost = count === 10 ? 900 : count * 100
+      setGems(g => g - cost)
+      setShowAnimation(true)
+      await refreshData()
       if (onGoldChange) onGoldChange()
     } catch (e) {
       setError(e.message)
@@ -30,65 +45,143 @@ export default function SummonPage({ onGoldChange }) {
     }
   }
 
+  async function doSpark() {
+    if (!confirm('Redeem 100 sparks for a guaranteed 5★ hero?')) return
+    setRedeeming(true)
+    setError(null)
+    try {
+      const data = await redeemSpark()
+      setResults([data.hero])
+      await refreshData()
+    } catch (e) {
+      setError(e.message)
+    } finally {
+      setRedeeming(false)
+    }
+  }
+
   return (
     <div className="page">
-      <div className="section-header">Summoning Gate</div>
+      {showAnimation && results.length > 0 && (
+        <SummoningOverlay 
+          results={results} 
+          onComplete={() => setShowAnimation(false)} 
+        />
+      )}
+      
+      {!showAnimation && (
+        <>
+          <div className="section-header">Summoning Gate</div>
 
-      <div style={{ display: 'flex', gap: '2rem', alignItems: 'flex-start', flexWrap: 'wrap' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '2rem', maxWidth: '800px', margin: '0 auto' }}>
+        
         {/* Pull panel */}
-        <div className="card" style={{ minWidth: 260 }}>
-          <div style={{ marginBottom: '1rem' }}>
-            <div className="text-dim text-sm">Available Gold</div>
-            <div className="text-gold" style={{ fontFamily: 'Cinzel, serif', fontSize: '1.4rem' }}>
-              {gold.toLocaleString()} g
-            </div>
-          </div>
-
-          <div style={{ marginBottom: '1rem' }}>
-            <div className="text-dim text-sm" style={{ marginBottom: '0.3rem' }}>Cost</div>
-            <div className="text-sm">Single pull: <span className="text-gold">100g</span></div>
-            <div className="text-sm">10-pull: <span className="text-gold">1,000g</span></div>
-          </div>
-
-          <div style={{ marginBottom: '1rem' }}>
-            <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.82rem', cursor: 'pointer' }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', marginTop: '1rem' }}>
+          <div style={{ marginBottom: '0.5rem', textAlign: 'center' }}>
+            <label style={{ display: 'inline-flex', alignItems: 'center', gap: '0.5rem', fontSize: '1rem', cursor: 'pointer' }}>
               <input
                 type="checkbox"
                 checked={usePortrait}
                 onChange={e => setUsePortrait(e.target.checked)}
+                style={{ transform: 'scale(1.2)' }}
               />
               <span className="text-dim">Generate portrait (uses DALL-E API)</span>
             </label>
           </div>
 
-          <div style={{ display: 'flex', gap: '0.5rem' }}>
-            <button className="btn btn-gold" onClick={() => doPull(1)} disabled={pulling || gold < 100}>
-              {pulling ? '...' : 'Pull ×1'}
+          <div style={{ display: 'flex', gap: '1.5rem' }}>
+            <button 
+              className="btn btn-gold" 
+              onClick={() => doPull(1)} 
+              disabled={pulling || gems < 100}
+              style={{ flex: 1, padding: '2rem', fontSize: '1.6rem', fontFamily: 'Cinzel, serif', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.5rem', border: '2px solid var(--gold)', borderRadius: 8, background: 'rgba(201,168,76,0.1)' }}
+            >
+              <div>{pulling ? 'Summoning...' : 'Summon 1x'}</div>
+              <div style={{ fontSize: '1rem', color: '#fff', opacity: 0.8, letterSpacing: '2px' }}>100 GEMS 💎</div>
             </button>
-            <button className="btn btn-gold" onClick={() => doPull(10)} disabled={pulling || gold < 1000}>
-              {pulling ? '...' : 'Pull ×10'}
+
+            <button 
+              className="btn btn-gold" 
+              onClick={() => doPull(10)} 
+              disabled={pulling || gems < 900}
+              style={{ flex: 1, padding: '2rem', fontSize: '1.6rem', fontFamily: 'Cinzel, serif', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.5rem', border: '2px solid var(--gold)', borderRadius: 8, background: 'rgba(201,168,76,0.15)', boxShadow: '0 0 20px rgba(201,168,76,0.3)' }}
+            >
+              <div>{pulling ? 'Summoning...' : 'Summon 10x'}</div>
+              <div style={{ fontSize: '1rem', color: '#fff', opacity: 0.8, letterSpacing: '2px' }}>900 GEMS 💎</div>
             </button>
           </div>
 
           {error && (
-            <div className="text-red text-sm" style={{ marginTop: '0.75rem' }}>{error}</div>
+            <div className="text-red text-center" style={{ marginTop: '0.5rem', fontSize: '1.1rem' }}>{error}</div>
           )}
         </div>
 
-        {/* Odds table */}
-        {odds && (
-          <div className="card" style={{ minWidth: 200 }}>
-            <div className="section-header" style={{ marginBottom: '0.75rem' }}>Pull Rates</div>
-            {Object.entries(odds).map(([star, data]) => (
-              <div key={star} style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.82rem', marginBottom: '0.3rem' }}>
-                <span className={`birth-star-${star}`} style={{ color: `var(--star${star})` }}>
-                  {'★'.repeat(Number(star))}
-                </span>
-                <span className="text-dim">{data.percent}%</span>
+        {/* Odds table & Pity */}
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '2rem' }}>
+          {odds && (
+            <div className="card">
+              <div className="section-header" style={{ marginBottom: '1rem', textAlign: 'center' }}>Pull Rates</div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                {Object.entries(odds).map(([star, data]) => {
+                  const numStar = Number(star);
+                  const isRainbow = numStar === 7;
+                  return (
+                    <div key={star} style={{ display: 'flex', justifyContent: 'space-between', fontSize: '1.1rem', padding: '0.4rem 1rem', borderBottom: '1px solid rgba(255,255,255,0.05)', background: 'rgba(0,0,0,0.2)', borderRadius: 4 }}>
+                      <span className={isRainbow ? 'cyan-text' : `birth-star-${star}`} style={{ color: isRainbow ? undefined : `var(--star${star})`, textShadow: numStar >= 5 ? '0 0 5px currentColor' : 'none' }}>
+                        {'★'.repeat(numStar)}
+                      </span>
+                      <span className="text-dim" style={{ fontFamily: 'monospace', fontSize: '1.1rem' }}>
+                        {Number(data.percent).toFixed(2)}%
+                      </span>
+                    </div>
+                  );
+                })}
               </div>
-            ))}
-          </div>
-        )}
+            </div>
+          )}
+
+          {pityInfo && (
+            <div className="card" style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
+              <div>
+                <div className="section-header" style={{ marginBottom: '1rem', textAlign: 'center' }}>Pity & Sparks</div>
+                <div style={{ marginBottom: '2rem', textAlign: 'center', background: 'rgba(0,0,0,0.2)', padding: '1.5rem', borderRadius: 6 }}>
+                  <div className="text-dim" style={{ fontSize: '1.1rem', marginBottom: '0.5rem' }}>Guaranteed 4★+ in:</div>
+                  <div style={{ fontSize: '2.5rem', color: 'var(--star4)', fontFamily: 'Cinzel, serif', textShadow: '0 0 10px var(--star4)' }}>
+                    {Math.max(0, 50 - pityInfo.pity_counter)}
+                  </div>
+                  <div className="text-dim text-sm" style={{ marginTop: '0.5rem' }}>(Resets on 4★+ pull)</div>
+                </div>
+
+                <div style={{ background: 'rgba(0,0,0,0.2)', padding: '1.5rem', borderRadius: 6 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', marginBottom: '0.8rem' }}>
+                    <div className="text-dim" style={{ fontSize: '1.1rem' }}>Sparks</div>
+                    <div style={{ fontSize: '1.5rem', color: 'var(--star5)', fontFamily: 'Cinzel, serif' }}>
+                      {pityInfo.spark_points} <span className="text-dim" style={{ fontSize: '1rem' }}>/ 100</span>
+                    </div>
+                  </div>
+                  <div style={{ width: '100%', height: '8px', background: 'var(--bg)', borderRadius: '4px', overflow: 'hidden', marginBottom: '1.5rem', border: '1px solid var(--border)' }}>
+                    <div style={{ 
+                      height: '100%', 
+                      width: `${Math.min(100, (pityInfo.spark_points / 100) * 100)}%`, 
+                      background: 'var(--star5)',
+                      boxShadow: '0 0 10px var(--star5)',
+                      transition: 'width 0.5s ease-out'
+                    }} />
+                  </div>
+                  
+                  <button 
+                    className="btn" 
+                    style={{ width: '100%', padding: '1rem', fontSize: '1.1rem', background: pityInfo.spark_points >= 100 ? 'rgba(201, 168, 76, 0.2)' : 'rgba(255,255,255,0.05)', color: pityInfo.spark_points >= 100 ? 'var(--star5)' : 'var(--text-dim)', border: `2px solid ${pityInfo.spark_points >= 100 ? 'var(--star5)' : 'var(--border)'}`, boxShadow: pityInfo.spark_points >= 100 ? '0 0 15px rgba(201,168,76,0.3)' : 'none' }}
+                    onClick={doSpark}
+                    disabled={redeeming || pulling || pityInfo.spark_points < 100}
+                  >
+                    {redeeming ? 'Redeeming...' : 'Redeem 5★ (100 Sparks)'}
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
       </div>
 
       {/* Results */}
@@ -97,10 +190,28 @@ export default function SummonPage({ onGoldChange }) {
           <div className="section-header">Summoned</div>
           <div className="hero-grid">
             {results.map(hero => (
-              <HeroCard key={hero.id} hero={hero} />
+              <HeroCard key={hero.id} hero={hero} onClick={() => setExpandedId(hero.id)} />
             ))}
           </div>
         </div>
+      )}
+
+      {expandedId && (
+        <div style={{
+          position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
+          background: 'rgba(0,0,0,0.85)', zIndex: 100,
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          backdropFilter: 'blur(5px)'
+        }} onClick={() => setExpandedId(null)}>
+          <div style={{ width: '400px', maxWidth: '90vw' }} onClick={e => e.stopPropagation()}>
+            <HeroCard
+              hero={results.find(h => h.id === expandedId)}
+              showFull={true}
+            />
+          </div>
+        </div>
+      )}
+        </>
       )}
     </div>
   )

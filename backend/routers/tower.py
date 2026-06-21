@@ -2,216 +2,318 @@ from fastapi import APIRouter, HTTPException
 from database import db
 from services.combat_service import run_combat
 from services.morale_service import between_floor_recovery, witness_death_trauma, get_morale_state, apply_morale_delta, apply_stress, apply_trauma
-from services.llm_service import generate_combat_narration
+from services.llm_service import generate_combat_narration, generate_event_narrative, generate_event_resolution_narrative
+from services.event_service import select_event, resolve_event_choice
+from services.floor_templates import (
+    get_floor_type,
+    generate_survival_floor, resolve_survival_floor,
+    generate_defend_floor, resolve_defend_floor,
+    generate_explore_floor, resolve_explore_floor,
+    generate_escort_floor, resolve_escort_floor,
+    generate_rest_floor, resolve_rest_floor,
+)
 import json
 import random
+from pydantic import BaseModel
 
 router = APIRouter()
 
-FLOOR_TYPES = {
-    # (floor % 10) -> type
-    0:  "boss",       # every 10
-    5:  "miniboss",   # every 5
-}
+class EnterFloorRequest(BaseModel):
+    team_id: int
+    floor_number: int
 
-def get_floor_type(floor_number: int) -> str:
-    mod = floor_number % 10
-    if mod == 0:
-        return "boss"
-    elif mod == 5:
-        return "miniboss"
-    else:
-        # Random weighted floor type
-        return random.choices(
-            ["combat", "combat", "combat", "event", "resource"],
-            weights=[50, 50, 50, 25, 15]
-        )[0]
-
-@router.post("/run/start")
-def start_run():
-    """Start a new tower run with the current team."""
+@router.post("/floor/enter")
+def enter_floor(req: EnterFloorRequest):
+    """Resolve a single floor for a specific team without any 'Run' constraints."""
     with db() as conn:
-        # Check for active run
-        active = conn.execute(
-            "SELECT id FROM runs WHERE status = 'active'"
-        ).fetchone()
-        if active:
-            raise HTTPException(status_code=400, detail="A run is already active. Complete or abandon it first.")
+        # Check base and supplies
+        base_row = conn.execute("SELECT highest_floor, supplies FROM base WHERE id = 1").fetchone()
+        if not base_row:
+            raise HTTPException(status_code=500, detail="Base not found")
+            
+        if req.floor_number > base_row["highest_floor"] + 1:
+            raise HTTPException(status_code=400, detail="Cannot skip floors.")
 
-        # Get team
-        team = conn.execute(
-            "SELECT * FROM heroes WHERE is_on_team = 1 AND is_alive = 1"
-        ).fetchall()
-        if not team:
-            raise HTTPException(status_code=400, detail="No heroes on team. Set a team first.")
-        if len(team) < 1:
-            raise HTTPException(status_code=400, detail="Need at least 1 hero.")
+        supply_cost = 2
+        if base_row["supplies"] < supply_cost:
+            raise HTTPException(status_code=400, detail=f"Not enough supplies to enter the tower. Need {supply_cost}.")
 
-        # Create run
-        cursor = conn.execute("INSERT INTO runs (status, current_floor) VALUES ('active', 0)")
-        run_id = cursor.lastrowid
-
-        for hero in team:
-            conn.execute(
-                "INSERT INTO run_heroes (run_id, hero_id) VALUES (?,?)",
-                (run_id, hero["id"])
-            )
-
-        conn.execute(
-            "INSERT INTO event_log (run_id, floor_number, event_type, description) VALUES (?,?,?,?)",
-            (run_id, 0, "run_start", f"A team of {len(team)} entered the tower.")
-        )
-
-    return {"run_id": run_id, "team_size": len(team)}
-
-@router.get("/run/active")
-def get_active_run():
-    with db() as conn:
-        run = conn.execute(
-            "SELECT * FROM runs WHERE status = 'active'"
-        ).fetchone()
-        if not run:
-            return {"run": None}
-
-        run_dict = dict(run)
-        heroes = conn.execute("""
-            SELECT h.* FROM heroes h
-            JOIN run_heroes rh ON h.id = rh.hero_id
-            WHERE rh.run_id = ? AND h.is_alive = 1
-        """, (run_dict["id"],)).fetchall()
-        run_dict["heroes"] = [dict(h) for h in heroes]
-    return {"run": run_dict}
-
-@router.post("/run/floor/advance")
-def advance_floor():
-    """Resolve the next floor of the active run."""
-    with db() as conn:
-        run = conn.execute(
-            "SELECT * FROM runs WHERE status = 'active'"
-        ).fetchone()
-        if not run:
-            raise HTTPException(status_code=404, detail="No active run.")
-
-        run_id = run["id"]
-        next_floor = run["current_floor"] + 1
-        floor_type = get_floor_type(next_floor)
-
-        heroes = conn.execute("""
-            SELECT h.* FROM heroes h
-            JOIN run_heroes rh ON h.id = rh.hero_id
-            WHERE rh.run_id = ? AND h.is_alive = 1
-        """, (run_id,)).fetchall()
-
+        # Get heroes
+        heroes = [dict(r) for r in conn.execute(
+            "SELECT * FROM heroes WHERE is_on_team = ? AND is_alive = 1 ORDER BY team_position ASC, id ASC", (req.team_id,)
+        ).fetchall()]
+        
         if not heroes:
-            # All heroes dead — end run
-            conn.execute(
-                "UPDATE runs SET status = 'failed', current_floor = ?, ended_at = CURRENT_TIMESTAMP WHERE id = ?",
-                (next_floor - 1, run_id)
-            )
-            return {"result": "run_failed", "floor": next_floor - 1}
+            raise HTTPException(status_code=400, detail=f"No heroes assigned to Team {req.team_id}.")
 
+        for hero in heroes:
+            if hero["fatigue"] >= 10:
+                raise HTTPException(status_code=400, detail=f"{hero['name']} is exhausted (Fatigue 10) and must rest before entering the tower.")
+
+        conn.execute("UPDATE base SET supplies = supplies - ? WHERE id = 1", (supply_cost,))
+
+        from services.llm_service import generate_zone_theme
+        zone_theme = generate_zone_theme(req.floor_number)
+        floor_type = get_floor_type(req.floor_number)
         hero_list = [dict(h) for h in heroes]
 
         result = {}
         narrative = None
 
+        # Resolve Floor Logic
         if floor_type in ("combat", "miniboss", "boss"):
             is_boss = floor_type == "boss"
-            combat_result = run_combat(hero_list, next_floor, is_boss=is_boss)
+            is_miniboss = floor_type == "miniboss"
+            
+            try:
+                combat_result = run_combat(hero_list, req.floor_number, is_boss=is_boss, is_miniboss=is_miniboss, zone_theme=zone_theme)
+            except Exception as e:
+                print(f"Combat error: {e}")
+                raise HTTPException(status_code=500, detail=f"Combat simulation failed: {str(e)}")
+            
+            result["combat"] = combat_result
+            
+            if combat_result["winner"] == "heroes":
+                result["message"] = f"Floor {req.floor_number} Cleared!"
+            else:
+                result["message"] = f"Team defeated on Floor {req.floor_number}."
+                result["run_over"] = True
 
-            # Apply permadeath
-            for dead_id in combat_result["dead_heroes"]:
-                conn.execute(
-                    "UPDATE heroes SET is_alive = 0, is_on_team = 0 WHERE id = ?",
-                    (dead_id,)
-                )
-                # Trauma for surviving allies who witness death
-                for surviving in combat_result["surviving_heroes"]:
-                    trauma_data = witness_death_trauma(is_close_ally=True)
-                    conn.execute("""
-                        UPDATE heroes SET
-                            trauma = MIN(100, trauma + ?),
-                            stress = MIN(100, stress + ?)
-                        WHERE id = ?
-                    """, (trauma_data["trauma_delta"], trauma_data["stress_delta"], surviving["id"]))
-                conn.execute(
-                    "INSERT INTO event_log (run_id, floor_number, event_type, description) VALUES (?,?,?,?)",
-                    (run_id, next_floor, "hero_death", f"Hero #{dead_id} has permanently fallen.")
-                )
+            try:
+                narrative = generate_combat_narration(zone_theme, combat_result)
+            except Exception as e:
+                print(f"Narration error: {e}")
+                narrative = "A fierce battle took place."
+                
+            for dead_hero_row in combat_result["dead_heroes"]:
+                dead_id = dead_hero_row if isinstance(dead_hero_row, int) else dead_hero_row["id"]
+                conn.execute("UPDATE heroes SET is_alive = 0, is_on_team = 0 WHERE id = ?", (dead_id,))
+                try:
+                    from services.legacy_service import create_legacy
+                    # If dead_hero_row is an int, we need to fetch the hero row for create_legacy
+                    if isinstance(dead_hero_row, int):
+                        hr = conn.execute("SELECT * FROM heroes WHERE id = ?", (dead_id,)).fetchone()
+                        if hr:
+                            create_legacy(dict(hr))
+                    else:
+                        create_legacy(dead_hero_row)
+                except Exception:
+                    pass
 
-            # Apply HP and morale changes to survivors
+            if combat_result["winner"] != "heroes" and not combat_result["surviving_heroes"]:
+                return {"result": "failed", "floor": req.floor_number, "log": combat_result["log"]}
+
+            for surviving in combat_result["surviving_heroes"]:
+                trauma_data = witness_death_trauma(is_close_ally=True)
+                conn.execute("""
+                    UPDATE heroes SET
+                        trauma = MIN(100, trauma + ?),
+                        stress = MIN(100, stress + ?)
+                    WHERE id = ?
+                """, (len(combat_result["dead_heroes"]) * trauma_data["trauma_delta"], 
+                      len(combat_result["dead_heroes"]) * trauma_data["stress_delta"], surviving["id"]))
+
             for s in combat_result["surviving_heroes"]:
-                hero_row = conn.execute("SELECT * FROM heroes WHERE id = ?", (s["id"],)).fetchone()
+                hid = s["id"]
+                hero_row = conn.execute("SELECT morale, trauma, skills FROM heroes WHERE id = ?", (hid,)).fetchone()
                 if hero_row:
                     hero_dict = dict(hero_row)
                     new_morale = apply_morale_delta(hero_dict["morale"], hero_dict["trauma"], s["morale_delta"])
+                    
+                    # Apply skill upgrades if any
+                    skills_json = hero_dict["skills"]
+                    if hid in combat_result.get("skill_upgrades", {}):
+                        upgrades = combat_result["skill_upgrades"][hid]
+                        skills = json.loads(skills_json) if skills_json else []
+                        for upg in upgrades:
+                            for sk in skills:
+                                if sk["id"] == upg["skill_id"]:
+                                    sk["tier"] = upg["new_tier"]
+                                    sk["level"] = 1
+                                    sk["xp"] = 0
+                                    sk["max_xp"] = 100
+                        skills_json = json.dumps(skills)
+                    
                     conn.execute("""
-                        UPDATE heroes SET hp = ?, morale = ?, morale_state = ? WHERE id = ?
-                    """, (s["hp"], new_morale, get_morale_state(new_morale), s["id"]))
+                        UPDATE heroes SET hp = MIN(max_hp, ?), morale = ?, morale_state = ?, skills = ? WHERE id = ?
+                    """, (s["hp"], new_morale, get_morale_state(new_morale), skills_json, s["id"]))
 
-            # Apply between-floor recovery to all survivors
-            surviving_ids = [s["id"] for s in combat_result["surviving_heroes"]]
-            for hid in surviving_ids:
-                hero_row = conn.execute("SELECT * FROM heroes WHERE id = ?", (hid,)).fetchone()
-                if hero_row:
-                    recovery = between_floor_recovery(dict(hero_row))
-                    conn.execute("""
-                        UPDATE heroes SET morale = ?, stress = ?, trauma = ?, morale_state = ? WHERE id = ?
-                    """, (recovery["morale"], recovery["stress"], recovery["trauma"], recovery["morale_state"], hid))
+            # Copy rewards to result so frontend can see them
+            result["gold_gained"] = combat_result.get("gold_gained", 0)
+            result["supplies_gained"] = combat_result.get("supplies_gained", 0)
+            result["materials_gained"] = combat_result.get("materials_gained", {})
+            
+            # Apply 5% penalty for repeated runs
+            if req.floor_number <= base_row["highest_floor"]:
+                result["gold_gained"] = int(result["gold_gained"] * 0.05)
+                result["supplies_gained"] = int(result["supplies_gained"] * 0.05)
+                for m in list(result["materials_gained"].keys()):
+                    if random.random() > 0.1:
+                        result["materials_gained"][m] = 0
+                result["materials_gained"] = {k:v for k,v in result["materials_gained"].items() if v > 0}
 
-            # LLM narration (cheap model, optional — won't block on failure)
-            try:
-                hero_names = [h["name"] for h in hero_list]
-                narrative = generate_combat_narration(combat_result["log"], hero_names)
-            except Exception as e:
-                print(f"Narration failed: {e}")
-                narrative = " ".join(combat_result["log"][-3:])
+            if result["gold_gained"] > 0 or result["supplies_gained"] > 0 or result["materials_gained"]:
+                conn.execute(
+                    "UPDATE base SET gold = gold + ?, supplies = supplies + ? WHERE id = 1",
+                    (result["gold_gained"], result["supplies_gained"])
+                )
+                if result["materials_gained"]:
+                    base_row_current = conn.execute("SELECT materials FROM base WHERE id = 1").fetchone()
+                    current_mats = json.loads(base_row_current["materials"]) if base_row_current["materials"] else {}
+                    for m, qty in result["materials_gained"].items():
+                        current_mats[m] = current_mats.get(m, 0) + qty
+                    conn.execute("UPDATE base SET materials = ? WHERE id = 1", (json.dumps(current_mats),))
 
-            result = {
-                "floor_type": floor_type,
-                "combat": combat_result,
-                "narrative": narrative,
-            }
+            if combat_result.get("equipment_drop"):
+                try:
+                    from services.equipment_service import save_equipment
+                    save_equipment(combat_result["equipment_drop"])
+                    result["equipment_drop"] = combat_result["equipment_drop"]
+                except Exception as e:
+                    print(f"Failed to save drop: {e}")
+
+            result["floor_type"] = "combat"
+            result["narrative"] = narrative
 
         elif floor_type == "event":
+            event_data = select_event(req.floor_number, zone_theme)
+            try:
+                narrative = generate_event_narrative(zone_theme, event_data, [h["name"] for h in hero_list])
+            except:
+                narrative = event_data["description"]
+                
             result = {
                 "floor_type": "event",
-                "message": "An event awaits. (Event system coming soon.)",
+                "event": event_data,
+                "event_narrative": narrative,
+                "awaiting_choice": True,
+                "theme": zone_theme
             }
 
-        elif floor_type == "resource":
-            gold_found = random.randint(20, 60) + next_floor * 2
-            conn.execute("UPDATE base SET gold = gold + ? WHERE id = 1", (gold_found,))
+        elif floor_type == "survival":
+            template = generate_survival_floor(req.floor_number)
+            resolution = resolve_survival_floor(template, hero_list)
+            for hr in resolution["hero_results"]:
+                conn.execute("UPDATE heroes SET hp = MIN(max_hp, ?), stress = MIN(100, stress + ?) WHERE id = ?",
+                             (hr["hp"], hr.get("stress_gained", 0), hr["id"]))
+            if resolution.get("reward", {}).get("gold"):
+                conn.execute("UPDATE base SET gold = gold + ? WHERE id = 1",
+                             (resolution["reward"]["gold"],))
             result = {
-                "floor_type": "resource",
-                "gold_found": gold_found,
-                "message": f"The team found {gold_found} gold among the ruins.",
+                "floor_type": "survival",
+                "resolution": resolution,
+                "narrative": resolution["summary"],
+                "log": resolution["log"],
             }
 
-        # Save floor record
-        conn.execute("""
-            INSERT INTO floors (run_id, floor_number, floor_type, status, outcome, narrative)
-            VALUES (?,?,?,?,?,?)
-        """, (run_id, next_floor, floor_type, "completed",
-              json.dumps(result.get("combat", {}).get("log", [])), narrative))
+        elif floor_type == "defend":
+            template = generate_defend_floor(req.floor_number)
+            resolution = resolve_defend_floor(template, hero_list)
+            for hr in resolution["hero_results"]:
+                hero_data = next((h for h in hero_list if h["id"] == hr["id"]), None)
+                if hero_data:
+                    new_morale = max(0, min(100, hero_data["morale"] + hr.get("morale_delta", 0)))
+                    conn.execute("UPDATE heroes SET hp = MIN(max_hp, ?), morale = ?, morale_state = ? WHERE id = ?",
+                                 (hr["hp"], new_morale, get_morale_state(new_morale), hr["id"]))
+            if resolution.get("reward", {}).get("gold"):
+                conn.execute("UPDATE base SET gold = gold + ? WHERE id = 1",
+                             (resolution["reward"]["gold"],))
+            result = {
+                "floor_type": "defend",
+                "resolution": resolution,
+                "narrative": resolution["summary"],
+                "log": resolution["log"],
+            }
 
-        # Update run floor
+        elif floor_type == "explore":
+            template = generate_explore_floor(req.floor_number)
+            resolution = resolve_explore_floor(template, "thorough", hero_list)
+            for hr in resolution["hero_results"]:
+                conn.execute("UPDATE heroes SET hp = MIN(max_hp, ?), stress = MIN(100, stress + ?) WHERE id = ?",
+                             (hr["hp"], hr.get("stress_gained", 0), hr["id"]))
+            loot = resolution.get("loot", {})
+            if loot.get("type") == "gold":
+                conn.execute("UPDATE base SET gold = gold + ? WHERE id = 1", (loot.get("amount", 0),))
+            elif loot.get("type") in ("materials", "rare_materials"):
+                base_row = conn.execute("SELECT materials FROM base WHERE id = 1").fetchone()
+                current_mats = json.loads(base_row["materials"]) if base_row["materials"] else {}
+                mat_name = loot.get("type", "materials")
+                current_mats[mat_name] = current_mats.get(mat_name, 0) + loot.get("amount", 1)
+                conn.execute("UPDATE base SET materials = ? WHERE id = 1", (json.dumps(current_mats),))
+            result = {
+                "floor_type": "explore",
+                "resolution": resolution,
+                "narrative": resolution["summary"],
+                "log": resolution["log"],
+            }
+
+        elif floor_type == "escort":
+            template = generate_escort_floor(req.floor_number)
+            resolution = resolve_escort_floor(template, hero_list)
+            for hr in resolution["hero_results"]:
+                hero_data = next((h for h in hero_list if h["id"] == hr["id"]), None)
+                if hero_data:
+                    new_morale = max(0, min(100, hero_data["morale"] + hr.get("morale_delta", 0)))
+                    conn.execute("UPDATE heroes SET hp = MIN(max_hp, ?), morale = ?, morale_state = ? WHERE id = ?",
+                                 (hr["hp"], new_morale, get_morale_state(new_morale), hr["id"]))
+            if resolution.get("reward", {}).get("gold"):
+                conn.execute("UPDATE base SET gold = gold + ? WHERE id = 1",
+                             (resolution["reward"]["gold"],))
+            result = {
+                "floor_type": "escort",
+                "resolution": resolution,
+                "narrative": resolution["summary"],
+                "log": resolution["log"],
+            }
+
+        elif floor_type == "rest":
+            template = generate_rest_floor(req.floor_number)
+            resolution = resolve_rest_floor(template, hero_list)
+            for hr in resolution["hero_results"]:
+                hero_data = next((h for h in hero_list if h["id"] == hr["id"]), None)
+                if hero_data:
+                    new_morale = max(0, min(100, hero_data["morale"] + hr.get("morale_delta", 0)))
+                    new_stress = max(0, hero_data["stress"] + hr.get("stress_gained", 0))
+                    conn.execute("UPDATE heroes SET hp = MIN(max_hp, ?), morale = ?, stress = ?, morale_state = ? WHERE id = ?",
+                                 (hr["hp"], new_morale, new_stress, get_morale_state(new_morale), hr["id"]))
+            result = {
+                "floor_type": "rest",
+                "resolution": resolution,
+                "narrative": resolution["summary"],
+                "log": resolution["log"],
+            }
+
+        # Add fatigue to deployed heroes
         conn.execute(
-            "UPDATE runs SET current_floor = ?, highest_floor = MAX(highest_floor, ?) WHERE id = ?",
-            (next_floor, next_floor, run_id)
+            """
+            UPDATE heroes 
+            SET fatigue = MIN(10, fatigue + 1) 
+            WHERE is_on_team = ? AND is_alive = 1
+            """,
+            (req.team_id,)
         )
 
-        # Update hero stats, kills, floors_survived, and level after combat
         from services.level_service import recalculate_hero_level, level_up_summary
-        for s in result.get("combat", {}).get("surviving_heroes", []):
+        surviving_ids = []
+        
+        survivors = []
+        if result.get("combat") and "surviving_heroes" in result["combat"]:
+            survivors = result["combat"]["surviving_heroes"]
+        elif not result.get("run_over"):
+            survivors = hero_list
+
+        for s in survivors:
             hid = s["id"]
+            surviving_ids.append(hid)
             kills_gained = s.get("kills_gained", 0)
+            stress_delta = s.get("stress_delta", 0)
             conn.execute("""
                 UPDATE heroes SET
                     floors_survived = floors_survived + 1,
-                    kills = kills + ?
+                    kills = kills + ?,
+                    stress = MIN(100, MAX(0, stress + ?))
                 WHERE id = ?
-            """, (kills_gained, hid))
+            """, (kills_gained, stress_delta, hid))
 
             # Recalculate level
             hero_row = conn.execute("SELECT * FROM heroes WHERE id = ?", (hid,)).fetchone()
@@ -223,42 +325,135 @@ def advance_floor():
                     conn.execute("UPDATE heroes SET level = ? WHERE id = ?", (new_level, hid))
                     level_msgs = level_up_summary(old_level, new_level, hero_dict["name"])
                     result.setdefault("level_ups", []).extend(level_msgs)
+
+        if len(surviving_ids) >= 2:
+            for i in range(len(surviving_ids)):
+                for j in range(i + 1, len(surviving_ids)):
+                    a, b = min(surviving_ids[i], surviving_ids[j]), max(surviving_ids[i], surviving_ids[j])
                     conn.execute("""
-                        INSERT INTO event_log (run_id, floor_number, event_type, description)
-                        VALUES (?,?,?,?)
-                    """, (run_id, next_floor, "level_up",
-                          f"{hero_dict['name']} reached level {new_level}.")  )
+                        INSERT INTO hero_bonds (hero_a_id, hero_b_id, bond_level, floors_together)
+                        VALUES (?, ?, 1, 1)
+                        ON CONFLICT(hero_a_id, hero_b_id) DO UPDATE SET
+                            floors_together = floors_together + 1,
+                            bond_level = floors_together / 5
+                    """, (a, b))
 
-        # Auto-return to base every 10 floors
-        if next_floor % 10 == 0 and result.get("combat", {}).get("winner") != "enemies":
-            conn.execute(
-                "UPDATE runs SET status = 'completed', ended_at = CURRENT_TIMESTAMP WHERE id = ?",
-                (run_id,)
-            )
-            result["checkpoint"] = True
-            result["message"] = f"Floor {next_floor} cleared. Return to base."
+        # IMPORTANT: Between floor recovery applied immediately since we return to base instantly!
+        for hid in surviving_ids:
+            hero_row = conn.execute("SELECT * FROM heroes WHERE id = ?", (hid,)).fetchone()
+            if hero_row:
+                recovery = between_floor_recovery(dict(hero_row))
+                conn.execute("""
+                    UPDATE heroes SET morale = ?, stress = ?, trauma = ?, morale_state = ? WHERE id = ?
+                """, (recovery["morale"], recovery["stress"], recovery["trauma"], recovery["morale_state"], hid))
 
-        # Check total failure
-        remaining = conn.execute("""
-            SELECT COUNT(*) as cnt FROM heroes h
-            JOIN run_heroes rh ON h.id = rh.hero_id
-            WHERE rh.run_id = ? AND h.is_alive = 1
-        """, (run_id,)).fetchone()
+        if not result.get("run_over") and req.floor_number > base_row["highest_floor"]:
+            gems_reward = 500 if req.floor_number % 5 == 0 else 100
+            conn.execute("UPDATE base SET highest_floor = ?, gems = gems + ? WHERE id = 1", (req.floor_number, gems_reward))
+            result["gems_gained"] = gems_reward
 
-        if remaining["cnt"] == 0:
-            conn.execute(
-                "UPDATE runs SET status = 'failed', ended_at = CURRENT_TIMESTAMP WHERE id = ?",
-                (run_id,)
-            )
-            result["run_over"] = True
-
-    result["floor"] = next_floor
+    result["floor"] = req.floor_number
     return result
 
-@router.post("/run/abandon")
-def abandon_run():
+class ResolveEventRequest(BaseModel):
+    floor_number: int
+    team_id: int
+    template_id: str
+    choice_id: str
+    theme: str = "An event occurred."
+
+@router.post("/floor/event/resolve")
+def resolve_event_floor(data: ResolveEventRequest):
+    """Resolve a player's event floor choice."""
     with db() as conn:
-        conn.execute(
-            "UPDATE runs SET status = 'abandoned', ended_at = CURRENT_TIMESTAMP WHERE status = 'active'"
-        )
-    return {"ok": True}
+        heroes = conn.execute(
+            "SELECT * FROM heroes WHERE is_on_team = ? AND is_alive = 1", (data.team_id,)
+        ).fetchall()
+        hero_list = [dict(h) for h in heroes]
+        hero_names = [h["name"] for h in hero_list]
+
+        resolution = resolve_event_choice(data.template_id, data.choice_id, hero_list)
+        if "error" in resolution:
+            raise HTTPException(status_code=400, detail=resolution["error"])
+
+        effects = resolution["effects"]
+
+        if "gold" in effects and effects["gold"] != 0:
+            conn.execute("UPDATE base SET gold = gold + ? WHERE id = 1", (effects["gold"],))
+
+        if "item" in effects:
+            try:
+                from services.equipment_service import save_equipment
+                equip = {
+                    "name": effects["item"],
+                    "slot": "accessory",
+                    "rarity": 6,
+                    "stats": {"hp": 150, "atk": 15, "def": 10, "spd": 5},
+                    "description": "A legendary artifact found in the tower."
+                }
+                save_equipment(equip)
+            except Exception as e:
+                print(f"Failed to grant event item: {e}")
+
+        sacrificed_name = None
+        if effects.get("sacrifice_hero") and hero_list:
+            import random
+            sacrificed = random.choice(hero_list)
+            sacrificed_name = sacrificed["name"]
+            conn.execute("UPDATE heroes SET is_alive = 0, is_on_team = 0 WHERE id = ?", (sacrificed["id"],))
+            hero_list = [h for h in hero_list if h["id"] != sacrificed["id"]]
+            try:
+                from services.legacy_service import create_legacy
+                create_legacy(sacrificed)
+            except Exception:
+                pass
+
+        for hero in hero_list:
+            hid = hero["id"]
+            updates = []
+            params = []
+
+            if "hp_pct" in effects and effects["hp_pct"] != 0:
+                hp_change = int(hero["max_hp"] * effects["hp_pct"])
+                new_hp = max(1, min(hero["max_hp"], hero["hp"] + hp_change))
+                updates.append("hp = ?")
+                params.append(new_hp)
+
+            if "morale" in effects and effects["morale"] != 0:
+                new_morale = max(0, min(100, hero["morale"] + effects["morale"]))
+                updates.append("morale = ?")
+                params.append(new_morale)
+
+            if "stress" in effects and effects["stress"] != 0:
+                new_stress = max(0, min(100, hero["stress"] + effects["stress"]))
+                updates.append("stress = ?")
+                params.append(new_stress)
+
+            if "trauma" in effects and effects["trauma"] != 0:
+                new_trauma = max(0, min(100, hero["trauma"] + effects["trauma"]))
+                updates.append("trauma = ?")
+                params.append(new_trauma)
+
+            if updates:
+                params.append(hid)
+                conn.execute(f"UPDATE heroes SET {', '.join(updates)} WHERE id = ?", params)
+
+        try:
+            narrative = generate_event_resolution_narrative(
+                data.theme, resolution["choice_label"], effects, hero_names
+            )
+        except Exception:
+            narrative = f"The party chose: {resolution['choice_label']}."
+            
+        base_row = conn.execute("SELECT highest_floor FROM base WHERE id = 1").fetchone()
+        if data.floor_number > base_row["highest_floor"]:
+            gems_reward = 500 if data.floor_number % 5 == 0 else 100
+            conn.execute("UPDATE base SET highest_floor = ?, gems = gems + ? WHERE id = 1", (data.floor_number, gems_reward))
+            effects["gems"] = gems_reward
+
+    return {
+        "ok": True,
+        "choice_label": resolution["choice_label"],
+        "effects": effects,
+        "narrative": narrative,
+    }

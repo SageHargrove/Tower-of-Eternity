@@ -10,11 +10,10 @@ load_dotenv()
 
 client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
 
-# Fallback chain — tries each in order on rate limit
+# Fallback chain 
 MODELS_BY_PRIORITY = [
-    "gemini-2.0-flash",
-    "gemini-1.5-flash",
-    "gemini-1.5-flash-8b",
+    "gemini-2.5-flash",
+    "gemini-2.5-flash-8b",
 ]
 
 RARITY_FLAVOR = {
@@ -33,7 +32,9 @@ class HeroProfile(BaseModel):
     title: str
     backstory: str
     personality: str
+    gender: str
     portrait_prompt: str
+    ego_type: str | None = None
 
 
 def _generate_with_fallback(prompt: str, max_tokens: int = 600, temperature: float = 0.9) -> str:
@@ -57,10 +58,10 @@ def _generate_with_fallback(prompt: str, max_tokens: int = 600, temperature: flo
                 last_error = e
                 continue
             elif "API_KEY_INVALID" in err or "400" in err:
-                print(f"[LLM] API key error: {e}")
+                print(f"[LLM] FATAL API key error ({model}): {e}")
                 raise
             else:
-                print(f"[LLM] {model} error: {e}")
+                print(f"[LLM] {model} failed: {type(e).__name__}: {e}")
                 last_error = e
                 continue
     raise Exception(f"All Gemini models exhausted. Last error: {last_error}")
@@ -74,7 +75,7 @@ def _clean_json(raw: str) -> str:
     return raw.strip()
 
 
-def generate_hero_profile(birth_star: int, aptitudes: dict) -> HeroProfile:
+def generate_hero_profile(birth_star: int, aptitudes: dict, extra_prompt: str = "") -> HeroProfile:
     apt_names = {
         "apt_combat": "combat prowess",
         "apt_tactical": "tactical genius",
@@ -85,25 +86,39 @@ def generate_hero_profile(birth_star: int, aptitudes: dict) -> HeroProfile:
     top_apt = max(aptitudes, key=aptitudes.get)
     top_apt_label = apt_names.get(top_apt, "unknown gift")
 
+    heterochromia_rule = "" if birth_star >= 5 else "CRITICAL RULE: Heterochromia (two-colored eyes) is explicitly FORBIDDEN. "
+
+    ego_instruction = "null unless birth_star >= 4 AND their personality warrants an ego. If so, pick ONE: 'Aggressive', 'Cautious', 'Tactical', 'Leader', 'Lone Wolf'" if birth_star >= 4 else "null"
+
     prompt = f"""You are generating a hero for a dark fantasy roguelike tower-climbing game.
 
 Hero rarity: {birth_star}★ — {RARITY_FLAVOR[birth_star]}
 This hero has a notable hidden gift in: {top_apt_label} (do NOT state this directly — hint at it through personality and backstory)
+{extra_prompt}
 
 Generate a hero profile. Be creative, grounded, and avoid clichés.
 The world is dark, morally complex, and dangerous. Heroes are people, not archetypes.
+IMPORTANT for portrait_prompt: {heterochromia_rule}Describe a SPECIFIC, UNIQUE appearance. Vary ethnicities, skin tones, hair types, facial features, body types, and ages. Avoid defaulting to pale/white-haired/young characters. Include: specific hair color AND style, skin tone, a distinguishing facial feature, one unique detail (scar, tattoo, accessory, expression). Each hero should look completely different from the last.
 
 Respond ONLY with valid JSON and nothing else — no markdown, no backticks, no preamble:
 {{
-  "name": "Full name (culturally varied, not generic fantasy)",
+  "name": "First and Last name (MUST have a surname to ensure absolute uniqueness. culturally varied — pull from diverse real-world naming traditions)",
   "title": "Short epithet or nickname (e.g. 'The Twice-Burned', 'Ash of the North')",
   "backstory": "2-3 sentences. Specific, evocative, no tropes.",
   "personality": "1-2 sentences. How they act under pressure.",
-  "portrait_prompt": "detailed anime portrait prompt, dark fantasy, specific appearance details, mood, lighting"
+  "gender": "male, female, or other",
+  "portrait_prompt": "anime portrait tags: specific hair color, hair style, skin tone, facial feature, clothing detail, expression, mood lighting. Must be visually distinct.",
+  "ego_type": "{ego_instruction}"
 }}"""
 
     raw = _generate_with_fallback(prompt, max_tokens=600, temperature=0.9)
-    data = json.loads(_clean_json(raw))
+    try:
+        data = json.loads(_clean_json(raw))
+    except json.JSONDecodeError:
+        print(f"[LLM] JSON parse failed, raw response was:\n{raw}\nRetrying with strict JSON prompt...")
+        retry_prompt = prompt + "\n\nIMPORTANT: Your previous response was not valid JSON. Respond with ONLY the raw JSON object. No markdown, no backticks, no explanation."
+        raw = _generate_with_fallback(retry_prompt, max_tokens=600, temperature=0.7)
+        data = json.loads(_clean_json(raw))
     return HeroProfile(**data)
 
 
@@ -115,9 +130,11 @@ Heroes involved: {', '.join(hero_names)}
 Combat events:
 {log_text}
 
-Write 2-4 sentences of vivid, grim narration. Focus on emotional weight, not just actions.
-Be specific about names. Do not sugarcoat deaths or losses.
-Respond with only the narration text, no preamble."""
+Write 3-5 sentences of vivid, highly descriptive, and grim narration.
+Focus on the visceral sensory details of the battle — the sound of steel, the horrific nature of the enemies, the environment, and the emotional toll on the heroes.
+Make the battle sound desperate, brutal, and cinematic. Be specific about the heroes' names and the actions in the log.
+Describe it as if observing a tense turn-based battle unfold before your eyes, emphasizing the decisive blows, the weight of every strike, and near-misses.
+Do not sugarcoat injuries or deaths. Respond with only the narration text, no preamble."""
 
     return _generate_with_fallback(prompt, max_tokens=200, temperature=0.8)
 
@@ -139,3 +156,127 @@ Respond ONLY with valid JSON and nothing else — no markdown, no backticks:
 
     raw = _generate_with_fallback(prompt, max_tokens=400, temperature=0.85)
     return json.loads(_clean_json(raw))
+
+
+def generate_event_narrative(theme: str, floor_number: int, hero_names: list[str]) -> str:
+    prompt = f"""You are narrating a floor event in a dark fantasy roguelike tower.
+Floor: {floor_number}
+Heroes present: {', '.join(hero_names)}
+Event scenario: {theme}
+
+Write 4-5 sentences of highly atmospheric, grim narration setting the scene.
+Describe the environment in vivid detail (smells, sounds, lighting).
+Make the situation feel tense, dangerous, and morally ambiguous.
+The player will have to make a difficult, agonizing decision immediately after this. Make the consequences of their impending decision feel incredibly heavy, as if the heroes' lives depend on what you choose.
+Be specific with hero names and their reactions to the eerie scene.
+Respond with only the narration text."""
+    return _generate_with_fallback(prompt, max_tokens=200, temperature=0.85)
+
+
+def generate_event_resolution_narrative(theme: str, choice_label: str, effects: dict, hero_names: list[str]) -> str:
+    effects_text = ", ".join([f"{k}: {v}" for k, v in effects.items()])
+    prompt = f"""You are narrating the outcome of a choice in a dark fantasy roguelike tower.
+Event: {theme}
+Choice made: {choice_label}
+Mechanical effects: {effects_text}
+Heroes: {', '.join(hero_names)}
+
+Write 3-4 sentences narrating the visceral outcome of the choice.
+If the effects are negative (loss of hp, stress gained, trauma), describe the pain, horror, or regret vividly.
+If the effects are positive, describe the fleeting relief or the grim satisfaction.
+Be specific with hero names.
+Grim, atmospheric, and highly descriptive. Respond with only the narration text."""
+    return _generate_with_fallback(prompt, max_tokens=200, temperature=0.8)
+
+
+def generate_zone_theme(start_floor: int) -> str:
+    prompt = f"""You are generating a dark fantasy zone theme for a roguelike tower.
+This zone covers floors {start_floor} to {start_floor+9}.
+
+Provide a single, short, highly evocative name for this zone, and 1 sentence describing its grim, terrifying atmosphere.
+Format: "Name: Description"
+Example: "The Bleeding Archives: Shelves of flesh-bound tomes whisper madness to those who walk the aisles."
+
+Respond with only the zone name and description."""
+    try:
+        return _generate_with_fallback(prompt, max_tokens=100, temperature=0.9).strip()
+    except Exception:
+        return "The Dark Unknown: Shadows obscure the path ahead."
+
+def generate_hero_reaction(hero_name: str, hero_personality: str, event_type: str) -> str:
+    """Generate a 1-sentence hero reaction to a game event."""
+    event_prompts = {
+        "team_added": "being assigned to a new team for the tower",
+        "teammate_death": "watching a teammate die in front of them",
+        "synthesis_witness": "watching the Master sacrifice another hero through synthesis",
+        "rest": "finally getting a moment of rest after a brutal fight",
+        "fear_stun": "being paralyzed by fear in the middle of combat",
+        "promotion": "being promoted to a higher star rank",
+        "boss_victory": "defeating a floor boss",
+        "low_morale": "feeling broken and hopeless after too many losses",
+        "high_trauma": "carrying unbearable trauma from everything they've witnessed",
+    }
+    context = event_prompts.get(event_type, event_type)
+    prompt = f"""You are voicing a character in a dark fantasy roguelike tower.
+Character: {hero_name}
+Personality: {hero_personality}
+Situation: {context}
+
+Write ONE short sentence as the character's spoken reaction. In-character, emotional, dark tone.
+Use first person. No quotes. No action tags. Just the dialogue line."""
+    return _generate_with_fallback(prompt, max_tokens=60, temperature=0.9)
+
+
+def generate_legacy_text(hero_name: str, birth_star: int, floors: int, kills: int, backstory: str) -> tuple[str, str]:
+    """Generate a legacy title and flavor text for a fallen hero."""
+    prompt = f"""A hero has fallen permanently in a dark fantasy roguelike tower.
+
+Name: {hero_name}
+Star Rank: {birth_star}★
+Floors Survived: {floors}
+Enemies Slain: {kills}
+Backstory: {backstory or 'Unknown origins.'}
+
+Generate:
+1. A short, evocative TITLE for their legacy (3-6 words, like "The Unbroken Shield" or "Echo of the Last Stand")
+2. A brief FLAVOR TEXT (1-2 sentences) about what they meant and how they fell.
+
+Format your response EXACTLY as:
+TITLE: [title here]
+FLAVOR: [flavor text here]"""
+    try:
+        text = _generate_with_fallback(prompt, max_tokens=120, temperature=0.85)
+        title_match = re.search(r"TITLE:\s*(.+)", text)
+        flavor_match = re.search(r"FLAVOR:\s*(.+)", text)
+        title = title_match.group(1).strip() if title_match else f"The Memory of {hero_name}"
+        flavor = flavor_match.group(1).strip() if flavor_match else f"They fell in the tower, but their echo remains."
+        return title, flavor
+    except Exception:
+        return f"The Memory of {hero_name}", f"They survived {floors} floors and slew {kills} foes."
+
+def generate_boss_enemy(zone_theme: str, floor_number: int, is_miniboss: bool) -> dict:
+    prompt = f"""
+Generate a boss enemy for floor {floor_number} of a dark fantasy tower.
+The current biome/zone theme is: "{zone_theme}".
+This is a {"MINIBOSS" if is_miniboss else "MAJOR BOSS"}.
+Return ONLY valid JSON in this format:
+{{
+  "name": "Boss Name",
+  "modifier": "Adjective (e.g., Enraged, Vampiric, Armored, Cursed)",
+  "hp_multiplier": 1.2,
+  "atk_multiplier": 1.1,
+  "def_multiplier": 0.9,
+  "spd_multiplier": 1.0
+}}
+Keep multipliers between 0.7 and 2.0. The modifier should reflect the theme.
+"""
+    try:
+        raw = _generate_with_fallback(prompt, max_tokens=150, temperature=0.7)
+        return json.loads(_clean_json(raw))
+    except Exception as e:
+        print(f"Failed to generate boss: {e}")
+        return {
+            "name": f"{zone_theme.split(',')[0]} Guardian" if zone_theme else "Guardian",
+            "modifier": "Enraged",
+            "hp_multiplier": 1.2, "atk_multiplier": 1.2, "def_multiplier": 1.0, "spd_multiplier": 1.0
+        }

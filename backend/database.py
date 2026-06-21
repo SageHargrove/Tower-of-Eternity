@@ -1,11 +1,37 @@
 import sqlite3
 import json
+import os
 from contextlib import contextmanager
 
-DB_PATH = "game.db"
+SAVES_DIR = "saves"
+os.makedirs(SAVES_DIR, exist_ok=True)
+
+ACTIVE_PROFILE = "main"
+
+if os.path.exists("game.db") and not os.path.exists(os.path.join(SAVES_DIR, "main.db")):
+    os.rename("game.db", os.path.join(SAVES_DIR, "main.db"))
+
+def get_db_path():
+    return os.path.join(SAVES_DIR, f"{ACTIVE_PROFILE}.db")
+
+def set_profile(profile_name):
+    global ACTIVE_PROFILE
+    ACTIVE_PROFILE = profile_name
+    init_db()
+
+def get_profiles():
+    if not os.path.exists(SAVES_DIR):
+        return ["main"]
+    profiles = []
+    for f in os.listdir(SAVES_DIR):
+        if f.endswith(".db"):
+            profiles.append(f.replace(".db", ""))
+    if not profiles:
+        return ["main"]
+    return profiles
 
 def get_conn():
-    conn = sqlite3.connect(DB_PATH)
+    conn = sqlite3.connect(get_db_path())
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
     return conn
@@ -25,7 +51,7 @@ def db():
 def init_db():
     with db() as conn:
         conn.executescript("""
-        CREATE TABLE IF NOT EXISTS heroes (
+CREATE TABLE IF NOT EXISTS heroes (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             name TEXT NOT NULL,
             title TEXT,
@@ -39,6 +65,7 @@ def init_db():
 
             -- Class
             hero_class TEXT DEFAULT 'Classless',
+            hidden_class TEXT,
             can_pilot INTEGER DEFAULT 0,
 
             -- Level
@@ -69,16 +96,27 @@ def init_db():
             is_alive INTEGER DEFAULT 1,
             is_on_team INTEGER DEFAULT 0,
             floor_joined INTEGER DEFAULT 0,
+            team_position INTEGER DEFAULT 0,
+            ego_type TEXT,
 
             -- Progression
             kills INTEGER DEFAULT 0,
             floors_survived INTEGER DEFAULT 0,
             missions_completed INTEGER DEFAULT 0,
 
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            current_star INTEGER,
+            synthesized INTEGER DEFAULT 0,
+            skills TEXT DEFAULT '[]',
+            synergy_group TEXT,
+            gender TEXT,
+            fatigue INTEGER DEFAULT 0,
+            base_floor INTEGER DEFAULT 0,
+            traits TEXT DEFAULT '[]',
+            xp INTEGER DEFAULT 0
         );
 
-        CREATE TABLE IF NOT EXISTS runs (
+CREATE TABLE IF NOT EXISTS runs (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             status TEXT DEFAULT 'active',
             current_floor INTEGER DEFAULT 0,
@@ -87,13 +125,13 @@ def init_db():
             ended_at TIMESTAMP
         );
 
-        CREATE TABLE IF NOT EXISTS run_heroes (
+CREATE TABLE IF NOT EXISTS run_heroes (
             run_id INTEGER REFERENCES runs(id),
             hero_id INTEGER REFERENCES heroes(id),
             PRIMARY KEY (run_id, hero_id)
         );
 
-        CREATE TABLE IF NOT EXISTS floors (
+CREATE TABLE IF NOT EXISTS floors (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             run_id INTEGER REFERENCES runs(id),
             floor_number INTEGER NOT NULL,
@@ -104,16 +142,26 @@ def init_db():
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         );
 
-        CREATE TABLE IF NOT EXISTS base (
+CREATE TABLE IF NOT EXISTS base (
             id INTEGER PRIMARY KEY DEFAULT 1,
             name TEXT DEFAULT 'The Hollow Spire',
             level INTEGER DEFAULT 1,
-            gold INTEGER DEFAULT 10000,
+            gold INTEGER DEFAULT 1000,
+            gems INTEGER DEFAULT 500,
+            supplies INTEGER DEFAULT 50,
             materials TEXT DEFAULT '{}',
-            unlocked_features TEXT DEFAULT '[]'
-        );
+            highest_floor INTEGER DEFAULT 0,
+            max_roster_size INTEGER DEFAULT 10,
+            unlocked_features TEXT DEFAULT '[]',
+            research_points INTEGER DEFAULT 0,
+            global_buffs TEXT DEFAULT '{}',
+            pity_counter INTEGER DEFAULT 0,
+            spark_points INTEGER DEFAULT 0,
+            last_training_tick TIMESTAMP,
+            last_fatigue_tick TIMESTAMP
+        , last_research_tick TIMESTAMP);
 
-        CREATE TABLE IF NOT EXISTS event_log (
+CREATE TABLE IF NOT EXISTS event_log (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             run_id INTEGER,
             floor_number INTEGER,
@@ -122,16 +170,140 @@ def init_db():
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         );
 
-        CREATE TABLE IF NOT EXISTS portrait_cache (
+CREATE TABLE IF NOT EXISTS portrait_cache (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             birth_star INTEGER NOT NULL,
             path TEXT NOT NULL,
             used INTEGER DEFAULT 0,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        , gender TEXT, class_name TEXT);
+
+CREATE TABLE IF NOT EXISTS facilities (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            base_id INTEGER DEFAULT 1,
+            type TEXT NOT NULL,
+            level INTEGER DEFAULT 1,
+            slots_unlocked INTEGER DEFAULT 1
         );
 
-        INSERT OR IGNORE INTO base (id) VALUES (1);
+CREATE TABLE IF NOT EXISTS facility_assignments (
+            facility_id INTEGER REFERENCES facilities(id),
+            hero_id INTEGER REFERENCES heroes(id),
+            role TEXT,
+            target_hero_id INTEGER,
+            target_skill_id TEXT,
+            UNIQUE(hero_id)
+        );
+
+CREATE TABLE IF NOT EXISTS hero_chat_logs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            location TEXT DEFAULT 'The Square',
+            message TEXT NOT NULL,
+            participants TEXT NOT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+
+CREATE TABLE IF NOT EXISTS equipment (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL,
+            type TEXT NOT NULL,
+            rarity TEXT NOT NULL,
+            level INTEGER DEFAULT 1,
+            base_atk INTEGER DEFAULT 0,
+            base_def INTEGER DEFAULT 0,
+            base_hp INTEGER DEFAULT 0,
+            base_spd INTEGER DEFAULT 0,
+            crit_chance REAL DEFAULT 0.0,
+            dodge_chance REAL DEFAULT 0.0,
+            armor_pen REAL DEFAULT 0.0,
+            is_equipped_to INTEGER REFERENCES heroes(id),
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+
+CREATE TABLE IF NOT EXISTS legacies (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            hero_id INTEGER,
+            hero_name TEXT,
+            hero_star INTEGER,
+            title TEXT,
+            flavor_text TEXT,
+            bonus_json TEXT,
+            score INTEGER,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+
+CREATE TABLE IF NOT EXISTS inventory (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            item_name TEXT NOT NULL,
+            item_type TEXT NOT NULL,
+            quantity INTEGER DEFAULT 0,
+            description TEXT
+        );
+
+CREATE TABLE IF NOT EXISTS hero_bonds (
+    hero_a_id INTEGER,
+    hero_b_id INTEGER,
+    bond_level REAL DEFAULT 0,
+    floors_together INTEGER DEFAULT 0,
+    PRIMARY KEY (hero_a_id, hero_b_id)
+);
+
+INSERT OR IGNORE INTO base (id) VALUES (1);
+
+
+
+
+
+
         """)
+
+        try:
+            conn.execute("ALTER TABLE base ADD COLUMN supplies INTEGER DEFAULT 500")
+            print("[DB] Migrated: added column 'supplies' to base")
+        except sqlite3.OperationalError:
+            pass
+
+        try:
+            conn.execute("ALTER TABLE base ADD COLUMN gems INTEGER DEFAULT 500")
+            print("[DB] Migrated: added column 'gems' to base")
+        except sqlite3.OperationalError:
+            pass
+
+        try:
+            conn.execute("ALTER TABLE portrait_cache ADD COLUMN gender TEXT")
+            print("[DB] Migrated: added column 'gender' to portrait_cache")
+        except sqlite3.OperationalError:
+            pass
+            
+        try:
+            conn.execute("ALTER TABLE portrait_cache ADD COLUMN class_name TEXT")
+            print("[DB] Migrated: added column 'class_name' to portrait_cache")
+        except sqlite3.OperationalError:
+            pass
+            
+        try:
+            conn.execute("ALTER TABLE heroes ADD COLUMN xp INTEGER DEFAULT 0")
+            print("[DB] Migrated: added column 'xp' to heroes")
+        except sqlite3.OperationalError:
+            pass
+
+        try:
+            conn.execute("ALTER TABLE base ADD COLUMN max_roster_size INTEGER DEFAULT 10")
+            print("[DB] Migrated: added column 'max_roster_size' to base")
+        except sqlite3.OperationalError:
+            pass
+
+        try:
+            conn.execute("ALTER TABLE base ADD COLUMN materials TEXT DEFAULT '{}'")
+            print("[DB] Migrated: added column 'materials' to base")
+        except sqlite3.OperationalError:
+            pass
+
+        try:
+            conn.execute("UPDATE facilities SET type = 'The Lobby' WHERE type = 'The Square'")
+            conn.commit()
+        except Exception as e:
+            print(f"[DB] Migration error for The Lobby: {e}")
 
         # Migrate existing DB — add columns if they don't exist
         existing = [r[1] for r in conn.execute("PRAGMA table_info(heroes)").fetchall()]

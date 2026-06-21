@@ -16,7 +16,7 @@ localhost:8188
 # Terminal 2 — Backend
 cd "C:\infinite gacha\tower-gacha\backend" 
 venv\Scripts\activate 
-uvicorn main:app --reload
+python -m uvicorn main:app --reload
 
 backend
 
@@ -24,7 +24,7 @@ backend
 cd "C:\infinite gacha\tower-gacha\frontend" 
 npm run dev
 
-localhost:5173
+localhost:5174
 
 ---
 

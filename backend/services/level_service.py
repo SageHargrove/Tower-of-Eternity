@@ -6,17 +6,18 @@ It is NOT a separate grind resource, it emerges from play.
 
 Formula:
   level = 1 + (floors_survived // 3) + (kills // 5)
-  capped by ascension_star
+  capped by STAR level cap (birth_star or current_star)
 
-Level caps by ascension:
-  0★ asc → max level 10
-  1★ asc → max level 20
-  2★ asc → max level 30
-  3★ asc → max level 40
-  4★ asc → max level 50
-  5★ asc → max level 60
-  6★ asc → max level 75
-  7★ asc → max level 100
+Star-gated level caps (from Pick Me Up):
+  1★ → max level 10
+  2★ → max level 20
+  3★ → max level 40
+  4★ → max level 60
+  5★ → max level 80
+  6★ → max level 99
+  7★ → max level 100+ (transcendent)
+
+Ascension stars add +5 levels per ascension within the star cap.
 
 Stat scaling per level:
   +2% to ATK, DEF, SPD per level above 1
@@ -25,13 +26,36 @@ Stat scaling per level:
 Every 5 levels: one hidden aptitude is revealed
 """
 
-def level_cap(ascension_star: int) -> int:
-    caps = {0: 10, 1: 20, 2: 30, 3: 40, 4: 50, 5: 60, 6: 75, 7: 100}
-    return caps.get(ascension_star, 10)
+# Star rank determines primary level cap
+STAR_LEVEL_CAPS = {
+    1: 10,
+    2: 20,
+    3: 40,
+    4: 60,
+    5: 80,
+    6: 99,
+    7: 120,  # Transcendent
+}
 
-def calculate_level(floors_survived: int, kills: int, ascension_star: int) -> int:
-    raw = 1 + (floors_survived // 3) + (kills // 5)
-    cap = level_cap(ascension_star)
+
+def level_cap(hero_star: int, ascension_star: int = 0) -> int:
+    """
+    Get the level cap for a hero based on their star rank and ascension.
+    hero_star = current_star if promoted, else birth_star.
+    """
+    base_cap = STAR_LEVEL_CAPS.get(hero_star, 10)
+    ascension_bonus = ascension_star * 5
+    return base_cap + ascension_bonus
+
+
+def get_hero_star(hero: dict) -> int:
+    """Get the effective star rank (current_star if promoted, else birth_star)."""
+    return hero.get("current_star") or hero.get("birth_star", 1)
+
+
+def calculate_level(floors_survived: int, kills: int, hero_star: int, ascension_star: int = 0, xp: int = 0) -> int:
+    raw = 1 + (floors_survived // 3) + (kills // 5) + (xp // 100)
+    cap = level_cap(hero_star, ascension_star)
     return min(raw, cap)
 
 def stat_multiplier(level: int) -> float:
@@ -66,10 +90,13 @@ def apply_level_to_stats(hero: dict) -> dict:
 
 def recalculate_hero_level(hero: dict) -> int:
     """Given a hero dict, return their current level."""
+    hero_star = get_hero_star(hero)
     return calculate_level(
         hero.get("floors_survived", 0),
         hero.get("kills", 0),
+        hero_star,
         hero.get("ascension_star", 0),
+        hero.get("xp", 0)
     )
 
 def get_aptitude_reveals(level: int) -> int:
@@ -84,3 +111,16 @@ def level_up_summary(old_level: int, new_level: int, hero_name: str) -> list[str
         if lvl % 5 == 0:
             messages.append(f"  → A hidden quality in {hero_name} becomes apparent.")
     return messages
+
+APTITUDE_REVEAL_ORDER = ["apt_combat", "apt_survival", "apt_tactical", "apt_mental", "apt_leadership"]
+
+def get_revealed_aptitudes(hero: dict) -> dict:
+    level = hero.get("level", 1)
+    reveals = get_aptitude_reveals(level)
+    result = {}
+    for i, apt_key in enumerate(APTITUDE_REVEAL_ORDER):
+        if i < reveals:
+            result[apt_key] = hero.get(apt_key, 50)
+        else:
+            result[apt_key] = None
+    return result

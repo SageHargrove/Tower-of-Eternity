@@ -1,15 +1,15 @@
 import random
 import math
 
-# Pull weights — extremely exponential, 7★ near-impossible
+# Pull weights — strict percentages (out of 10000 total)
 RARITY_WEIGHTS = {
-    1: 5000,
-    2: 2500,
-    3: 1000,
-    4: 350,
-    5: 100,
-    6: 15,
-    7: 1,
+    1: 6000, # 60.00%
+    2: 2000, # 20.00%
+    3: 1200, # 12.00%
+    4: 600,  # 6.00%
+    5: 175,  # 1.75%
+    6: 20,   # 0.20%
+    7: 5,    # 0.05%
 }
 
 TOTAL_WEIGHT = sum(RARITY_WEIGHTS.values())

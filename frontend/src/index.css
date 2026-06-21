@@ -13,13 +13,13 @@
   --red-dim:   #6a2020;
   --green:     #4a9a6a;
   --blue:      #4a7aaa;
-  --star1:     #888;
-  --star2:     #aaa;
-  --star3:     #88b8c8;
-  --star4:     #88c888;
-  --star5:     #c8a840;
-  --star6:     #c87840;
-  --star7:     #c840c8;
+  --star1:     #ffffff; /* White */
+  --star2:     #4dff4d; /* Bright Green */
+  --star3:     #1e90ff; /* Deep Blue / Dodger Blue */
+  --star4:     #b84dff; /* Neon Purple */
+  --star5:     #ffb300; /* Radiant Gold/Orange */
+  --star6:     #ff3333; /* Crimson Red */
+  --star7:     #00ffff; /* Cyan */
 }
 
 * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -28,7 +28,7 @@ body {
   background: var(--bg);
   color: var(--text);
   font-family: 'Crimson Pro', Georgia, serif;
-  font-size: 16px;
+  font-size: 18px;
   min-height: 100vh;
 }
 
@@ -42,12 +42,12 @@ h1, h2, h3, .title-font {
   display: flex;
   flex-direction: column;
   min-height: 100vh;
-  max-width: 1200px;
+  max-width: 1600px;
   margin: 0 auto;
 }
 
 .app-header {
-  padding: 1.2rem 2rem;
+  padding: 1.5rem 3rem;
   border-bottom: 1px solid var(--border);
   display: flex;
   align-items: center;
@@ -55,15 +55,21 @@ h1, h2, h3, .title-font {
 }
 
 .app-header h1 {
-  font-size: 1.4rem;
+  font-size: 1.8rem;
   color: var(--gold);
   text-shadow: 0 0 20px rgba(201, 168, 76, 0.3);
+}
+
+.app-info {
+  display: flex;
+  gap: 2rem;
+  font-size: 1.2rem;
 }
 
 .gold-display {
   font-family: 'Cinzel', serif;
   color: var(--gold);
-  font-size: 0.9rem;
+  font-size: 1.2rem;
 }
 
 /* Tabs */
@@ -74,14 +80,14 @@ h1, h2, h3, .title-font {
 }
 
 .tab-btn {
-  padding: 0.75rem 1.5rem;
+  padding: 1rem 2rem;
   background: none;
   border: none;
   border-bottom: 2px solid transparent;
   color: var(--text-dim);
   font-family: 'Cinzel', serif;
-  font-size: 0.8rem;
-  letter-spacing: 0.08em;
+  font-size: 1.2rem;
+  letter-spacing: 0.05em;
   cursor: pointer;
   transition: all 0.2s;
 }
@@ -100,7 +106,7 @@ h1, h2, h3, .title-font {
   background: var(--bg-card);
   border: 1px solid var(--border);
   border-radius: 4px;
-  padding: 1rem;
+  padding: 1.5rem;
 }
 
 .card:hover { border-color: var(--border-hi); }
@@ -110,7 +116,7 @@ h1, h2, h3, .title-font {
   background: var(--bg-card);
   border: 1px solid var(--border);
   border-radius: 4px;
-  padding: 1rem;
+  padding: 1.2em;
   cursor: pointer;
   transition: border-color 0.2s, transform 0.1s;
   position: relative;
@@ -118,32 +124,41 @@ h1, h2, h3, .title-font {
 
 .hero-card:hover { border-color: var(--border-hi); transform: translateY(-1px); }
 .hero-card.selected { border-color: var(--gold); }
-.hero-card.dead { opacity: 0.4; pointer-events: none; }
+.hero-card.dead { opacity: 0.4; cursor: default; }
 
 .hero-card .hero-name {
   font-family: 'Cinzel', serif;
-  font-size: 0.95rem;
+  font-size: 0.95em;
   color: var(--text-hi);
-  margin-bottom: 0.2rem;
+  margin-bottom: 0.2em;
 }
 
 .hero-card .hero-title {
-  font-size: 0.82rem;
+  font-size: 0.82em;
   color: var(--text-dim);
   font-style: italic;
-  margin-bottom: 0.5rem;
+  margin-bottom: 0.5em;
 }
 
 /* Stars */
 .stars { display: flex; gap: 2px; }
 .star { font-size: 0.75rem; }
-.birth-star-1 .star { color: var(--star1); }
-.birth-star-2 .star { color: var(--star2); }
-.birth-star-3 .star { color: var(--star3); }
-.birth-star-4 .star { color: var(--star4); }
-.birth-star-5 .star { color: var(--star5); }
-.birth-star-6 .star { color: var(--star6); }
-.birth-star-7 .star { color: var(--star7); }
+.birth-star-1 .star { color: var(--star1); text-shadow: 0 0 4px rgba(255,255,255,0.4); }
+.birth-star-2 .star { color: var(--star2); text-shadow: 0 0 5px rgba(77,255,77,0.5); }
+.birth-star-3 .star { color: var(--star3); text-shadow: 0 0 6px rgba(0,230,230,0.6); }
+.birth-star-4 .star { color: var(--star4); text-shadow: 0 0 7px rgba(184,77,255,0.7); }
+.birth-star-5 .star { color: var(--star5); text-shadow: 0 0 8px rgba(255,179,0,0.8); }
+.birth-star-6 .star { color: var(--star6); text-shadow: 0 0 9px rgba(255,51,51,0.9); }
+
+/* Animated glow for 7-star */
+.cyan-text {
+  color: #00ffff;
+  text-shadow: 0 0 10px #00ffff, 0 0 20px #00ffff;
+}
+
+.birth-star-7 .star { 
+  color: var(--star7);
+}
 
 /* Morale bar */
 .morale-bar-wrap { margin-top: 0.5rem; }
@@ -180,6 +195,44 @@ h1, h2, h3, .title-font {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
   gap: 1rem;
+  align-items: start;
+}
+
+.hero-grid > div {
+  position: relative;
+}
+
+/* Portrait image in hero cards — consistent height */
+.hero-card .hero-portrait {
+  width: 100%;
+  height: 200px;
+  object-fit: cover;
+  object-position: center 15%;
+  border-radius: 2px;
+  margin-bottom: 0.5em;
+  display: block;
+}
+
+/* Placeholder when no portrait exists */
+.hero-card .hero-portrait-placeholder {
+  width: 100%;
+  height: 200px;
+  background: linear-gradient(135deg, var(--bg) 0%, var(--bg-panel) 50%, var(--border) 100%);
+  border-radius: 2px;
+  margin-bottom: 0.5em;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--border-hi);
+  font-size: 2em;
+}
+
+/* Dismiss / action buttons on hero cards */
+.hero-card-action-btn {
+  position: absolute;
+  z-index: 10;
+  padding: 0.15em 0.5em;
+  font-size: 0.65em;
 }
 
 /* Buttons */
@@ -222,7 +275,7 @@ h1, h2, h3, .title-font {
   font-family: 'Crimson Pro', serif;
   line-height: 1.7;
   color: var(--text-dim);
-  max-height: 300px;
+  max-height: 500px;
   overflow-y: auto;
   padding: 1rem;
   background: var(--bg);
@@ -230,9 +283,17 @@ h1, h2, h3, .title-font {
   border-radius: 4px;
 }
 
-.combat-log .log-death { color: var(--red); }
-.combat-log .log-victory { color: var(--green); }
+.combat-log .log-death { color: var(--red); font-weight: bold; }
+.combat-log .log-victory { color: var(--green); font-weight: bold; }
 .combat-log .log-crit { color: var(--gold); }
+.combat-log .log-fear { color: #8a5aaa; font-style: italic; }
+.combat-log .log-boss { color: var(--star7); font-weight: bold; font-family: 'Cinzel', serif; letter-spacing: 0.08em; }
+.combat-log .log-loot { color: var(--star5); font-style: italic; }
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
 
 /* Narrative */
 .narrative {
@@ -268,3 +329,73 @@ h1, h2, h3, .title-font {
 .text-green { color: var(--green); }
 .text-dim { color: var(--text-dim); }
 .text-sm { font-size: 0.82rem; }
+
+/* Hero Chat Styles */
+.hero-chat-panel {
+  position: fixed;
+  right: 0;
+  top: 60px;
+  bottom: 0;
+  width: 300px;
+  background: var(--bg-dark);
+  border-left: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  z-index: 100;
+  box-shadow: -2px 0 10px rgba(0,0,0,0.5);
+  transition: transform 0.3s ease;
+}
+
+.hero-chat-collapsed {
+  position: fixed;
+  right: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  background: var(--bg-dark);
+  border: 1px solid var(--border);
+  border-right: none;
+  padding: 1rem 0.5rem;
+  border-radius: 8px 0 0 8px;
+  cursor: pointer;
+  z-index: 100;
+  transition: background 0.2s;
+}
+.hero-chat-collapsed:hover {
+  background: var(--bg-hover);
+}
+
+.chat-header {
+  padding: 1rem;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.chat-scroll {
+  flex: 1;
+  overflow-y: auto;
+  padding: 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.chat-block {
+  background: rgba(0,0,0,0.2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.8rem;
+}
+
+.chat-meta {
+  margin-bottom: 0.5rem;
+  border-bottom: 1px solid rgba(255,255,255,0.1);
+  padding-bottom: 0.3rem;
+}
+
+.chat-message {
+  margin-bottom: 0.4rem;
+  line-height: 1.4;
+  font-size: 0.9rem;
+}
