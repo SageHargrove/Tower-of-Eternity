@@ -2,10 +2,10 @@ import random
 
 TRAITS_POOL = {
     "positive": [
-        {"id": "bloodthirsty", "name": "Bloodthirsty", "desc": "Heals 5% HP on kill"},
+        {"id": "bloodthirsty", "name": "Bloodthirsty", "desc": "Heals 5% Health on kill"},
         {"id": "fast_learner", "name": "Fast Learner", "desc": "Gains 20% more Skill XP"},
         {"id": "prodigy", "name": "Prodigy", "desc": "Incredible talent capacity, rare"},
-        {"id": "iron_constitution", "name": "Iron Constitution", "desc": "+10% Max HP, slower fatigue"},
+        {"id": "iron_constitution", "name": "Iron Constitution", "desc": "+10% Max Health, slower fatigue"},
         {"id": "fearless", "name": "Fearless", "desc": "Immune to fear and morale drops"},
     ],
     "neutral": [
@@ -15,7 +15,7 @@ TRAITS_POOL = {
     ],
     "negative": [
         {"id": "coward", "name": "Cowardly", "desc": "-10% morale loss, flees easily"},
-        {"id": "frail", "name": "Frail", "desc": "-10% Max HP"},
+        {"id": "frail", "name": "Frail", "desc": "-10% Max Health"},
         {"id": "slow_learner", "name": "Slow Learner", "desc": "Gains 20% less Skill XP"},
     ]
 }

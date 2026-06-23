@@ -15,18 +15,18 @@ from database import db
 
 SEAL_CATALOG = [
     {"id": "seal_strength", "name": "Seal of Strength", "rarity": "epic", "type": "passive",
-     "desc": "+25% ATK, -5% SPD", "effect": {"atk_pct": 0.25, "spd_pct": -0.05}, "min_star": 4},
+     "desc": "+25% ATK, -5% SPD", "effect": {"str_pct": 0.25, "agi_pct": -0.05}, "min_star": 4},
     {"id": "seal_protection", "name": "Seal of Protection", "rarity": "epic", "type": "passive",
-     "desc": "+25% DEF, +10% max HP", "effect": {"def_pct": 0.25, "hp_pct": 0.10}, "min_star": 4},
+     "desc": "+25% DEF, +10% max Health", "effect": {"int_pct": 0.25, "hlt_pct": 0.10}, "min_star": 4},
     {"id": "seal_agility", "name": "Seal of Agility", "rarity": "epic", "type": "passive",
-     "desc": "+15% SPD, +15% dodge chance", "effect": {"spd_pct": 0.15, "dodge_pct": 0.15}, "min_star": 4},
+     "desc": "+15% SPD, +15% dodge chance", "effect": {"agi_pct": 0.15, "dodge_pct": 0.15}, "min_star": 4},
 ]
 
 RUNE_CATALOG = [
     {"id": "rune_destruction", "name": "Ancient Rune of Destruction", "rarity": "legendary", "type": "passive",
-     "desc": "+40% ATK, attacks ignore 20% DEF", "effect": {"atk_pct": 0.40, "armor_pen": 0.20}, "min_star": 5},
+     "desc": "+40% ATK, attacks ignore 20% DEF", "effect": {"str_pct": 0.40, "armor_pen": 0.20}, "min_star": 5},
     {"id": "rune_eternity", "name": "Ancient Rune of Eternity", "rarity": "legendary", "type": "passive",
-     "desc": "+50% max HP, regenerate 5% HP per round", "effect": {"hp_pct": 0.50, "regen_pct": 0.05}, "min_star": 5},
+     "desc": "+50% max Health, regenerate 5% Health per round", "effect": {"hlt_pct": 0.50, "regen_pct": 0.05}, "min_star": 5},
     {"id": "rune_void", "name": "Ancient Rune of the Void", "rarity": "legendary", "type": "passive",
      "desc": "+30% all stats, immune to fear", "effect": {"all_pct": 0.30, "fear_immune": True}, "min_star": 5},
 ]

@@ -12,9 +12,9 @@ EVENT_TEMPLATES = [
         "theme": "The team discovers an abandoned campsite. The fire is long cold, but deep claw marks scar the surrounding stone. A heavy iron lockbox sits half-buried in the ash, chained to the frozen corpse of a previous climber.",
         "choices": [
             {"id": "search", "label": "Break the chains and loot the box", "hint": "Risk awakening whatever killed them",
-             "outcomes": {"gold": (50, 150), "hp_pct": (-0.10, -0.05), "stress": (10, 25)}},
+             "outcomes": {"gold": (50, 150), "hlt_pct": (-0.10, -0.05), "stress": (10, 25)}},
             {"id": "ignore", "label": "Leave it and move silently", "hint": "Safe, but yields nothing",
-             "outcomes": {"gold": (0, 0), "hp_pct": (0, 0), "stress": (-5, 0)}},
+             "outcomes": {"gold": (0, 0), "hlt_pct": (0, 0), "stress": (-5, 0)}},
         ]
     },
     {
@@ -22,7 +22,7 @@ EVENT_TEMPLATES = [
         "theme": "A horrific coughing echoes from the shadows. A wounded climber is propped against the wall, his legs crushed beneath fallen rubble. His eyes are wild with fear, and he clutches a glowing bag of supplies.",
         "choices": [
             {"id": "help", "label": "Spend hours freeing him", "hint": "Morally right, but exhausting",
-             "outcomes": {"gold": (10, 30), "hp_pct": (-0.05, -0.05), "morale": (10, 20), "stress": (5, 10)}},
+             "outcomes": {"gold": (10, 30), "hlt_pct": (-0.05, -0.05), "morale": (10, 20), "stress": (5, 10)}},
             {"id": "ignore", "label": "Walk past his pleas", "hint": "Preserve your strength",
              "outcomes": {"gold": (0, 0), "morale": (-15, -10), "stress": (10, 15)}},
             {"id": "loot", "label": "Kill him and take the supplies", "hint": "Pragmatic cruelty",
@@ -34,7 +34,7 @@ EVENT_TEMPLATES = [
         "theme": "A grand, gothic fountain stands in the center of the hall, but it runs thick with fresh blood instead of water. Whispers echo from the red basin, promising vitality to those who drink.",
         "choices": [
             {"id": "drink", "label": "Drink from the bloody basin", "hint": "Gain strength, invite madness",
-             "outcomes": {"hp_pct": (0.15, 0.30), "stress": (15, 30), "trauma": (2, 5)}},
+             "outcomes": {"hlt_pct": (0.15, 0.30), "stress": (15, 30), "trauma": (2, 5)}},
             {"id": "leave", "label": "Refuse the unnatural gift", "hint": "Avert your eyes and pass",
              "outcomes": {"stress": (0, 5), "morale": (-5, 0)}},
         ]
@@ -46,7 +46,7 @@ EVENT_TEMPLATES = [
             {"id": "pray", "label": "Kneel and offer a prayer of submission", "hint": "The tower demands respect",
              "outcomes": {"morale": (15, 30), "trauma": (-8, -3), "stress": (-15, -5)}},
             {"id": "destroy", "label": "Defile the altar and smash the idols", "hint": "Defy what watches you",
-             "outcomes": {"gold": (100, 250), "morale": (-20, -10), "trauma": (5, 10), "hp_pct": (-0.15, -0.05)}},
+             "outcomes": {"gold": (100, 250), "morale": (-20, -10), "trauma": (5, 10), "hlt_pct": (-0.15, -0.05)}},
         ]
     },
     {
@@ -73,10 +73,10 @@ EVENT_TEMPLATES = [
         "id": "trapped_room",
         "theme": "The stone floor suddenly drops an inch with a sickening 'click'. Iron bars slam down over the doors, and the ceiling begins slowly lowering, covered in rusted spikes.",
         "choices": [
-            {"id": "rush", "label": "Dive desperately for the gap", "hint": "Speed over caution",
-             "outcomes": {"hp_pct": (-0.25, -0.10), "stress": (15, 25)}},
+            {"id": "rush", "label": "Dive desperately for the gap", "hint": "Agility over caution",
+             "outcomes": {"hlt_pct": (-0.25, -0.10), "stress": (15, 25)}},
             {"id": "careful", "label": "Jam the mechanism with weapons", "hint": "Sacrifice gear for safety",
-             "outcomes": {"hp_pct": (-0.05, 0), "gold": (-50, -20), "stress": (5, 15)}},
+             "outcomes": {"hlt_pct": (-0.05, 0), "gold": (-50, -20), "stress": (5, 15)}},
         ]
     },
     {
@@ -96,7 +96,7 @@ EVENT_TEMPLATES = [
             {"id": "sacrifice", "label": "Offer one of your own to the gate", "hint": "A random hero dies permanently, but the rest survive untouched.",
              "outcomes": {"sacrifice_hero": True, "morale": (-40, -30), "trauma": (20, 30), "stress": (20, 30)}},
             {"id": "resist", "label": "Refuse and force the gate open with sheer will", "hint": "Everyone suffers massive damage and trauma.",
-             "outcomes": {"hp_pct": (-0.80, -0.60), "stress": (40, 60), "trauma": (10, 20), "morale": (-20, -10)}},
+             "outcomes": {"hlt_pct": (-0.80, -0.60), "stress": (40, 60), "trauma": (10, 20), "morale": (-20, -10)}},
         ]
     },
 ]

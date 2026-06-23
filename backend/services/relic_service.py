@@ -4,10 +4,10 @@ from database import db
 def generate_relic_drop(floor_number: int) -> dict:
     """Generate a powerful relic from a boss kill."""
     relic_types = [
-        ("The Hollow Crown", "Increases Max HP by 5% for all heroes.", "stat_hp_pct", 0.05),
-        ("Blood-Soaked Banner", "Increases Attack by 5% for all heroes.", "stat_atk_pct", 0.05),
-        ("Aegis of the Fallen", "Increases Defense by 5% for all heroes.", "stat_def_pct", 0.05),
-        ("Winged Boots of the Abyss", "Increases Speed by 5% for all heroes.", "stat_spd_pct", 0.05),
+        ("The Hollow Crown", "Increases Max Health by 5% for all heroes.", "stat_hp_pct", 0.05),
+        ("Blood-Soaked Banner", "Increases Strength by 5% for all heroes.", "stat_atk_pct", 0.05),
+        ("Aegis of the Fallen", "Increases Intelligence by 5% for all heroes.", "stat_def_pct", 0.05),
+        ("Winged Boots of the Abyss", "Increases Agility by 5% for all heroes.", "stat_spd_pct", 0.05),
         ("Idol of the Forgotten", "Heroes gain 10% more XP.", "stat_xp_pct", 0.10),
     ]
     
@@ -43,12 +43,12 @@ def apply_relic_stats(hero_stats: dict, relics: list[dict]) -> dict:
         eff = r["effect_type"]
         val = r["effect_value"]
         if eff == "stat_hp_pct":
-            hero_stats["max_hp"] = int(hero_stats["max_hp"] * (1 + val))
-            hero_stats["hp"] = min(hero_stats["max_hp"], hero_stats["hp"])
+            hero_stats["max_health"] = int(hero_stats["max_health"] * (1 + val))
+            hero_stats["health"] = min(hero_stats["max_health"], hero_stats["health"])
         elif eff == "stat_atk_pct":
-            hero_stats["attack"] = int(hero_stats["attack"] * (1 + val))
+            hero_stats["strength"] = int(hero_stats["strength"] * (1 + val))
         elif eff == "stat_def_pct":
-            hero_stats["defense"] = int(hero_stats["defense"] * (1 + val))
+            hero_stats["intelligence"] = int(hero_stats["intelligence"] * (1 + val))
         elif eff == "stat_spd_pct":
-            hero_stats["speed"] = int(hero_stats["speed"] * (1 + val))
+            hero_stats["agility"] = int(hero_stats["agility"] * (1 + val))
     return hero_stats

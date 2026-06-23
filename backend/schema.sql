@@ -19,11 +19,11 @@ CREATE TABLE heroes (
             level INTEGER DEFAULT 1,
 
             -- Base stats
-            hp INTEGER DEFAULT 100,
-            max_hp INTEGER DEFAULT 100,
-            attack INTEGER DEFAULT 10,
-            defense INTEGER DEFAULT 5,
-            speed INTEGER DEFAULT 10,
+            health INTEGER DEFAULT 100,
+            max_health INTEGER DEFAULT 100,
+            strength INTEGER DEFAULT 10,
+            intelligence INTEGER DEFAULT 5,
+            agility INTEGER DEFAULT 10,
 
             -- Hidden aptitudes (0-100 each)
             apt_combat INTEGER DEFAULT 50,
@@ -31,7 +31,14 @@ CREATE TABLE heroes (
             apt_survival INTEGER DEFAULT 50,
             apt_mental INTEGER DEFAULT 50,
             apt_leadership INTEGER DEFAULT 50,
+            apt_diligence INTEGER DEFAULT 50,
             aptitudes_revealed INTEGER DEFAULT 0,
+
+            -- Mental State & Achievements
+            condition TEXT DEFAULT 'Normal',
+            condition_until TEXT,
+            near_wipes_survived INTEGER DEFAULT 0,
+            unique_floors_cleared INTEGER DEFAULT 0,
 
             -- Morale
             morale INTEGER DEFAULT 100,
@@ -153,10 +160,14 @@ CREATE TABLE equipment (
             type TEXT NOT NULL,
             rarity TEXT NOT NULL,
             level INTEGER DEFAULT 1,
-            base_atk INTEGER DEFAULT 0,
-            base_def INTEGER DEFAULT 0,
-            base_hp INTEGER DEFAULT 0,
-            base_spd INTEGER DEFAULT 0,
+            base_str INTEGER DEFAULT 0,
+            base_int INTEGER DEFAULT 0,
+            base_hlt INTEGER DEFAULT 0,
+            base_agi INTEGER DEFAULT 0,
+            str_pct REAL DEFAULT 0.0,
+            int_pct REAL DEFAULT 0.0,
+            hlt_pct REAL DEFAULT 0.0,
+            agi_pct REAL DEFAULT 0.0,
             crit_chance REAL DEFAULT 0.0,
             dodge_chance REAL DEFAULT 0.0,
             armor_pen REAL DEFAULT 0.0,

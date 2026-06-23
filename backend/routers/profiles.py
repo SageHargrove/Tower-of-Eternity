@@ -21,6 +21,16 @@ def switch_profile(req: ProfileSwitchReq):
         raise HTTPException(status_code=400, detail="Invalid profile name")
     
     set_profile(name)
+    
+    # After switching DBs, we must heal the portrait cache so the new profile 
+    # claims the shared pool of pre-generated portraits, and queue up any 
+    # pending LLM/generation jobs that belong to this profile.
+    from services.portrait_cache import cleanup_portraits, reconcile_pending_portraits
+    from routers.gacha import reconcile_pending_profiles
+    cleanup_portraits()
+    reconcile_pending_portraits()
+    reconcile_pending_profiles()
+    
     return {"ok": True, "active": name}
 
 class ProfileRenameReq(BaseModel):

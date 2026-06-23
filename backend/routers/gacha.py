@@ -1,6 +1,6 @@
 from fastapi import APIRouter, HTTPException
 from database import db
-from services.gacha_service import pull_rarity, generate_base_stats, generate_aptitudes, get_pull_cost
+from services.gacha_service import pull_rarity, generate_base_stats, generate_aptitudes, get_pull_cost, apply_class_stat_bias
 from services.llm_service import generate_hero_profile
 from services.portrait_cache import pop_cached_portrait, rename_portrait_for_hero, queue_custom_portrait
 from services.class_service import assign_class, can_pilot
@@ -74,6 +74,8 @@ def build_instant_profile(birth_star: int, gender_hint: str = None, synergy_them
     profile.gender = gender
     profile.portrait_prompt = portrait_prompt
     profile.ego_type = None
+    from services.ego_service import BATTLE_TENDENCIES
+    profile.battle_tendency = random.choice(BATTLE_TENDENCIES)
     return profile
 
 
@@ -96,9 +98,10 @@ def finalize_hero_async(hero_id: int, birth_star: int, aptitudes: dict, extra_pr
     """
     def _run():
         claimed_name = None
+        prompt_addendum = extra_prompt or ""
         try:
             for attempt in range(2):
-                extra = extra_prompt
+                extra = prompt_addendum
                 with _names_in_flight_lock:
                     in_flight = [n for n in _names_in_flight]
                 if in_flight:
@@ -110,7 +113,7 @@ def finalize_hero_async(hero_id: int, birth_star: int, aptitudes: dict, extra_pr
 
                 with db() as conn:
                     exists = conn.execute("SELECT 1 FROM heroes WHERE name = ? AND id != ?", (profile.name, hero_id)).fetchone()
-                
+
                 with _names_in_flight_lock:
                     collides_in_flight = profile.name in _names_in_flight
                     if not exists and not collides_in_flight:
@@ -120,7 +123,7 @@ def finalize_hero_async(hero_id: int, birth_star: int, aptitudes: dict, extra_pr
                 if claimed_name:
                     break
                 # Collision — try once more with the offending name explicitly banned.
-                extra_prompt = (extra_prompt or "") + f"\nThe name \"{profile.name}\" is already taken — pick something else entirely."
+                prompt_addendum = prompt_addendum + f"\nThe name \"{profile.name}\" is already taken — pick something else entirely."
 
             if claimed_name is None:
                 # Both attempts collided — guarantee uniqueness with a suffix
@@ -135,11 +138,12 @@ def finalize_hero_async(hero_id: int, birth_star: int, aptitudes: dict, extra_pr
 
             with db() as conn:
                 conn.execute("""
-                    UPDATE heroes SET name=?, title=?, backstory=?, personality=?, gender=?, ego_type=?
+                    UPDATE heroes SET name=?, title=?, backstory=?, personality=?, gender=?, ego_type=?, battle_tendency=?
                     WHERE id=?
                 """, (
                     profile.name, profile.title, profile.backstory, profile.personality,
-                    getattr(profile, "gender", "unknown"), getattr(profile, "ego_type", None), hero_id
+                    getattr(profile, "gender", "unknown"), getattr(profile, "ego_type", None),
+                    getattr(profile, "battle_tendency", None), hero_id
                 ))
             if needs_custom_portrait:
                 queue_custom_portrait(hero_id, profile.portrait_prompt, profile.name, getattr(profile, "gender", "unknown"))
@@ -154,26 +158,86 @@ def finalize_hero_async(hero_id: int, birth_star: int, aptitudes: dict, extra_pr
 
     threading.Thread(target=_run, daemon=True).start()
 
+# "Watchful and silent." is build_instant_profile()'s hardcoded placeholder
+# personality — never something the LLM would coincidentally generate
+# verbatim, so it's a reliable marker for "enrichment never completed."
+_PLACEHOLDER_PERSONALITY = "Watchful and silent."
+
+def reconcile_pending_profiles():
+    """Retry LLM enrichment for any hero still stuck on their instant
+    placeholder identity. The enrichment runs in a background thread per
+    pull (see finalize_hero_async) — if the backend restarts or that thread
+    dies mid-flight, the hero is left on the fallback name/backstory
+    forever with nothing to retry it. Call this on startup so it self-heals
+    instead of requiring the player to notice and manually fix it."""
+    with db() as conn:
+        rows = conn.execute(
+            "SELECT * FROM heroes WHERE personality = ?", (_PLACEHOLDER_PERSONALITY,)
+        ).fetchall()
+    for r in rows:
+        hero = dict(r)
+        aptitudes = {
+            "apt_combat": hero.get("apt_combat", 50),
+            "apt_tactical": hero.get("apt_tactical", 50),
+            "apt_survival": hero.get("apt_survival", 50),
+            "apt_mental": hero.get("apt_mental", 50),
+            "apt_leadership": hero.get("apt_leadership", 50),
+            "apt_diligence": hero.get("apt_diligence", 50),
+        }
+        finalize_hero_async(
+            hero["id"], hero["birth_star"], aptitudes, "",
+            needs_custom_portrait=False, fallback_gender="unknown", fallback_portrait_prompt="",
+        )
+    if rows:
+        print(f"[Gacha] Re-queued {len(rows)} hero profile(s) left on placeholder identity from a previous session.")
+
+
+_last_reconcile_check = 0.0
+
+def maybe_reconcile_pending_profiles():
+    """Periodic version of reconcile_pending_profiles for use from a
+    frequently-polled endpoint (GET /base/) — startup/profile-switch alone
+    only catches a stranded placeholder if the player happens to restart or
+    switch profiles; a transient LLM outage with neither of those events
+    would otherwise strand it forever. Gated by both a time interval and a
+    cheap existence check so it doesn't re-query/re-dispatch on every call."""
+    import time
+    global _last_reconcile_check
+    now = time.time()
+    if now - _last_reconcile_check < 120:  # at most once every 2 minutes
+        return
+    _last_reconcile_check = now
+    with db() as conn:
+        pending = conn.execute(
+            "SELECT COUNT(*) AS c FROM heroes WHERE personality = ?", (_PLACEHOLDER_PERSONALITY,)
+        ).fetchone()["c"]
+    if pending:
+        reconcile_pending_profiles()
+
 class PullRequest(BaseModel):
     count: int = 1
+    currency: str = "gem"  # "gem" (2-7★, premium) or "gold" (1-4★, cheap/common)
 
 @router.post("/pull")
 def pull_heroes(req: PullRequest):
     if req.count < 1 or req.count > 10:
         raise HTTPException(status_code=400, detail="Pull 1-10 heroes at a time")
 
-    cost = 900 if req.count == 10 else 100 * req.count
+    use_gold = req.currency == "gold"
+    min_star, max_star = (1, 4) if use_gold else (2, 7)
+    cost = 250 * req.count if use_gold else 100 * req.count
+    currency_col = "gold" if use_gold else "gems"
 
     with db() as conn:
-        base_row = conn.execute("SELECT gems, max_roster_size FROM base WHERE id = 1").fetchone()
-        if not base_row or base_row["gems"] < cost:
-            raise HTTPException(status_code=400, detail=f"Not enough gems. Need {cost} Gems.")
+        base_row = conn.execute("SELECT gold, gems, max_roster_size FROM base WHERE id = 1").fetchone()
+        if not base_row or base_row[currency_col] < cost:
+            raise HTTPException(status_code=400, detail=f"Not enough {currency_col}. Need {cost} {currency_col.capitalize()}.")
         roster_count = conn.execute("SELECT COUNT(*) AS c FROM heroes WHERE is_alive = 1").fetchone()["c"]
         max_roster = base_row["max_roster_size"] or 10
         if roster_count + req.count > max_roster:
             room_left = max(0, max_roster - roster_count)
             raise HTTPException(status_code=400, detail=f"Roster is full ({roster_count}/{max_roster}). Only room for {room_left} more — upgrade your base or release/lose heroes first.")
-        conn.execute("UPDATE base SET gems = gems - ? WHERE id = 1", (cost,))
+        conn.execute(f"UPDATE base SET {currency_col} = {currency_col} - ? WHERE id = 1", (cost,))
 
     import random
     synergy_group_name = None
@@ -202,13 +266,13 @@ def pull_heroes(req: PullRequest):
             synergy_leader_idx = random.choice(list(synergy_indices))
 
     results = []
-    rolled_rarities = [pull_rarity() for _ in range(req.count)]
-    
+    rolled_rarities = [pull_rarity(min_star, max_star) for _ in range(req.count)]
+
     if synergy_group_name:
         follower_rarities = [rolled_rarities[i] for i in synergy_indices if i != synergy_leader_idx]
         max_follower_rarity = max(follower_rarities) if follower_rarities else 1
         rolled_rarities[synergy_leader_idx] = max(rolled_rarities[synergy_leader_idx], max_follower_rarity + 1)
-        rolled_rarities[synergy_leader_idx] = min(7, rolled_rarities[synergy_leader_idx])
+        rolled_rarities[synergy_leader_idx] = min(max_star, rolled_rarities[synergy_leader_idx])
 
     for idx in range(req.count):
         birth_star = rolled_rarities[idx]
@@ -225,13 +289,13 @@ def pull_heroes(req: PullRequest):
             pity += 1
             sparks += 1
 
-            # Pity: guaranteed 4★+ after 50 pulls
-            if pity >= 50 and birth_star < 4:
-                birth_star = 4
+            # Pity: guaranteed 3★+ after 10 pulls
+            if pity >= 10 and birth_star < 3:
+                birth_star = 3
                 pity = 0  # Reset pity
 
-            # Reset pity on natural 4★+
-            if birth_star >= 4:
+            # Reset pity on natural 3★+
+            if birth_star >= 3:
                 pity = 0
 
             conn.execute("UPDATE base SET pity_counter = ?, spark_points = ? WHERE id = 1",
@@ -246,7 +310,8 @@ def pull_heroes(req: PullRequest):
         hero_class, hidden_class = assign_class(birth_star)
         if p_class:
             hero_class = p_class
-            
+        stats = apply_class_stat_bias(stats, hero_class)
+
         # Assign starting skills and traits
         from services.skills_service import assign_initial_skills
         from services.traits_service import generate_traits
@@ -265,10 +330,10 @@ def pull_heroes(req: PullRequest):
         if is_leader:
             for k in aptitudes:
                 aptitudes[k] = min(100, aptitudes[k] + random.randint(10, 20))
-            stats["max_hp"] += 25
-            stats["hp"] = stats["max_hp"]
-            stats["attack"] += 5
-            stats["defense"] += 3
+            stats["max_health"] += 25
+            stats["health"] = stats["max_health"]
+            stats["strength"] += 5
+            stats["intelligence"] += 3
 
         # Build extra LLM prompt context, but don't call the LLM yet — the
         # pull must return instantly, so text generation happens in the
@@ -297,26 +362,31 @@ def pull_heroes(req: PullRequest):
                 INSERT INTO heroes (
                     name, title, backstory, personality, portrait_path, gender,
                     birth_star, hero_class, hidden_class, can_pilot, level, skills, traits,
-                    hp, max_hp, attack, defense, speed,
-                    apt_combat, apt_tactical, apt_survival, apt_mental, apt_leadership,
+                    health, max_health, strength, intelligence, defense, agility,
+                    apt_combat, apt_tactical, apt_survival, apt_mental, apt_leadership, apt_diligence,
                     synergy_group, ego_type
-                ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
             """, (
                 profile.name, profile.title, profile.backstory,
                 profile.personality, portrait_path, getattr(profile, "gender", "unknown"),
                 birth_star, hero_class, hidden_class, pilot, 1, skills_json, traits_json,
-                stats["hp"], stats["max_hp"], stats["attack"], stats["defense"], stats["speed"],
+                stats["health"], stats["max_health"], stats["strength"], stats["intelligence"], stats["defense"], stats["agility"],
                 aptitudes["apt_combat"], aptitudes["apt_tactical"], aptitudes["apt_survival"],
-                aptitudes["apt_mental"], aptitudes["apt_leadership"],
+                aptitudes["apt_mental"], aptitudes["apt_leadership"], aptitudes["apt_diligence"],
                 current_synergy, getattr(profile, "ego_type", None)
             ))
             hero_id = cursor.lastrowid
-            
+
+            from services.equipment_service import generate_starting_weapon, save_equipment
+            starting_weapon = generate_starting_weapon()
+            weapon_id = save_equipment(starting_weapon, conn=conn)
+            conn.execute("UPDATE equipment SET is_equipped_to = ? WHERE id = ?", (hero_id, weapon_id))
+
             # Convert cached image to a permanent custom image instantly
             if portrait_path and "cached_" in portrait_path:
                 import os, time
                 import database
-                custom_dir = f"static/portraits/{database.ACTIVE_PROFILE}"
+                custom_dir = f"static/portraits/{database.ACTIVE_PROFILE}/alive"
                 os.makedirs(custom_dir, exist_ok=True)
                 safe_name = profile.name.replace(" ", "_").lower()
                 new_path = f"{custom_dir}/custom_hero_{hero_id}_{safe_name}_{int(time.time())}.png"
@@ -346,16 +416,53 @@ def pull_heroes(req: PullRequest):
 
     return {"pulled": results, "cost": cost, "gems": new_gems}
 
+@router.post("/equipment-pull")
+def pull_equipment(req: PullRequest):
+    if req.count < 1 or req.count > 10:
+        raise HTTPException(status_code=400, detail="Pull 1-10 equipment at a time")
+
+    from services.gacha_service import pull_equipment_gacha
+    from services.equipment_service import save_equipment
+
+    currency = req.currency if req.currency in ("gold", "gem") else "gold"
+    with db() as conn:
+        results = []
+        for _ in range(req.count):
+            try:
+                equip_dict = pull_equipment_gacha(conn, currency)
+                equip_id = save_equipment(equip_dict, conn=conn)
+                equip_dict["id"] = equip_id
+                results.append(equip_dict)
+            except ValueError as e:
+                if str(e).startswith("Not enough"):
+                    if not results:
+                        raise HTTPException(status_code=400, detail=str(e))
+                    break
+                raise
+        return {"results": results}
+
 @router.get("/odds")
-def get_odds():
-    from services.gacha_service import RARITY_WEIGHTS, TOTAL_WEIGHT
+def get_odds(currency: str = "gem"):
+    from services.gacha_service import RARITY_WEIGHTS
+    min_star, max_star = (1, 4) if currency == "gold" else (2, 7)
+    allowed = {s: w for s, w in RARITY_WEIGHTS.items() if min_star <= s <= max_star}
+    total = sum(allowed.values())
     return {
         str(star): {
             "weight": w,
-            "percent": round(w / TOTAL_WEIGHT * 100, 4)
+            "percent": round(w / total * 100, 4)
         }
-        for star, w in RARITY_WEIGHTS.items()
+        for star, w in allowed.items()
     }
+
+@router.get("/equipment-odds")
+def get_equipment_odds(currency: str = "gold"):
+    from services.gacha_service import EQUIPMENT_PULL_ODDS
+    tiers = EQUIPMENT_PULL_ODDS.get(currency, EQUIPMENT_PULL_ODDS["gold"])
+    return [
+        {"grades": list(t[:-1]), "percent": round(t[-1] * 100, 2)}
+        for t in tiers
+    ]
 
 @router.get("/cache-status")
 def cache_status():
@@ -404,21 +511,22 @@ def spark_redeem():
         conn.execute("UPDATE base SET spark_points = spark_points - 100 WHERE id = 1")
 
     # Pull a guaranteed 5★ using the normal pull mechanism but overriding rarity
-    from services.gacha_service import generate_base_stats, generate_aptitudes
+    from services.gacha_service import generate_base_stats, generate_aptitudes, apply_class_stat_bias
     from services.portrait_cache import pop_cached_portrait, rename_portrait_for_hero, queue_custom_portrait
     from services.class_service import assign_class, can_pilot
 
     birth_star = 5  # guaranteed 5★
     stats = generate_base_stats(birth_star)
     aptitudes = generate_aptitudes(birth_star)
-    
+
     cached_data = pop_cached_portrait(birth_star)
     old_path, p_gender, p_class = cached_data if cached_data else (None, None, None)
-    
+
     hero_class, hidden_class = assign_class(birth_star)
     if p_class:
         hero_class = p_class
-        
+    stats = apply_class_stat_bias(stats, hero_class)
+
     pilot = 1 if can_pilot(hero_class) else 0
     skills = assign_initial_skills(hero_class, birth_star)
     skills_json = json.dumps(skills)
@@ -444,26 +552,30 @@ def spark_redeem():
             INSERT INTO heroes (
                 name, title, backstory, personality, portrait_path, gender,
                 birth_star, hero_class, hidden_class, can_pilot, level, skills, traits,
-                hp, max_hp, attack, defense, speed,
-                apt_combat, apt_tactical, apt_survival, apt_mental, apt_leadership
-            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                health, max_health, strength, intelligence, defense, agility,
+                apt_combat, apt_tactical, apt_survival, apt_mental, apt_leadership, apt_diligence
+            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
         """, (
             profile.name, profile.title, profile.backstory,
             profile.personality, portrait_path, getattr(profile, "gender", "unknown"),
             birth_star, hero_class, hidden_class, pilot, 1, skills_json, traits_json,
-            stats["hp"], stats["max_hp"], stats["attack"],
-            stats["defense"], stats["speed"],
+            stats["health"], stats["max_health"], stats["strength"], stats["intelligence"], stats["defense"], stats["agility"],
             aptitudes["apt_combat"], aptitudes["apt_tactical"],
             aptitudes["apt_survival"], aptitudes["apt_mental"],
-            aptitudes["apt_leadership"],
+            aptitudes["apt_leadership"], aptitudes["apt_diligence"]
         ))
         hero_id = cursor.lastrowid
-        
+
+        from services.equipment_service import generate_starting_weapon, save_equipment
+        starting_weapon = generate_starting_weapon()
+        weapon_id = save_equipment(starting_weapon, conn=conn)
+        conn.execute("UPDATE equipment SET is_equipped_to = ? WHERE id = ?", (hero_id, weapon_id))
+
         # Convert cached image to a permanent custom image instantly
         if portrait_path and "cached_" in portrait_path:
             import os, time
             import database
-            custom_dir = f"static/portraits/{database.ACTIVE_PROFILE}"
+            custom_dir = f"static/portraits/{database.ACTIVE_PROFILE}/alive"
             os.makedirs(custom_dir, exist_ok=True)
             safe_name = profile.name.replace(" ", "_").lower()
             new_path = f"{custom_dir}/custom_spark_{hero_id}_{safe_name}_{int(time.time())}.png"

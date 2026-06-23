@@ -79,13 +79,18 @@ def witness_death_trauma(is_close_ally: bool = False) -> dict:
     return {"trauma_delta": trauma_gain, "stress_delta": stress_gain}
 
 def rest_at_base_recovery(hero: dict, rest_quality: str = "normal") -> dict:
-    """Returning to base gives more significant recovery."""
+    """Returning to base gives more significant recovery.
+
+    Psych-only — Rest no longer touches HP (lobby return already fully
+    heals HP after every floor, see tower.py). Magnitude is intentionally
+    modest: this represents just resting, not therapy, and the action is
+    spammable on a short cooldown."""
     quality_map = {"poor": 0.5, "normal": 1.0, "good": 1.5}
     factor = quality_map.get(rest_quality, 1.0)
 
-    morale_gain = int(25 * factor)
-    stress_loss = int(20 * factor)
-    trauma_loss = int(5 * factor)  # trauma heals very slowly
+    morale_gain = int(12 * factor)
+    stress_loss = int(10 * factor)
+    trauma_loss = int(2 * factor)  # trauma heals very slowly
 
     morale = min(100 - int(hero["trauma"] * 0.4), hero["morale"] + morale_gain)
     stress = max(0, hero["stress"] - stress_loss)

@@ -14,15 +14,22 @@ RARITY_WEIGHTS = {
 
 TOTAL_WEIGHT = sum(RARITY_WEIGHTS.values())
 
-def pull_rarity() -> int:
-    """Roll a birth star rarity using weighted RNG."""
-    roll = random.uniform(0, TOTAL_WEIGHT)
+def pull_rarity(min_star: int = 1, max_star: int = 7) -> int:
+    """Roll a birth star rarity using weighted RNG, optionally restricted to
+    a [min_star, max_star] window (gold pulls are capped at 1-4★, gem pulls
+    at 2-7★ — see /gacha/pull). Re-normalizes against just that subset of
+    RARITY_WEIGHTS rather than clamping the unrestricted roll, so the
+    relative odds between the allowed stars stay proportional to their
+    original weights instead of getting distorted by clamping."""
+    allowed = {s: w for s, w in RARITY_WEIGHTS.items() if min_star <= s <= max_star}
+    total = sum(allowed.values())
+    roll = random.uniform(0, total)
     cumulative = 0
-    for star, weight in RARITY_WEIGHTS.items():
+    for star, weight in allowed.items():
         cumulative += weight
         if roll <= cumulative:
             return star
-    return 1
+    return min_star
 
 def generate_base_stats(birth_star: int) -> dict:
     """
@@ -30,20 +37,48 @@ def generate_base_stats(birth_star: int) -> dict:
     High birth star = strong start, less room for surprise growth.
     """
     base = {
-        1: {"hp": 80,  "attack": 8,  "defense": 4,  "speed": 9},
-        2: {"hp": 95,  "attack": 10, "defense": 5,  "speed": 10},
-        3: {"hp": 115, "attack": 13, "defense": 7,  "speed": 11},
-        4: {"hp": 140, "attack": 17, "defense": 9,  "speed": 12},
-        5: {"hp": 175, "attack": 22, "defense": 12, "speed": 14},
-        6: {"hp": 220, "attack": 30, "defense": 16, "speed": 16},
-        7: {"hp": 300, "attack": 42, "defense": 22, "speed": 20},
+        1: {"health": 80,  "strength": 8,  "intelligence": 4,  "defense": 5, "agility": 9},
+        2: {"health": 95,  "strength": 10, "intelligence": 5,  "defense": 6, "agility": 10},
+        3: {"health": 115, "strength": 13, "intelligence": 7,  "defense": 8, "agility": 11},
+        4: {"health": 140, "strength": 17, "intelligence": 9,  "defense": 10, "agility": 12},
+        5: {"health": 175, "strength": 22, "intelligence": 12, "defense": 14, "agility": 14},
+        6: {"health": 220, "strength": 30, "intelligence": 16, "defense": 18, "agility": 16},
+        7: {"health": 300, "strength": 42, "intelligence": 22, "defense": 26, "agility": 20},
     }
     stats = base[birth_star].copy()
     # Add some variance per hero (+/- 10%)
     for key in stats:
         variance = random.uniform(0.9, 1.1)
         stats[key] = max(1, int(stats[key] * variance))
-    stats["max_hp"] = stats["hp"]
+    stats["max_health"] = stats["health"]
+    return stats
+
+# Generation gives every hero a class-neutral STR/INT split — a Mage would
+# otherwise roll with more raw muscle than magic, which makes no sense once
+# class is known. Lean shifts points between STR and INT (positive = more
+# physical, negative = more magical) without changing their combined total,
+# so a class's overall power budget at a given star stays the same — it's
+# reshuffled, not boosted.
+CLASS_STAT_LEAN = {
+    "Warrior": 0.40, "Spearman": 0.35, "Thief": 0.30, "Archer": 0.30,
+    "Mage": -0.45, "Spellsword": -0.05, "Acolyte": -0.35, "Priest": -0.40,
+    "Tactician": -0.20, "Scout": 0.15, "Blacksmith": 0.20, "Medic": -0.25,
+    "Quartermaster": -0.10, "Farmer": 0.10, "Merchant": -0.10,
+    "Alchemist": -0.30, "Magic Engineer": -0.30,
+}
+
+def apply_class_stat_bias(stats: dict, hero_class: str) -> dict:
+    lean = CLASS_STAT_LEAN.get(hero_class, 0.0)
+    if lean == 0.0:
+        return stats
+    total = stats["strength"] + stats["intelligence"]
+    shift = int(total * abs(lean) * 0.5)
+    if lean > 0:
+        stats["strength"] += shift
+        stats["intelligence"] = max(1, stats["intelligence"] - shift)
+    else:
+        stats["intelligence"] += shift
+        stats["strength"] = max(1, stats["strength"] - shift)
     return stats
 
 APTITUDE_RANGES = {
@@ -67,10 +102,51 @@ def generate_aptitudes(birth_star: int) -> dict:
     jackpot chance at true prodigy-tier talent.
     """
     if random.random() < APTITUDE_JACKPOT_CHANCE.get(birth_star, 0):
-        return {f"apt_{apt}": random.randint(90, 100) for apt in ["combat", "tactical", "survival", "mental", "leadership"]}
+        return {f"apt_{apt}": random.randint(90, 100) for apt in ["combat", "tactical", "survival", "mental", "leadership", "diligence"]}
 
     lo, hi = APTITUDE_RANGES.get(birth_star, (10, 55))
-    return {f"apt_{apt}": random.randint(lo, hi) for apt in ["combat", "tactical", "survival", "mental", "leadership"]}
+    return {f"apt_{apt}": random.randint(lo, hi) for apt in ["combat", "tactical", "survival", "mental", "leadership", "diligence"]}
 
 def get_pull_cost() -> int:
     return 100  # gold per pull, can expand to pity system later
+
+EQUIPMENT_PULL_COST = {"gold": 500, "gem": 150}
+# Gold pulls: D-B tier (cheap, common gear). Gem pulls: C-S tier (pricier,
+# meaningfully better floor). SS/SSS/Z are never available from any gacha
+# pull either way — crafting and rare boss/high-floor drops only.
+EQUIPMENT_PULL_ODDS = {
+    "gold": [("D-", "D", "D+", 0.55), ("C-", "C", "C+", 0.35), ("B-", "B", "B+", 0.10)],
+    "gem":  [("C-", "C", "C+", 0.45), ("B-", "B", "B+", 0.40), ("A-", "A", "A+", 0.12), ("S-", "S", "S+", 0.03)],
+}
+
+def pull_equipment_gacha(conn, currency: str = "gold") -> dict:
+    from services.equipment_service import _roll_equipment_stats, RARITY_MULTS, EQUIPMENT_ADJECTIVES
+    import random
+
+    currency = currency if currency in EQUIPMENT_PULL_COST else "gold"
+    cost = EQUIPMENT_PULL_COST[currency]
+    col = "gems" if currency == "gem" else "gold"
+    base = conn.execute(f"SELECT {col} FROM base WHERE id = 1").fetchone()
+    if base[col] < cost:
+        raise ValueError(f"Not enough {col}.")
+    conn.execute(f"UPDATE base SET {col} = {col} - ? WHERE id = 1", (cost,))
+
+    roll = random.random()
+    cumulative = 0.0
+    tiers = EQUIPMENT_PULL_ODDS[currency]
+    rarity = tiers[-1][1]  # fallback to the top tier's middle sub-grade
+    for *grades, weight in tiers:
+        cumulative += weight
+        if roll <= cumulative:
+            rarity = random.choice(grades)
+            break
+
+    eq_type = random.choice(["Weapon", "Armor", "Accessory"])
+    mult = RARITY_MULTS[rarity]
+    stats = _roll_equipment_stats(eq_type, mult)
+    name = f"{EQUIPMENT_ADJECTIVES.get(rarity, rarity)} {eq_type}"
+
+    return {
+        "name": name, "type": eq_type, "rarity": rarity, "level": 1,
+        **stats,
+    }

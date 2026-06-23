@@ -300,12 +300,12 @@ CLASS_MODIFIERS = {
     "Spearman": {"atk_mult": 1.15, "spd_mult": 1.10},
     "Thief": {"spd_mult": 1.30, "crit_add": 0.15, "dodge_add": 0.10},
     "Archer": {"atk_mult": 1.10, "is_ranged": True},
-    "Spellsword": {"atk_mult": 1.10, "def_mult": 0.90, "is_aoe": True},
-    "Mage": {"atk_mult": 0.85, "is_aoe": True},
-    "Acolyte": {"hp_mult": 1.10, "is_healer": True},
-    "Magic Engineer": {"atk_mult": 0.90, "has_construct": True},
+    "Spellsword": {"atk_mult": 1.10, "def_mult": 0.90, "is_aoe": True, "power_stat": "intelligence"},
+    "Mage": {"atk_mult": 0.85, "is_aoe": True, "power_stat": "intelligence"},
+    "Acolyte": {"hp_mult": 1.10, "is_healer": True, "power_stat": "intelligence"},
+    "Magic Engineer": {"atk_mult": 0.90, "has_construct": True, "power_stat": "intelligence"},
     "Classless": {"atk_mult": 0.75, "def_mult": 0.75, "spd_mult": 0.90},
-    
+
     # Tier 2 Combat (Lv 30) - Massive Boosts
     "Knight": {"def_mult": 1.60, "hp_mult": 1.40, "has_taunt": True},
     "Berserker": {"atk_mult": 1.50, "def_mult": 0.70, "hp_mult": 1.20, "lifesteal": 0.1},
@@ -319,13 +319,13 @@ CLASS_MODIFIERS = {
     "Sniper": {"atk_mult": 1.40, "is_ranged": True, "crit_add": 0.25},
     "Ranger": {"atk_mult": 1.20, "is_ranged": True, "has_pet": True},
     "Crossbowman": {"atk_mult": 1.50, "spd_mult": 0.90, "is_ranged": True},
-    "Sorcerer": {"atk_mult": 1.20, "is_aoe": True},
-    "Warlock": {"atk_mult": 1.10, "is_aoe": True, "lifesteal": 0.3},
-    "Necromancer": {"atk_mult": 1.0, "is_aoe": True, "summons_undead": True},
-    "Summoner": {"atk_mult": 0.9, "summons_beast": True, "has_construct": True, "hp_mult": 1.5},
-    "Cleric": {"def_mult": 1.20, "is_healer": True, "strong_heal": True},
+    "Sorcerer": {"atk_mult": 1.20, "is_aoe": True, "power_stat": "intelligence"},
+    "Warlock": {"atk_mult": 1.10, "is_aoe": True, "lifesteal": 0.3, "power_stat": "intelligence"},
+    "Necromancer": {"atk_mult": 1.0, "is_aoe": True, "summons_undead": True, "power_stat": "intelligence"},
+    "Summoner": {"atk_mult": 0.9, "summons_beast": True, "has_construct": True, "hp_mult": 1.5, "power_stat": "intelligence"},
+    "Cleric": {"def_mult": 1.20, "is_healer": True, "strong_heal": True, "power_stat": "intelligence"},
     "Bard": {"spd_mult": 1.30, "team_buff": True},
-    "Druid": {"hp_mult": 1.40, "is_healer": True},
+    "Druid": {"hp_mult": 1.40, "is_healer": True, "power_stat": "intelligence"},
     "Monk": {"atk_mult": 1.30, "spd_mult": 1.30, "dodge_add": 0.15},
     
     # Support Deployed (Lv 1)
@@ -347,15 +347,17 @@ def apply_class_combat_modifiers(hero: dict) -> dict:
     
     mods = CLASS_MODIFIERS.get(cls, {})
     
-    h["attack"] = int(h["attack"] * mods.get("atk_mult", 1.0))
-    h["defense"] = int(h["defense"] * mods.get("def_mult", 1.0))
-    h["speed"] = int(h["speed"] * mods.get("spd_mult", 1.0))
-    h["max_hp"] = int(h["max_hp"] * mods.get("hp_mult", 1.0))
-    h["hp"] = int(h["hp"] * mods.get("hp_mult", 1.0))
-    
+    h["strength"] = int(h["strength"] * mods.get("atk_mult", 1.0))
+    h["intelligence"] = int(h["intelligence"] * mods.get("atk_mult", 1.0) if mods.get("power_stat") == "intelligence" else h["intelligence"])
+    h["defense"] = int(h.get("defense", 5) * mods.get("def_mult", 1.0))
+    h["agility"] = int(h["agility"] * mods.get("spd_mult", 1.0))
+    h["max_health"] = int(h["max_health"] * mods.get("hp_mult", 1.0))
+    h["health"] = int(h["health"] * mods.get("hp_mult", 1.0))
+    h["power_stat"] = mods.get("power_stat", "strength")
+
     h["crit_chance"] = h.get("crit_chance", 0.05) + mods.get("crit_add", 0.0)
     h["dodge_chance"] = h.get("dodge_chance", 0.0) + mods.get("dodge_add", 0.0)
-    
+
     for flag in ["is_ranged", "is_aoe", "has_construct", "has_taunt", "is_healer", "strong_heal", "is_cleave", "summons_undead", "summons_beast", "team_buff"]:
         if mods.get(flag):
             h[flag] = True

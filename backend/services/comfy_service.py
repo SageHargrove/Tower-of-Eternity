@@ -38,7 +38,7 @@ def _build_workflow(prompt: str, negative: str = "", seed: int = None, init_imag
             "class_type": "VAEDecode"
         },
         "9": {
-            "inputs": {"filename_prefix": "tower_gacha", "images": ["8", 0]},
+            "inputs": {"filename_prefix": "infinite_gacha", "images": ["8", 0]},
             "class_type": "SaveImage"
         }
     }

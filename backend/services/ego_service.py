@@ -4,6 +4,10 @@ import random
 EGO_PATIENCE_DECAY = 15
 EGO_PATIENCE_REGEN = 10
 EGO_SATISFACTION_OVERLAP = 0.6  # fraction of the ideal picks that must be present
+EGO_CONFLICT_DECAY_MULT = 1.5  # extra patience-decay multiplier for ego heroes who clash with the team Leader
+EGO_CONFLICT_OVERLAP_THRESHOLD = 0.5
+
+BATTLE_TENDENCIES = ["Reckless", "Calculating", "Protective", "Glory-Seeking", "Stoic", "Vengeful"]
 
 
 FRONTLINE_CLASSES = {'Warrior', 'Spearman', 'Thief', 'Spellsword', 'Scout', 'Blacksmith', 'Farmer', 'Rogue', 'Paladin'}
@@ -21,11 +25,11 @@ def _ideal_team(ego_hero_id: int, ego_type: str, alive_heroes: list[dict]) -> li
     ego_hero = next((h for h in alive_heroes if h["id"] == ego_hero_id), {})
 
     if ego_type == "Aggressive":
-        candidates.sort(key=lambda h: (h["attack"] + h["speed"]), reverse=True)
+        candidates.sort(key=lambda h: (h["strength"] + h["agility"]), reverse=True)
     elif ego_type == "Cautious":
-        candidates.sort(key=lambda h: (h["defense"] + h["max_hp"] + (100 if h["hero_class"] in ["Cleric", "Paladin"] else 0)), reverse=True)
+        candidates.sort(key=lambda h: (h["intelligence"] + h["max_health"] + (100 if h["hero_class"] in ["Cleric", "Paladin"] else 0)), reverse=True)
     elif ego_type == "Tactical":
-        candidates.sort(key=lambda h: (h["level"], h["attack"] + h["defense"]), reverse=True)
+        candidates.sort(key=lambda h: (h["level"], h["strength"] + h["intelligence"]), reverse=True)
         ego_arch = get_archetype(ego_hero.get("hero_class", ""))
         front_needed = 2 - (1 if ego_arch in ('Frontline', 'Wildcard') else 0)
         back_needed = 3 - (1 if ego_arch == 'Backline' else 0)
@@ -55,11 +59,44 @@ def _ideal_team(ego_hero_id: int, ego_type: str, alive_heroes: list[dict]) -> li
     elif ego_type == "Leader":
         candidates.sort(key=lambda h: (h["level"], -h["apt_leadership"]))
     elif ego_type == "Lone Wolf":
-        candidates.sort(key=lambda h: (h["hp"] + h["attack"]))
+        candidates.sort(key=lambda h: (h["health"] + h["strength"]))
     else:
         candidates.sort(key=lambda h: h["level"], reverse=True)
 
     return [ego_hero_id] + [h["id"] for h in candidates[:4]]
+
+
+def get_team_leader(team_members: list[dict]) -> dict | None:
+    """Leader is a manual player assignment (heroes.is_team_leader), not computed.
+    Any hero can be Leader; mechanical effects elsewhere only apply if they also
+    have an ego_type — callers should check that explicitly."""
+    return next((h for h in team_members if h.get("is_team_leader")), None)
+
+
+def get_ego_conflicts(leader: dict | None, team_members: list[dict], alive_heroes: list[dict]) -> list[dict]:
+    """Non-Leader ego heroes whose ideal team barely overlaps with the Leader's
+    ideal team are 'in conflict' — they chafe under a vision that isn't theirs.
+    Returns [] if there's no Leader or the Leader has no ego_type (a flavor-only
+    Leader has no mechanical pull yet)."""
+    if not leader or not leader.get("ego_type"):
+        return []
+
+    leader_ideal = set(_ideal_team(leader["id"], leader["ego_type"], alive_heroes))
+    conflicts = []
+    for h in team_members:
+        if h["id"] == leader["id"] or not h.get("ego_type"):
+            continue
+        their_ideal = set(_ideal_team(h["id"], h["ego_type"], alive_heroes))
+        overlap = len(leader_ideal & their_ideal) / max(1, len(leader_ideal))
+        if overlap < EGO_CONFLICT_OVERLAP_THRESHOLD:
+            conflicts.append({
+                "hero_id": h["id"],
+                "hero_name": h["name"],
+                "leader_id": leader["id"],
+                "leader_name": leader["name"],
+                "overlap": round(overlap, 2),
+            })
+    return conflicts
 
 
 def auto_assign_ego_team(ego_hero_id: int, team_id: int) -> list[int]:
@@ -150,6 +187,10 @@ def process_ego_patience(conn, team_id: int) -> list[dict]:
 
     alive_heroes = [dict(r) for r in conn.execute("SELECT * FROM heroes WHERE is_alive = 1").fetchall()]
 
+    leader = get_team_leader(team_members)
+    conflicts = get_ego_conflicts(leader, team_members, alive_heroes)
+    conflicted_ids = {c["hero_id"] for c in conflicts}
+
     rebellions = []
     for ego_hero in ego_members:
         satisfied = check_ego_satisfaction(ego_hero, team_members, alive_heroes)
@@ -158,7 +199,10 @@ def process_ego_patience(conn, team_id: int) -> list[dict]:
             new_patience = min(100, ego_hero["ego_patience"] + EGO_PATIENCE_REGEN)
             conn.execute("UPDATE heroes SET ego_patience = ? WHERE id = ?", (new_patience, ego_hero["id"]))
         else:
-            new_patience = ego_hero["ego_patience"] - EGO_PATIENCE_DECAY
+            decay = EGO_PATIENCE_DECAY
+            if ego_hero["id"] in conflicted_ids:
+                decay = round(decay * EGO_CONFLICT_DECAY_MULT)
+            new_patience = ego_hero["ego_patience"] - decay
             if new_patience <= 0:
                 new_team = auto_assign_ego_team(ego_hero["id"], team_id)
                 names = {h["id"]: h["name"] for h in alive_heroes}

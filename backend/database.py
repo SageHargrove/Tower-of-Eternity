@@ -101,11 +101,12 @@ CREATE TABLE IF NOT EXISTS heroes (
             level INTEGER DEFAULT 1,
 
             -- Base stats
-            hp INTEGER DEFAULT 100,
-            max_hp INTEGER DEFAULT 100,
-            attack INTEGER DEFAULT 10,
+            health INTEGER DEFAULT 100,
+            max_health INTEGER DEFAULT 100,
+            strength INTEGER DEFAULT 10,
+            intelligence INTEGER DEFAULT 5,
             defense INTEGER DEFAULT 5,
-            speed INTEGER DEFAULT 10,
+            agility INTEGER DEFAULT 10,
 
             -- Hidden aptitudes (0-100 each)
             apt_combat INTEGER DEFAULT 50,
@@ -113,6 +114,7 @@ CREATE TABLE IF NOT EXISTS heroes (
             apt_survival INTEGER DEFAULT 50,
             apt_mental INTEGER DEFAULT 50,
             apt_leadership INTEGER DEFAULT 50,
+            apt_diligence INTEGER DEFAULT 50,
             aptitudes_revealed INTEGER DEFAULT 0,
 
             -- Morale
@@ -241,17 +243,19 @@ CREATE TABLE IF NOT EXISTS equipment (
             type TEXT NOT NULL,
             rarity TEXT NOT NULL,
             level INTEGER DEFAULT 1,
-            base_atk INTEGER DEFAULT 0,
+            base_str INTEGER DEFAULT 0,
+            base_int INTEGER DEFAULT 0,
+            base_hlt INTEGER DEFAULT 0,
+            base_agi INTEGER DEFAULT 0,
             base_def INTEGER DEFAULT 0,
-            base_hp INTEGER DEFAULT 0,
-            base_spd INTEGER DEFAULT 0,
-            atk_pct REAL DEFAULT 0.0,
-            def_pct REAL DEFAULT 0.0,
-            hp_pct REAL DEFAULT 0.0,
-            spd_pct REAL DEFAULT 0.0,
+            str_pct REAL DEFAULT 0.0,
+            int_pct REAL DEFAULT 0.0,
+            hlt_pct REAL DEFAULT 0.0,
+            agi_pct REAL DEFAULT 0.0,
             crit_chance REAL DEFAULT 0.0,
             dodge_chance REAL DEFAULT 0.0,
             armor_pen REAL DEFAULT 0.0,
+            dmg_reduction_pct REAL DEFAULT 0.0,
             is_equipped_to INTEGER REFERENCES heroes(id),
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         );
@@ -354,6 +358,12 @@ INSERT OR IGNORE INTO base (id) VALUES (1);
             pass
 
         try:
+            conn.execute("ALTER TABLE base ADD COLUMN fairy_gender TEXT")
+            print("[DB] Migrated: added column 'fairy_gender' to base")
+        except sqlite3.OperationalError:
+            pass
+
+        try:
             conn.execute("ALTER TABLE legacies ADD COLUMN is_sacrifice INTEGER DEFAULT 0")
             print("[DB] Migrated: added column 'is_sacrifice' to legacies")
         except sqlite3.OperationalError:
@@ -366,11 +376,18 @@ INSERT OR IGNORE INTO base (id) VALUES (1);
             pass
 
         try:
-            conn.execute("ALTER TABLE equipment ADD COLUMN atk_pct REAL DEFAULT 0.0")
-            conn.execute("ALTER TABLE equipment ADD COLUMN def_pct REAL DEFAULT 0.0")
-            conn.execute("ALTER TABLE equipment ADD COLUMN hp_pct REAL DEFAULT 0.0")
-            conn.execute("ALTER TABLE equipment ADD COLUMN spd_pct REAL DEFAULT 0.0")
+            conn.execute("ALTER TABLE equipment ADD COLUMN str_pct REAL DEFAULT 0.0")
+            conn.execute("ALTER TABLE equipment ADD COLUMN int_pct REAL DEFAULT 0.0")
+            conn.execute("ALTER TABLE equipment ADD COLUMN hlt_pct REAL DEFAULT 0.0")
+            conn.execute("ALTER TABLE equipment ADD COLUMN agi_pct REAL DEFAULT 0.0")
             print("[DB] Migrated: added pct columns to equipment")
+        except sqlite3.OperationalError:
+            pass
+
+        try:
+            conn.execute("ALTER TABLE equipment ADD COLUMN base_def INTEGER DEFAULT 0")
+            conn.execute("ALTER TABLE equipment ADD COLUMN dmg_reduction_pct REAL DEFAULT 0.0")
+            print("[DB] Migrated: added base_def/dmg_reduction_pct columns to equipment")
         except sqlite3.OperationalError:
             pass
 
@@ -396,6 +413,13 @@ INSERT OR IGNORE INTO base (id) VALUES (1);
             ("can_pilot",   "ALTER TABLE heroes ADD COLUMN can_pilot INTEGER DEFAULT 0"),
             ("level",       "ALTER TABLE heroes ADD COLUMN level INTEGER DEFAULT 1"),
             ("ego_patience", "ALTER TABLE heroes ADD COLUMN ego_patience INTEGER DEFAULT 100"),
+            ("is_team_leader", "ALTER TABLE heroes ADD COLUMN is_team_leader INTEGER DEFAULT 0"),
+            ("battle_tendency", "ALTER TABLE heroes ADD COLUMN battle_tendency TEXT"),
+            ("condition", "ALTER TABLE heroes ADD COLUMN condition TEXT DEFAULT 'Normal'"),
+            ("condition_until", "ALTER TABLE heroes ADD COLUMN condition_until TEXT"),
+            ("near_wipes_survived", "ALTER TABLE heroes ADD COLUMN near_wipes_survived INTEGER DEFAULT 0"),
+            ("unique_floors_cleared", "ALTER TABLE heroes ADD COLUMN unique_floors_cleared INTEGER DEFAULT 0"),
+            ("defense", "ALTER TABLE heroes ADD COLUMN defense INTEGER DEFAULT 5"),
         ]
         for col, sql in migrations:
             if col not in existing:

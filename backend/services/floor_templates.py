@@ -187,8 +187,8 @@ def resolve_escort_floor(template: dict, heroes: list[dict]) -> dict:
     npc_hp = template["npc_hp"]
     log = []
 
-    total_atk = sum(h.get("attack", 5) for h in heroes)
-    total_def = sum(h.get("defense", 5) for h in heroes)
+    total_atk = sum(h.get("strength", 5) for h in heroes)
+    total_def = sum(h.get("intelligence", 5) for h in heroes)
 
     for i in range(ambushes):
         # Heroes intercept damage based on their total ATK
@@ -199,7 +199,7 @@ def resolve_escort_floor(template: dict, heroes: list[dict]) -> dict:
         hero_damage_pct = random.uniform(0.03, 0.08)
 
         if npc_hp > 0:
-            log.append(f"  Ambush {i+1}: Intercepted! NPC takes {npc_damage} damage. NPC HP: {npc_hp}")
+            log.append(f"  Ambush {i+1}: Intercepted! NPC takes {npc_damage} damage. NPC Health: {npc_hp}")
         else:
             log.append(f"  Ambush {i+1}: The NPC fell. You failed to protect them.")
             break
@@ -207,10 +207,10 @@ def resolve_escort_floor(template: dict, heroes: list[dict]) -> dict:
     npc_survived = npc_hp > 0
     hero_results = []
     for hero in heroes:
-        dmg = int(hero["max_hp"] * random.uniform(0.03, 0.08) * ambushes)
+        dmg = int(hero["max_health"] * random.uniform(0.03, 0.08) * ambushes)
         hero_results.append({
             "id": hero["id"],
-            "hp": max(1, hero["hp"] - dmg),
+            "health": max(1, hero["health"] - dmg),
             "morale_delta": template["reward"]["morale"] if npc_survived else -10,
         })
 
@@ -232,7 +232,7 @@ def generate_rest_floor(floor_number: int) -> dict:
     return {
         "floor_type": "rest",
         "theme": "A safe chamber. Water flows from cracks in the stone. Your team can rest.",
-        "heal_pct": 0.50,  # 50% HP restored
+        "heal_pct": 0.50,  # 50% Health restored
         "stress_reduction": 20,
         "morale_boost": 15,
     }
@@ -242,11 +242,11 @@ def resolve_rest_floor(template: dict, heroes: list[dict]) -> dict:
     """Apply rest floor healing to all heroes."""
     hero_results = []
     for hero in heroes:
-        heal = int(hero["max_hp"] * template["heal_pct"])
-        new_hp = min(hero["max_hp"], hero["hp"] + heal)
+        heal = int(hero["max_health"] * template["heal_pct"])
+        new_hp = min(hero["max_health"], hero["health"] + heal)
         hero_results.append({
             "id": hero["id"],
-            "hp": new_hp,
+            "health": new_hp,
             "stress_gained": -template["stress_reduction"],
             "morale_delta": template["morale_boost"],
         })
@@ -258,7 +258,7 @@ def resolve_rest_floor(template: dict, heroes: list[dict]) -> dict:
         "log": [
             "Rest — the team finds a moment of peace.",
             "  Water is found. Wounds are tended. The silence is a gift.",
-            f"  All heroes recover {int(template['heal_pct']*100)}% HP, -{template['stress_reduction']} stress, +{template['morale_boost']} morale.",
+            f"  All heroes recover {int(template['heal_pct']*100)}% Health, -{template['stress_reduction']} stress, +{template['morale_boost']} morale.",
         ],
         "summary": "The team rests and recovers.",
     }

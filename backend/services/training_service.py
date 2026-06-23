@@ -59,6 +59,7 @@ def process_training_xp(conn):
         assignments = conn.execute("SELECT * FROM facility_assignments WHERE facility_id = ?", (tg["id"],)).fetchall()
         
         from services.level_service import talent_score
+        import random
         # Load heroes and skills
         heroes = {}
         hero_rows = conn.execute("SELECT * FROM heroes").fetchall()
@@ -67,6 +68,12 @@ def process_training_xp(conn):
             heroes[r["id"]] = {
                 "skills": json.loads(rd.get("skills") or "[]"),
                 "talent": talent_score(rd),
+                "diligence": rd.get("apt_diligence", 50),
+                "strength": rd.get("strength", 10),
+                "intelligence": rd.get("intelligence", 5),
+                "agility": rd.get("agility", 10),
+                "max_health": rd.get("max_health", 100),
+                "health": rd.get("health", 100),
             }
             
         for a in assignments:
@@ -76,6 +83,20 @@ def process_training_xp(conn):
             hero = heroes[hid]
             role = a["role"]
             skill_id = a["target_skill_id"]
+            
+            # Diligence multiplier (0.5x to 1.5x)
+            diligence_mult = 0.5 + (hero["diligence"] / 100.0)
+            
+            # Chance to gain base stats just from training
+            stat_gain_chance = 0.005 * minutes_passed * diligence_mult * (0.5 + hero["talent"])
+            if random.random() < stat_gain_chance:
+                stat_to_boost = random.choice(["strength", "intelligence", "agility", "max_health"])
+                hero[stat_to_boost] += 1
+                if stat_to_boost == "max_health":
+                    hero["health"] += 1
+                conn.execute(f"UPDATE heroes SET {stat_to_boost} = ?, health = ? WHERE id = ?", 
+                             (hero[stat_to_boost], hero["health"], hid))
+
             if not skill_id: continue
             
             # Find skill
@@ -103,8 +124,8 @@ def process_training_xp(conn):
                 pass
             
             # Talent (aptitude growth rate) scales how fast training sticks,
-            # same multiplier shape as combat skill-tier ascension.
-            xp_gain *= (0.7 + hero["talent"] * 0.8)
+            # Diligence scales effort.
+            xp_gain *= (0.7 + hero["talent"] * 0.8) * diligence_mult
                 
             if role == "spar":
                 # Check if target is also sparring with us

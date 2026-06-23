@@ -30,10 +30,10 @@ def calculate_legacy_bonus(hero: dict) -> dict:
 
     # Determine bonus type based on hero's strongest trait
     bonus_types = [
-        ("atk_pct", "ATK", hero.get("attack", 0)),
-        ("def_pct", "DEF", hero.get("defense", 0)),
-        ("hp_pct", "HP", hero.get("max_hp", 0) // 10),
-        ("spd_pct", "SPD", hero.get("speed", 0)),
+        ("str_pct", "ATK", hero.get("strength", 0)),
+        ("int_pct", "DEF", hero.get("intelligence", 0)),
+        ("hlt_pct", "Health", hero.get("max_health", 0) // 10),
+        ("agi_pct", "SPD", hero.get("agility", 0)),
     ]
 
     # Pick the stat the hero was best at
@@ -137,7 +137,7 @@ def get_active_legacy_bonuses() -> dict:
     reserved for the deliberate, rare act of sacrifice."""
     legacies = [l for l in get_all_legacies() if l.get("is_sacrifice")]
     total = {
-        "atk_pct": 0, "def_pct": 0, "hp_pct": 0, "spd_pct": 0,
+        "str_pct": 0, "int_pct": 0, "hlt_pct": 0, "agi_pct": 0,
         "team_crit_pct": 0, "team_stress_reduce": 0, "team_fear_resist": 0,
     }
 
@@ -166,15 +166,15 @@ def apply_legacy_bonuses(hero: dict) -> dict:
     bonuses = get_active_legacy_bonuses()
     h = hero.copy()
 
-    if bonuses["atk_pct"] > 0:
-        h["attack"] = int(h["attack"] * (1 + bonuses["atk_pct"]))
-    if bonuses["def_pct"] > 0:
-        h["defense"] = int(h["defense"] * (1 + bonuses["def_pct"]))
-    if bonuses["hp_pct"] > 0:
-        h["max_hp"] = int(h["max_hp"] * (1 + bonuses["hp_pct"]))
-        h["hp"] = int(h["hp"] * (1 + bonuses["hp_pct"]))
-    if bonuses["spd_pct"] > 0:
-        h["speed"] = int(h["speed"] * (1 + bonuses["spd_pct"]))
+    if bonuses["str_pct"] > 0:
+        h["strength"] = int(h["strength"] * (1 + bonuses["str_pct"]))
+    if bonuses["int_pct"] > 0:
+        h["intelligence"] = int(h["intelligence"] * (1 + bonuses["int_pct"]))
+    if bonuses["hlt_pct"] > 0:
+        h["max_health"] = int(h["max_health"] * (1 + bonuses["hlt_pct"]))
+        h["health"] = int(h["health"] * (1 + bonuses["hlt_pct"]))
+    if bonuses["agi_pct"] > 0:
+        h["agility"] = int(h["agility"] * (1 + bonuses["agi_pct"]))
     if bonuses["team_crit_pct"] > 0:
         h["crit_chance"] = h.get("crit_chance", 0.05) + bonuses["team_crit_pct"]
     if bonuses["team_fear_resist"] > 0:

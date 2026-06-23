@@ -1,6 +1,7 @@
 import os
 import json
 import re
+import random
 import concurrent.futures
 from google import genai
 from google.genai import types
@@ -50,6 +51,9 @@ RARITY_FLAVOR = {
 }
 
 
+from services.ego_service import BATTLE_TENDENCIES
+
+
 class HeroProfile(BaseModel):
     name: str
     title: str
@@ -58,6 +62,7 @@ class HeroProfile(BaseModel):
     gender: str
     portrait_prompt: str
     ego_type: str | None = None
+    battle_tendency: str = "Stoic"
 
 
 def _generate_with_fallback(prompt: str, max_tokens: int = 600, temperature: float = 0.9) -> str:
@@ -150,6 +155,7 @@ The world is dark, morally complex, and dangerous. Heroes are people, not archet
 IMPORTANT for the name: you have a strong, well-documented bias toward "Kael", "Kaelen", "Kaelan", "Cael", and similarly-rooted names — DO NOT use any of these or close variants. Also avoid other overused fantasy-name tropes (Elara, Aria, Lyra, Nyx, Seraphina). Pull from genuinely diverse real-world naming traditions (e.g. West African, East Asian, Slavic, Mediterranean, South Asian, Polynesian, Celtic) reimagined for this setting, and vary which tradition you draw from each time.{avoid_names_clause}
 IMPORTANT for portrait_prompt: {heterochromia_rule}Describe a SPECIFIC, UNIQUE appearance. Vary ethnicities, skin tones, hair types, facial features, body types, and ages. Avoid defaulting to pale/white-haired/young characters. Include: specific hair color AND style, skin tone, a distinguishing facial feature, one unique detail (scar, tattoo, accessory, expression). Each hero should look completely different from the last.
 IMPORTANT for ego_type: {ego_instruction}
+IMPORTANT for battle_tendency: every hero, regardless of star rarity, has a battle_tendency — a lighter, universal trait describing their instinct in a fight (distinct from ego_type, which is rarer and only governs team-composition opinions). Pick exactly one of: "Reckless", "Calculating", "Protective", "Glory-Seeking", "Stoic", "Vengeful" — whichever best matches the personality you just wrote.
 
 Respond ONLY with valid JSON and nothing else — no markdown, no backticks, no preamble:
 {{
@@ -159,7 +165,8 @@ Respond ONLY with valid JSON and nothing else — no markdown, no backticks, no 
   "personality": "1-2 sentences. How they act under pressure.",
   "gender": "male, female, or other",
   "portrait_prompt": "anime portrait tags: specific hair color, hair style, skin tone, facial feature, clothing detail, expression, mood lighting. Must be visually distinct.",
-  "ego_type": null
+  "ego_type": null,
+  "battle_tendency": "Stoic"
 }}"""
 
     raw = _generate_with_fallback(prompt, max_tokens=900, temperature=0.9)
@@ -175,6 +182,9 @@ Respond ONLY with valid JSON and nothing else — no markdown, no backticks, no 
     # for ego_type — coerce it so it never ends up stored/displayed as text.
     if isinstance(data.get("ego_type"), str) and data["ego_type"].strip().lower() in ("null", "none", ""):
         data["ego_type"] = None
+
+    if data.get("battle_tendency") not in BATTLE_TENDENCIES:
+        data["battle_tendency"] = random.choice(BATTLE_TENDENCIES)
 
     return HeroProfile(**data)
 
@@ -239,7 +249,7 @@ Mechanical effects: {effects_text}
 Heroes: {', '.join(hero_names)}
 
 Write 3-4 sentences narrating the visceral outcome of the choice.
-If the effects are negative (loss of hp, stress gained, trauma), describe the pain, horror, or regret vividly.
+If the effects are negative (loss of health, stress gained, trauma), describe the pain, horror, or regret vividly.
 If the effects are positive, describe the fleeting relief or the grim satisfaction.
 Be specific with hero names.
 Grim, atmospheric, and highly descriptive. Respond with only the narration text."""

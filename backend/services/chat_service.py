@@ -3,13 +3,58 @@ import random
 from database import db
 from services.llm_service import _generate_with_fallback, _clean_json
 
+
+def _tower_era(highest_floor: int) -> tuple[str, str]:
+    """Buckets the save's overall progress into a fixed set of narrative eras —
+    chatter should read as confused strangers early on, gradually settling into
+    a lived-in understanding of the Tower as floors are cleared."""
+    if highest_floor < 3:
+        return "Awakening", (
+            "This is VERY early on. Nobody understands the Tower or how they got "
+            "here. The mood should be confusion, fear, and disorientation - lean "
+            "into 'What is going on?' energy. They are strangers piecing together "
+            "the absolute basics, not yet a found-family."
+        )
+    elif highest_floor < 15:
+        return "Piecing It Together", (
+            "The group has working theories about the Tower by now, though nothing "
+            "is fully settled - expect debate, half-confident claims, and the "
+            "occasional correction between heroes. Camaraderie is forming but "
+            "confusion hasn't fully given way to confidence yet."
+        )
+    else:
+        return "The Way Things Are", (
+            "By now there's a settled, lived-in understanding of the Tower among "
+            "the group - dark routine, inside jokes about Tower life, no more "
+            "'what is this place' confusion. Long-timers talk like veterans."
+        )
+
+
+def _tenure_tag(hero_created_at: str, all_created_ats: list[str]) -> str:
+    """'veteran' / 'newcomer' / '' (settled) based on this hero's percentile
+    rank among currently-alive heroes' created_at — relative to the current
+    roster, not a fixed date, so it stays meaningful no matter when a save is
+    loaded. A hero pulled early is a 'veteran' of this world even in a
+    late-game save where the Tower Era itself has long since settled."""
+    if not hero_created_at or len(all_created_ats) < 3:
+        return ""
+    sorted_dates = sorted(all_created_ats)
+    idx = sorted_dates.index(hero_created_at)
+    pct = idx / max(1, len(sorted_dates) - 1)
+    if pct <= 0.3:
+        return "veteran"
+    elif pct >= 0.7:
+        return "newcomer"
+    return ""
+
+
 def generate_hero_chat() -> dict:
     """
-    Selects heroes (preferably on a team or sharing synergy) and generates a chat log 
+    Selects heroes (preferably on a team or sharing synergy) and generates a chat log
     based on their personality, the current state of the base, and recent chats.
     """
     with db() as conn:
-        heroes = conn.execute("SELECT id, name, personality, hero_class, level, ego_type, is_on_team, synergy_group FROM heroes WHERE is_alive = 1").fetchall()
+        heroes = conn.execute("SELECT id, name, personality, hero_class, level, ego_type, is_on_team, synergy_group, created_at FROM heroes WHERE is_alive = 1").fetchall()
         base_row = conn.execute("SELECT gold, highest_floor FROM base WHERE id = 1").fetchone()
         facilities = conn.execute("SELECT type FROM facilities").fetchall()
         recent_chats = conn.execute("SELECT message FROM hero_chat_logs ORDER BY created_at DESC LIMIT 2").fetchall()
@@ -61,11 +106,20 @@ def generate_hero_chat() -> dict:
     else:
         chatters = random.sample(heroes_dict_list, num_chatters)
     
+    era_name, era_instruction = _tower_era(highest_floor)
+    all_created_ats = [h["created_at"] for h in heroes_dict_list]
+
     chatter_profiles = []
     for h in chatters:
         ego = f" (Ego: {h['ego_type']})" if h["ego_type"] else ""
-        chatter_profiles.append(f"- {h['name']}: Lvl {h['level']} {h['hero_class']}{ego}. Personality: {h['personality']}")
-        
+        tenure = _tenure_tag(h["created_at"], all_created_ats)
+        tenure_note = ""
+        if tenure == "veteran":
+            tenure_note = " [Has been in the Tower since early on - understands the basics, may explain things to others.]"
+        elif tenure == "newcomer":
+            tenure_note = " [Arrived recently - still getting their bearings, may ask questions others take for granted.]"
+        chatter_profiles.append(f"- {h['name']}: Lvl {h['level']} {h['hero_class']}{ego}. Personality: {h['personality']}{tenure_note}")
+
     activities = [
         "playing a card game", "cleaning their weapons", "bickering over food", 
         "complaining about the smell", "bragging about a recent kill", 
@@ -90,9 +144,13 @@ You are writing a short, in-character chat log for a group of heroes hanging out
 The current location they are at is: {location}.
 They are currently {activity}.
 
+Tower Era: {era_name}
+{era_instruction}
+
 Base State Context:
 - Current Base Gold: {gold}
 - Highest Tower Floor Cleared: {highest_floor}
+- CRITICAL LORE: The heroes are climbing UP a massive Tower. Their goal is the TOP, not the "center" or "end of a labyrinth".
 
 {recent_topics_prompt}
 

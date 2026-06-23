@@ -128,9 +128,10 @@ export const unequipItem = (equipmentId) => request('/equipment/unequip', { meth
 export const scrapEquipment = (equipmentId) => request('/equipment/scrap', { method: 'POST', body: JSON.stringify({ equipment_id: equipmentId }) })
 
 // Gacha
-export const pullHeroes = (count = 1, usePortrait = false) => request('/gacha/pull', { method: 'POST', body: JSON.stringify({ count, use_portrait: usePortrait }) })
-export const pullEquipment = (count = 1) => request('/gacha/equipment-pull', { method: 'POST', body: JSON.stringify({ count }) })
-export const getOdds = () => request('/gacha/odds')
+export const pullHeroes = (count = 1, usePortrait = false, currency = 'gem') => request('/gacha/pull', { method: 'POST', body: JSON.stringify({ count, use_portrait: usePortrait, currency }) })
+export const pullEquipment = (count = 1, currency = 'gold') => request('/gacha/equipment-pull', { method: 'POST', body: JSON.stringify({ count, currency }) })
+export const getOdds = (currency = 'gem') => request(`/gacha/odds?currency=${currency}`)
+export const getEquipmentOdds = (currency = 'gold') => request(`/gacha/equipment-odds?currency=${currency}`)
 export const getPityInfo = () => request('/gacha/pity-info')
 export const redeemSpark = () => request('/gacha/spark-redeem', { method: 'POST' })
 

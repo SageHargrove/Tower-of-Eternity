@@ -1,4 +1,5 @@
 from fastapi import FastAPI
+from fastapi.responses import FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from dotenv import load_dotenv
@@ -35,6 +36,8 @@ async def startup():
     queue_missing_boss_portraits()
     from services.chat_service import start_chat_worker
     start_chat_worker()
+    from routers.gacha import reconcile_pending_profiles
+    reconcile_pending_profiles()
     print("Portrait and Chat workers started.")
 
 app.include_router(heroes.router, prefix="/heroes", tags=["heroes"])
@@ -47,9 +50,6 @@ app.include_router(relics.router, prefix="/relics", tags=["Relics"])
 app.include_router(profiles.router, prefix="/profiles", tags=["Profiles"])
 app.include_router(chat.router, prefix="/chat", tags=["Chat"])
 
-@app.get("/")
-def root():
-    return {"status": "Tower Gacha API running"}
 
 @app.get("/portrait-cache/status")
 def cache_status():
@@ -98,3 +98,17 @@ def cache_regenerate():
         "kept_hero_portraits": len(owned),
         "message": f"Deleted {deleted} cached portraits. Cache worker will regenerate with new diversity system."
     }
+
+frontend_dist = os.path.join(os.path.dirname(os.path.dirname(__file__)), "frontend", "dist")
+if os.path.exists(os.path.join(frontend_dist, "assets")):
+    app.mount("/assets", StaticFiles(directory=os.path.join(frontend_dist, "assets")), name="assets")
+
+@app.get("/{catchall:path}")
+def serve_react_app(catchall: str):
+    file_path = os.path.join(frontend_dist, catchall)
+    if catchall and os.path.exists(file_path) and os.path.isfile(file_path):
+        return FileResponse(file_path)
+    index_path = os.path.join(frontend_dist, "index.html")
+    if os.path.exists(index_path):
+        return FileResponse(index_path)
+    return {"error": "Frontend not built. Run 'npm run build' in frontend directory."}

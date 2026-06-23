@@ -1,5 +1,10 @@
 from database import db
 
+def get_bond(conn, hero_a_id: int, hero_b_id: int) -> int:
+    a, b = min(hero_a_id, hero_b_id), max(hero_a_id, hero_b_id)
+    row = conn.execute("SELECT bond_level FROM hero_bonds WHERE hero_a_id = ? AND hero_b_id = ?", (a, b)).fetchone()
+    return row["bond_level"] if row else 0
+
 def get_team_bonds_multiplier(hero_ids: list[int]) -> dict:
     """
     Returns a dictionary of {hero_id: total_bond_level} for the active team.

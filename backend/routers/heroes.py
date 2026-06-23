@@ -1,14 +1,27 @@
 from fastapi import APIRouter, HTTPException
+from fastapi.responses import FileResponse
 from database import db
 from pydantic import BaseModel
 from services.level_service import get_revealed_aptitudes, recalculate_hero_level
+import json
+import random
+import os
 
 router = APIRouter()
 
 def row_to_hero(row, equipment_rows=[], is_ego_satisfied=None) -> dict:
     from services.class_service import get_class_evolution_options
     from services.equipment_service import apply_equipment_stats
+    from services.level_service import apply_level_to_stats
     h = dict(row)
+    # Raw DB values, preserved before level/equipment scaling so anything
+    # that needs the true unscaled base (ascension checks, etc.) still can.
+    h["base_strength"] = h["strength"]
+    h["base_intelligence"] = h["intelligence"]
+    h["base_defense"] = h.get("defense", 5)
+    h["base_agility"] = h["agility"]
+    h["base_max_hp"] = h["max_health"]
+    h = apply_level_to_stats(h)
     h["equipment"] = [dict(e) for e in equipment_rows if e["is_equipped_to"] == h["id"]]
     h["evolution_options"] = get_class_evolution_options(h["hero_class"], h.get("level", 1))
     h = apply_equipment_stats(h, h["equipment"])
@@ -16,9 +29,33 @@ def row_to_hero(row, equipment_rows=[], is_ego_satisfied=None) -> dict:
         h["is_ego_satisfied"] = is_ego_satisfied
     return h
 
+@router.get("/{hero_id}/card-image")
+def get_hero_card_image(hero_id: int):
+    """Tier-templated card art — the portrait's background is cut away and
+    composited onto a decorative bronze/silver/gold/prismatic background by
+    services/card_template_service.py. Built lazily on first request, then
+    cached to disk (services/card_template_service.composite_card handles
+    cache invalidation when the portrait itself changes)."""
+    with db() as conn:
+        hero = conn.execute("SELECT portrait_path, birth_star, name FROM heroes WHERE id = ?", (hero_id,)).fetchone()
+    if not hero or not hero["portrait_path"] or not os.path.exists(hero["portrait_path"]):
+        raise HTTPException(status_code=404, detail="No portrait available for this hero.")
+
+    from services.card_template_service import composite_card
+    try:
+        card_path = composite_card(hero_id, hero["portrait_path"], hero["birth_star"], hero["name"])
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Card compositing failed: {e}")
+    return FileResponse(card_path, media_type="image/png")
+
 @router.get("/")
 def list_heroes(alive_only: bool = False):
+    import datetime
     with db() as conn:
+        now = datetime.datetime.utcnow().isoformat()
+        conn.execute("UPDATE heroes SET condition = 'Normal', condition_until = NULL WHERE condition_until IS NOT NULL AND condition_until < ?", (now,))
+        conn.commit()
+
         query = "SELECT * FROM heroes"
         if alive_only:
             query += " WHERE is_alive = 1"
@@ -112,7 +149,7 @@ def dismiss_hero(hero_id: int):
         # Remove from any tower run teams first (foreign key constraint)
         conn.execute("DELETE FROM run_heroes WHERE hero_id = ?", (hero_id,))
         # Remove from active team
-        conn.execute("UPDATE heroes SET is_on_team = 0 WHERE id = ?", (hero_id,))
+        conn.execute("UPDATE heroes SET is_on_team = 0, is_team_leader = 0 WHERE id = ?", (hero_id,))
         # Delete the hero
         conn.execute("DELETE FROM heroes WHERE id = ?", (hero_id,))
         
@@ -140,7 +177,7 @@ def dismiss_heroes_bulk(req: BulkDismissRequest):
                 continue
             
             conn.execute("DELETE FROM run_heroes WHERE hero_id = ?", (hero_id,))
-            conn.execute("UPDATE heroes SET is_on_team = 0 WHERE id = ?", (hero_id,))
+            conn.execute("UPDATE heroes SET is_on_team = 0, is_team_leader = 0 WHERE id = ?", (hero_id,))
             conn.execute("DELETE FROM heroes WHERE id = ?", (hero_id,))
             
             if hero["portrait_path"]:
@@ -168,12 +205,32 @@ def set_team(data: TeamUpdate):
         
     with db() as conn:
         # Clear this specific team
-        conn.execute("UPDATE heroes SET is_on_team = 0, team_position = 0 WHERE is_on_team = ?", (data.team_id,))
+        conn.execute("UPDATE heroes SET is_on_team = 0, team_position = 0, is_team_leader = 0 WHERE is_on_team = ?", (data.team_id,))
         # Set new team
         for idx, hid in enumerate(data.hero_ids):
             # Also ensures hero is removed from any other team they were on
             conn.execute("UPDATE heroes SET is_on_team = ?, team_position = ? WHERE id = ? AND is_alive = 1", (data.team_id, idx, hid))
     return {"ok": True, "team_id": data.team_id, "team": data.hero_ids}
+
+class AssignLeaderReq(BaseModel):
+    hero_id: int
+
+@router.post("/team/assign-leader")
+def assign_team_leader(data: AssignLeaderReq):
+    """Toggle a hero as their team's Leader. Any alive hero on a team is eligible -
+    mechanical effects (ego recommendation, conflict tension) only kick in if the
+    assigned hero has an ego_type; otherwise it's a flavor/narrative designation."""
+    with db() as conn:
+        hero = conn.execute("SELECT * FROM heroes WHERE id = ? AND is_alive = 1", (data.hero_id,)).fetchone()
+        if not hero or not hero["is_on_team"]:
+            raise HTTPException(status_code=400, detail="Hero must be on a team to be named Leader.")
+        team_id = hero["is_on_team"]
+        if hero["is_team_leader"]:
+            conn.execute("UPDATE heroes SET is_team_leader = 0 WHERE id = ?", (data.hero_id,))
+            return {"ok": True, "team_id": team_id, "leader_id": None, "message": f"{hero['name']} stepped down as Leader."}
+        conn.execute("UPDATE heroes SET is_team_leader = 0 WHERE is_on_team = ?", (team_id,))
+        conn.execute("UPDATE heroes SET is_team_leader = 1 WHERE id = ?", (data.hero_id,))
+    return {"ok": True, "team_id": team_id, "leader_id": data.hero_id, "message": f"{hero['name']} is now the team's Leader."}
 
 class ReorderTeamReq(BaseModel):
     team_id: int
@@ -198,6 +255,31 @@ def ego_auto_team(data: EgoAutoReq):
         return {"ok": True, "team": new_team}
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
+
+@router.get("/team/{team_id}/leader-recommendation")
+def get_team_leader_recommendation(team_id: int):
+    from services.ego_service import get_team_leader, get_ego_conflicts, get_ego_recommendation
+    with db() as conn:
+        team_members = [dict(r) for r in conn.execute(
+            "SELECT * FROM heroes WHERE is_on_team = ? AND is_alive = 1", (team_id,)
+        ).fetchall()]
+        alive_heroes = [dict(r) for r in conn.execute("SELECT * FROM heroes WHERE is_alive = 1").fetchall()]
+
+    leader = get_team_leader(team_members)
+    if not leader:
+        return {"has_leader": False, "has_ego": False}
+    if not leader.get("ego_type"):
+        return {"has_leader": True, "has_ego": False, "leader_id": leader["id"], "leader_name": leader["name"], "battle_tendency": leader.get("battle_tendency")}
+
+    recommendation = get_ego_recommendation(leader["id"])
+    conflicts = get_ego_conflicts(leader, team_members, alive_heroes)
+    return {
+        "has_leader": True, "has_ego": True,
+        "leader_id": leader["id"], "leader_name": leader["name"],
+        "battle_tendency": leader.get("battle_tendency"),
+        **recommendation,
+        "conflicts": conflicts,
+    }
 
 @router.get("/team/{team_id}")
 def get_team_by_id(team_id: int):
@@ -273,10 +355,10 @@ def synthesize_hero(data: SynthesizeRequest):
 
         # Calculate stat gains: 10-20% of sacrifice's stats based on rarity
         transfer_pct = 0.10 + (sacrifice_dict["birth_star"] * 0.015)
-        hp_gain = int(sacrifice_dict["max_hp"] * transfer_pct)
-        atk_gain = max(1, int(sacrifice_dict["attack"] * transfer_pct))
-        def_gain = max(1, int(sacrifice_dict["defense"] * transfer_pct))
-        spd_gain = max(1, int(sacrifice_dict["speed"] * transfer_pct))
+        hp_gain = int(sacrifice_dict["max_health"] * transfer_pct)
+        atk_gain = max(1, int(sacrifice_dict["strength"] * transfer_pct))
+        def_gain = max(1, int(sacrifice_dict["intelligence"] * transfer_pct))
+        spd_gain = max(1, int(sacrifice_dict["agility"] * transfer_pct))
 
         is_resonant = (target_dict["hero_class"] == sacrifice_dict["hero_class"] and target_dict["hero_class"] != "Classless")
         msg_suffix = ""
@@ -308,8 +390,8 @@ def synthesize_hero(data: SynthesizeRequest):
         # Apply gains to target
         conn.execute("""
             UPDATE heroes SET
-                max_hp = max_hp + ?, hp = hp + ?,
-                attack = attack + ?, defense = defense + ?, speed = speed + ?
+                max_health = max_health + ?, health = health + ?,
+                strength = strength + ?, intelligence = intelligence + ?, agility = agility + ?
             WHERE id = ?
         """, (hp_gain, hp_gain, atk_gain, def_gain, spd_gain, data.target_id))
 
@@ -377,7 +459,7 @@ def synthesize_hero(data: SynthesizeRequest):
         "target": dict(updated),
         "sacrifice_name": sacrifice_dict["name"],
         "sacrifice_star": sacrifice_dict["birth_star"],
-        "gains": {"hp": hp_gain, "attack": atk_gain, "defense": def_gain, "speed": spd_gain},
+        "gains": {"health": hp_gain, "strength": atk_gain, "intelligence": def_gain, "agility": spd_gain},
         "roster_trauma": trauma_gain,
         "roster_stress": stress_gain,
         "message": f"{sacrifice_dict['name']} was consumed. {target_dict['name']} grows stronger.{msg_suffix}",
@@ -385,16 +467,21 @@ def synthesize_hero(data: SynthesizeRequest):
 
 
 # ─── Ascension endpoint ─────────────────────────────────────────────
+# Ascension is a risk/reward ritual, not a guaranteed purchase: it costs
+# materials (consumed either way) and can fail, with failure chance rising
+# the higher the ascension tier being attempted.
 
-ASCENSION_GOLD_COST = {
-    0: 500,
-    1: 1000,
-    2: 2000,
-    3: 4000,
-    4: 8000,
-    5: 15000,
-    6: 30000,
+ASCENSION_MATERIAL_COST = {
+    0: {"Iron Ore": 5, "Slime Core": 3},
+    1: {"Iron Ore": 10, "Monster Bone": 5},
+    2: {"Iron Ore": 18, "Monster Bone": 10, "Mystic Dust": 3},
+    3: {"Monster Bone": 18, "Mystic Dust": 8, "Goblin Ear": 10},
+    4: {"Mystic Dust": 15, "Goblin Ear": 20, "Iron Ore": 30},
+    5: {"Mystic Dust": 25, "Monster Bone": 30, "Goblin Ear": 30},
+    6: {"Mystic Dust": 40, "Monster Bone": 40, "Goblin Ear": 40, "Iron Ore": 40},
 }
+
+ASCENSION_FAIL_CHANCE = {0: 0.0, 1: 0.05, 2: 0.10, 3: 0.18, 4: 0.28, 5: 0.40, 6: 0.55}
 
 ASCENSION_LEVEL_REQ = {
     0: 10,
@@ -406,11 +493,37 @@ ASCENSION_LEVEL_REQ = {
     6: 75,
 }
 
+@router.get("/{hero_id}/ascension-info")
+def get_ascension_info(hero_id: int):
+    """Preview cost/fail-chance for a hero's next ascension attempt, so the
+    frontend doesn't have to duplicate the cost tables."""
+    with db() as conn:
+        hero = conn.execute("SELECT ascension_star, level FROM heroes WHERE id = ? AND is_alive = 1", (hero_id,)).fetchone()
+        if not hero:
+            raise HTTPException(status_code=404, detail="Hero not found or dead.")
+        base = conn.execute("SELECT materials FROM base WHERE id = 1").fetchone()
+        materials = json.loads(base["materials"]) if base["materials"] else {}
+
+    current_asc = hero["ascension_star"] or 0
+    if current_asc >= 7:
+        return {"maxed": True}
+    required = ASCENSION_MATERIAL_COST.get(current_asc, {})
+    return {
+        "maxed": False,
+        "current_ascension": current_asc,
+        "level_req": ASCENSION_LEVEL_REQ.get(current_asc, 100),
+        "hero_level": hero["level"],
+        "materials_required": required,
+        "materials_have": {m: materials.get(m, 0) for m in required},
+        "fail_chance": ASCENSION_FAIL_CHANCE.get(current_asc, 0.6),
+    }
+
 @router.post("/{hero_id}/ascend")
 def ascend_hero(hero_id: int):
     """
-    Ascend a hero to break their level cap.
-    Requires hero to be at current level cap and gold cost.
+    Ascend a hero to break their level cap. Costs materials (consumed on
+    both success and failure) and can fail — failure chance rises with the
+    ascension tier being attempted.
     """
     with db() as conn:
         hero = conn.execute("SELECT * FROM heroes WHERE id = ? AND is_alive = 1", (hero_id,)).fetchone()
@@ -431,17 +544,32 @@ def ascend_hero(hero_id: int):
                 detail=f"Hero must be level {level_req} to ascend. Currently level {hero_level}."
             )
 
-        # Check gold
-        gold_cost = ASCENSION_GOLD_COST.get(current_asc, 50000)
-        base = conn.execute("SELECT gold FROM base WHERE id = 1").fetchone()
-        if base["gold"] < gold_cost:
-            raise HTTPException(
-                status_code=400,
-                detail=f"Not enough gold. Need {gold_cost}, have {base['gold']}."
-            )
+        # Check materials
+        required = ASCENSION_MATERIAL_COST.get(current_asc, {})
+        base = conn.execute("SELECT materials FROM base WHERE id = 1").fetchone()
+        materials = json.loads(base["materials"]) if base["materials"] else {}
+        missing = {m: qty for m, qty in required.items() if materials.get(m, 0) < qty}
+        if missing:
+            detail = ", ".join(f"{m} (need {q}, have {materials.get(m, 0)})" for m, q in missing.items())
+            raise HTTPException(status_code=400, detail=f"Not enough materials: {detail}")
 
-        # Deduct gold and ascend
-        conn.execute("UPDATE base SET gold = gold - ? WHERE id = 1", (gold_cost,))
+        # Materials are spent on the attempt itself — that's the risk.
+        for m, qty in required.items():
+            materials[m] -= qty
+        conn.execute("UPDATE base SET materials = ? WHERE id = 1", (json.dumps(materials),))
+
+        fail_chance = ASCENSION_FAIL_CHANCE.get(current_asc, 0.6)
+        if random.random() < fail_chance:
+            conn.execute("UPDATE heroes SET stress = MIN(100, stress + 10) WHERE id = ?", (hero_id,))
+            return {
+                "ok": False,
+                "failed": True,
+                "hero_id": hero_id,
+                "materials_spent": required,
+                "fail_chance": fail_chance,
+                "message": f"{hero['name']}'s ascension ritual failed! The materials were consumed in vain.",
+            }
+
         new_asc = current_asc + 1
         conn.execute(
             "UPDATE heroes SET ascension_star = ? WHERE id = ?",
@@ -459,9 +587,10 @@ def ascend_hero(hero_id: int):
 
     return {
         "ok": True,
+        "failed": False,
         "hero_id": hero_id,
         "new_ascension": new_asc,
-        "gold_spent": gold_cost,
+        "materials_spent": required,
         "new_level": new_level,
         "message": f"{hero['name']} ascended to {new_asc}★ ascension!"
     }
@@ -534,11 +663,11 @@ def promote_hero(hero_id: int):
         # Stat boost on promotion (+10% all stats)
         conn.execute("""
             UPDATE heroes SET
-                max_hp = max_hp + max_hp / 10,
-                hp = hp + hp / 10,
-                attack = attack + attack / 10,
-                defense = defense + defense / 10,
-                speed = speed + speed / 10
+                max_health = max_health + max_health / 10,
+                health = health + health / 10,
+                strength = strength + strength / 10,
+                intelligence = intelligence + intelligence / 10,
+                agility = agility + agility / 10
             WHERE id = ?
         """, (hero_id,))
         

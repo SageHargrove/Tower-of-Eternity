@@ -2,6 +2,7 @@ from fastapi import APIRouter, HTTPException
 from database import db
 from pydantic import BaseModel
 import json
+import random
 
 router = APIRouter()
 
@@ -13,6 +14,8 @@ def get_base():
     from services.alchemist_service import process_alchemist_lab
     from services.restaurant_service import process_restaurant
     from services.infirmary_service import process_infirmary
+    from routers.gacha import maybe_reconcile_pending_profiles
+    maybe_reconcile_pending_profiles()
     with db() as conn:
         process_fatigue_decay(conn)
         process_passive_generation(conn)
@@ -22,7 +25,14 @@ def get_base():
         process_restaurant(conn)
         process_infirmary(conn)
         row = conn.execute("SELECT * FROM base WHERE id = 1").fetchone()
-    return dict(row)
+        result = dict(row)
+        # Locked once per profile on first load — a 50/50 roll that then
+        # persists for the lifetime of this save, rather than re-rolling
+        # randomly on every page load.
+        if not result.get("fairy_gender"):
+            result["fairy_gender"] = random.choice(["male", "female"])
+            conn.execute("UPDATE base SET fairy_gender = ? WHERE id = 1", (result["fairy_gender"],))
+    return result
 
 @router.post("/upgrade")
 def upgrade_base():
@@ -138,13 +148,26 @@ def rest_heroes():
         heroes = conn.execute("SELECT * FROM heroes WHERE is_alive = 1").fetchall()
         for hero in heroes:
             recovery = rest_at_base_recovery(dict(hero))
-            # Also reset fatigue and HP completely on rest
+            # Psych-only — HP is handled by lobby-return full heal, not Rest.
             conn.execute("""
-                UPDATE heroes SET morale = ?, stress = ?, trauma = ?, morale_state = ?, fatigue = 0, hp = max_hp
+                UPDATE heroes SET morale = ?, stress = ?, trauma = ?, morale_state = ?, fatigue = 0
                 WHERE id = ?
             """, (recovery["morale"], recovery["stress"], recovery["trauma"],
                   recovery["morale_state"], hero["id"]))
     return {"ok": True, "rested": len(heroes), "cost": supply_cost}
+
+class CraftBandagesRequest(BaseModel):
+    crafter_id: int
+    quantity: int = 1
+
+@router.post("/infirmary/craft-bandages")
+def craft_bandages_endpoint(req: CraftBandagesRequest):
+    from services.infirmary_service import craft_bandages
+    with db() as conn:
+        try:
+            return craft_bandages(conn, req.crafter_id, req.quantity)
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
 
 # ─── Base Floors ────────────────────────────────────────────────
 
@@ -325,10 +348,10 @@ def use_item(req: UseItemRequest):
 
         applied = {}
         if "heal_pct" in effect:
-            heal = int(hero["max_hp"] * effect["heal_pct"])
-            new_hp = min(hero["max_hp"], hero["hp"] + heal)
-            conn.execute("UPDATE heroes SET hp = ? WHERE id = ?", (new_hp, hero["id"]))
-            applied["hp"] = new_hp
+            heal = int(hero["max_health"] * effect["heal_pct"])
+            new_hp = min(hero["max_health"], hero["health"] + heal)
+            conn.execute("UPDATE heroes SET health = ? WHERE id = ?", (new_hp, hero["id"]))
+            applied["health"] = new_hp
 
         if "stress_delta" in effect:
             new_stress = max(0, hero["stress"] + effect["stress_delta"])

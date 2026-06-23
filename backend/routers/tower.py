@@ -16,26 +16,23 @@ from pydantic import BaseModel
 router = APIRouter()
 
 class EnterFloorRequest(BaseModel):
-    team_id: int
+    team_ids: list[int] = []
+    team_id: int = 1
     floor_number: int
 
 
-def _resolve_real_combat(conn, hero_list, floor_number, is_boss, is_miniboss, zone_theme,
+def _resolve_real_combat(conn, hero_teams, floor_number, is_boss, is_miniboss, zone_theme,
                           boss_data_override, base_row, pending_legacies,
                           enemy_count_override=None, flavor_intro=None, difficulty_mult=1.0):
-    """Run a real fight and apply every resulting effect — death/legacy,
-    trauma, morale, skill upgrades/learning, gold/supplies/materials,
-    equipment/relic drops. Shared by plain combat-type floors and explore
-    floors (which now always end in a real fight, sized by the player's
-    choice) so this fragile reward/death logic only lives in one place.
-    """
+    """Run a real fight and apply every resulting effect."""
     from services.llm_service import generate_combat_narration, call_with_timeout
+    from services.combat_service import run_multi_combat
 
     try:
-        combat_result = run_combat(
-            hero_list, floor_number, is_boss=is_boss, is_miniboss=is_miniboss,
+        combat_result = run_multi_combat(
+            hero_teams, floor_number, is_boss=is_boss, is_miniboss=is_miniboss,
             zone_theme=zone_theme, boss_data_override=boss_data_override,
-            enemy_count_override=enemy_count_override, difficulty_mult=difficulty_mult,
+            difficulty_mult=difficulty_mult, conn=conn,
         )
     except Exception as e:
         print(f"Combat error: {e}")
@@ -52,30 +49,83 @@ def _resolve_real_combat(conn, hero_list, floor_number, is_boss, is_miniboss, zo
         result["message"] = f"Team defeated on Floor {floor_number}."
         result["run_over"] = True
 
+    flat_hero_names = [h["name"] for team in hero_teams for h in team]
     narrative = call_with_timeout(
-        generate_combat_narration, combat_result.get("log", []), [h["name"] for h in hero_list],
+        generate_combat_narration, combat_result.get("log", []), flat_hero_names,
         timeout=1.5, fallback="A fierce battle took place."
     )
 
+    import datetime
+    from services.bonds_service import get_bond
+    
+    dead_ids = []
     for dead_hero_row in combat_result["dead_heroes"]:
         dead_id = dead_hero_row if isinstance(dead_hero_row, int) else dead_hero_row["id"]
+        dead_ids.append(dead_id)
+        
+        # Determine if they meet the legacy threshold (unique_floors_cleared >= 10)
+        hr = conn.execute("SELECT * FROM heroes WHERE id = ?", (dead_id,)).fetchone()
+        if hr:
+            hr_dict = dict(hr)
+            # Automatic Legacy Check
+            if hr_dict.get("unique_floors_cleared", 0) >= 10:
+                clears = hr_dict["unique_floors_cleared"]
+                # Calculate legacy buffs based on clears
+                # 10 clears = base 5% atk/hp, +1% per clear above 10
+                buff_pct = min(25, 5 + (clears - 10))
+                buffs = json.dumps({"primary_bonus": {"stat": "str_pct", "label": "ATK", "value": buff_pct * 0.01, "desc": f"+{buff_pct}% ATK to all"}})
+                conn.execute(
+                    "INSERT INTO legacies (hero_id, hero_name, hero_star, title, flavor_text, bonus_json, score, is_sacrifice) VALUES (?, ?, ?, ?, ?, ?, 1000, 1)",
+                    (hr_dict["id"], hr_dict["name"], hr_dict.get("birth_star", 1), f"Memory of {hr_dict['name']}", f"Fell on Floor {floor_number} after {clears} unique clears.", buffs)
+                )
+            pending_legacies.append((hr_dict, False))
+            
         conn.execute("UPDATE heroes SET is_alive = 0, is_on_team = 0 WHERE id = ?", (dead_id,))
-        if isinstance(dead_hero_row, int):
-            hr = conn.execute("SELECT * FROM heroes WHERE id = ?", (dead_id,)).fetchone()
-            if hr:
-                pending_legacies.append((dict(hr), False))
-        else:
-            pending_legacies.append((dead_hero_row, False))
 
-    for surviving in combat_result["surviving_heroes"]:
-        trauma_data = witness_death_trauma(is_close_ally=True)
-        conn.execute("""
-            UPDATE heroes SET
-                trauma = MIN(100, trauma + ?),
-                stress = MIN(100, stress + ?)
-            WHERE id = ?
-        """, (len(combat_result["dead_heroes"]) * trauma_data["trauma_delta"],
-              len(combat_result["dead_heroes"]) * trauma_data["stress_delta"], surviving["id"]))
+    # Survival logic: Survivor's Guilt & Bonds
+    if dead_ids:
+        # Was this a near-wipe? If >= 3 heroes died in this battle...
+        is_near_wipe = len(dead_ids) >= 3
+        
+        for surviving in combat_result["surviving_heroes"]:
+            surv_id = surviving["id"]
+            surv_hr = conn.execute("SELECT * FROM heroes WHERE id = ?", (surv_id,)).fetchone()
+            if not surv_hr: continue
+            
+            # Check bonds with the dead heroes
+            high_bonds_count = 0
+            for did in dead_ids:
+                bond_val = get_bond(conn, surv_id, did)
+                if bond_val > 30:
+                    high_bonds_count += 1
+            
+            # Apply Depression if they lost someone they had a strong bond with
+            if high_bonds_count > 0:
+                # Set depressed for 24 hours
+                until = (datetime.datetime.utcnow() + datetime.timedelta(hours=24)).isoformat()
+                conn.execute("UPDATE heroes SET condition = 'Depressed', condition_until = ? WHERE id = ?", (until, surv_id))
+                combat_result.setdefault("log", []).append(f"  🌧️ {surv_hr['name']} is overcome with despair after losing bonded comrades.")
+                
+            # Apply Retirement (Survivor's Guilt) if near-wipe of bonded allies
+            if is_near_wipe and high_bonds_count >= 2:
+                # Check constitution (apt_mental)
+                if surv_hr["apt_mental"] < 70:
+                    conn.execute("UPDATE heroes SET near_wipes_survived = near_wipes_survived + 1 WHERE id = ?", (surv_id,))
+                    nw_surv = surv_hr["near_wipes_survived"] + 1
+                    if nw_surv >= 2:
+                        # Retire
+                        conn.execute("UPDATE heroes SET condition = 'Retired', is_on_team = 0 WHERE id = ?", (surv_id,))
+                        combat_result.setdefault("log", []).append(f"  💀 {surv_hr['name']}'s mind breaks from surviving another massacre. They retire from active duty.")
+                        
+            # Apply standard trauma
+            trauma_data = witness_death_trauma(is_close_ally=high_bonds_count > 0)
+            conn.execute("""
+                UPDATE heroes SET
+                    trauma = MIN(100, trauma + ?),
+                    stress = MIN(100, stress + ?)
+                WHERE id = ?
+            """, (len(dead_ids) * trauma_data["trauma_delta"],
+                  len(dead_ids) * trauma_data["stress_delta"], surv_id))
 
     for s in combat_result["surviving_heroes"]:
         hid = s["id"]
@@ -102,8 +152,8 @@ def _resolve_real_combat(conn, hero_list, floor_number, is_boss, is_miniboss, zo
             skills_json = json.dumps(skills)
 
             conn.execute("""
-                UPDATE heroes SET hp = MIN(max_hp, ?), morale = ?, morale_state = ?, skills = ? WHERE id = ?
-            """, (s["hp"], new_morale, get_morale_state(new_morale), skills_json, s["id"]))
+                UPDATE heroes SET health = MIN(max_health, ?), morale = ?, morale_state = ?, skills = ? WHERE id = ?
+            """, (s["health"], new_morale, get_morale_state(new_morale), skills_json, s["id"]))
 
     result["gold_gained"] = combat_result.get("gold_gained", 0)
     result["supplies_gained"] = combat_result.get("supplies_gained", 0)
@@ -126,7 +176,10 @@ def _resolve_real_combat(conn, hero_list, floor_number, is_boss, is_miniboss, zo
             conn.execute("UPDATE base SET materials = ? WHERE id = 1", (json.dumps(current_mats),))
 
     if combat_result.get("equipment_drop"):
-        result["equipment_drop"] = combat_result["equipment_drop"]
+        from services.equipment_service import save_equipment
+        equip = combat_result["equipment_drop"]
+        equip["id"] = save_equipment(equip, conn=conn)
+        result["equipment_drop"] = equip
 
     if combat_result.get("relic_drop"):
         result["relic_drop"] = combat_result["relic_drop"]
@@ -164,25 +217,52 @@ def enter_floor(req: EnterFloorRequest):
             raise HTTPException(status_code=400, detail=f"Not enough supplies to enter the tower. Need {supply_cost}.")
 
         # Get heroes
-        heroes = [dict(r) for r in conn.execute(
-            "SELECT * FROM heroes WHERE is_on_team = ? AND is_alive = 1 ORDER BY team_position ASC, id ASC", (req.team_id,)
-        ).fetchall()]
+        teams_to_deploy = req.team_ids if req.team_ids else [req.team_id]
         
-        if not heroes:
-            raise HTTPException(status_code=400, detail=f"No heroes assigned to Team {req.team_id}.")
+        # Verify required teams
+        required_teams = (req.floor_number - 1) // 20 + 1
+        if req.floor_number == 1 and not req.team_ids: required_teams = 1
+        if len(teams_to_deploy) < required_teams:
+            raise HTTPException(status_code=400, detail=f"Floor {req.floor_number} requires {required_teams} team(s) to be deployed.")
+            
+        hero_teams = []
+        ego_rebellions = []
+        for tid in teams_to_deploy[:required_teams]:
+            from services.ego_service import process_ego_patience
+            ego_rebellions.extend(process_ego_patience(conn, tid))
+            team_heroes = [dict(r) for r in conn.execute("SELECT * FROM heroes WHERE is_on_team = ? AND is_alive = 1 ORDER BY team_position ASC, id ASC", (tid,)).fetchall()]
+            if not team_heroes:
+                raise HTTPException(status_code=400, detail=f"No heroes assigned to Team {tid}.")
+            hero_teams.append(team_heroes)
 
-        for hero in heroes:
-            if hero["fatigue"] >= 10:
-                raise HTTPException(status_code=400, detail=f"{hero['name']} is exhausted (Fatigue 10) and must rest before entering the tower.")
+        for team in hero_teams:
+            for hero in team:
+                if hero["fatigue"] >= 10:
+                    raise HTTPException(status_code=400, detail=f"{hero['name']} is exhausted (Fatigue 10) and must rest before entering the tower.")
 
-        from services.ego_service import process_ego_patience
-        ego_rebellions = process_ego_patience(conn, req.team_id)
-        if ego_rebellions:
-            # A rebellion mid-call means the roster for this team just changed —
-            # re-fetch so the rest of this run uses the lineup the ego hero picked.
-            heroes = [dict(r) for r in conn.execute(
-                "SELECT * FROM heroes WHERE is_on_team = ? AND is_alive = 1 ORDER BY team_position ASC, id ASC", (req.team_id,)
-            ).fetchall()]
+        # Auto-apply Bandages (if any in inventory) to the most-injured
+        # deployed heroes before the fight — combat resolves as one
+        # deterministic simulation rather than a turn-by-turn player loop,
+        # so "using" a Bandage means patching up before you go in, not a
+        # mid-fight action.
+        from services.infirmary_service import BANDAGE_HEAL_PCT
+        mats_row = conn.execute("SELECT materials FROM base WHERE id = 1").fetchone()
+        materials = json.loads(mats_row["materials"]) if mats_row["materials"] else {}
+        bandages = materials.get("Bandage", 0)
+        if bandages > 0:
+            flat_heroes = [hero for team in hero_teams for hero in team]
+            injured = sorted([hero for hero in flat_heroes if hero["health"] < hero["max_health"]], key=lambda hero: hero["health"] / hero["max_health"])
+            used = 0
+            for hero in injured:
+                if used >= bandages:
+                    break
+                heal = int(hero["max_health"] * BANDAGE_HEAL_PCT)
+                hero["health"] = min(hero["max_health"], hero["health"] + heal)
+                conn.execute("UPDATE heroes SET health = ? WHERE id = ?", (hero["health"], hero["id"]))
+                used += 1
+            if used > 0:
+                materials["Bandage"] = bandages - used
+                conn.execute("UPDATE base SET materials = ? WHERE id = 1", (json.dumps(materials),))
 
         conn.execute("UPDATE base SET supplies = supplies - ? WHERE id = 1", (supply_cost,))
 
@@ -192,7 +272,7 @@ def enter_floor(req: EnterFloorRequest):
         # back to local text rather than wait.
         from services.llm_service import generate_zone_theme, generate_boss_enemy, call_with_timeout, submit_flavor_text, await_flavor_text
         floor_type = get_cached_floor_type(conn, req.floor_number)
-        hero_list = [dict(h) for h in heroes]
+        hero_list = [h for team in hero_teams for h in team] # flattened for event logs and logic
         is_boss = floor_type == "boss"
         is_miniboss = floor_type == "miniboss"
 
@@ -226,7 +306,7 @@ def enter_floor(req: EnterFloorRequest):
                 flavor_intro = f"You find {npc} who needs safe passage. Enemies close in on the path."
 
             result = _resolve_real_combat(
-                conn, hero_list, req.floor_number, is_boss, is_miniboss, zone_theme,
+                conn, hero_teams, req.floor_number, is_boss, is_miniboss, zone_theme,
                 boss_data_override, base_row, pending_legacies,
                 enemy_count_override=enemy_count_override, flavor_intro=flavor_intro,
             )
@@ -272,8 +352,8 @@ def enter_floor(req: EnterFloorRequest):
                 if hero_data:
                     new_morale = max(0, min(100, hero_data["morale"] + hr.get("morale_delta", 0)))
                     new_stress = max(0, hero_data["stress"] + hr.get("stress_gained", 0))
-                    conn.execute("UPDATE heroes SET hp = MIN(max_hp, ?), morale = ?, stress = ?, morale_state = ? WHERE id = ?",
-                                 (hr["hp"], new_morale, new_stress, get_morale_state(new_morale), hr["id"]))
+                    conn.execute("UPDATE heroes SET health = MIN(max_health, ?), morale = ?, stress = ?, morale_state = ? WHERE id = ?",
+                                 (hr["health"], new_morale, new_stress, get_morale_state(new_morale), hr["id"]))
             result = {
                 "floor_type": "rest",
                 "resolution": resolution,
@@ -337,18 +417,24 @@ def enter_floor(req: EnterFloorRequest):
                     """, (a, b))
 
         # IMPORTANT: Between floor recovery applied immediately since we return to base instantly!
+        # HP fully heals on lobby return too — the tower trip is over, not a
+        # siege, and this is what makes the Infirmary's old passive HP regen
+        # and the Rest action's old HP heal both redundant (removed elsewhere).
         for hid in surviving_ids:
             hero_row = conn.execute("SELECT * FROM heroes WHERE id = ?", (hid,)).fetchone()
             if hero_row:
                 recovery = between_floor_recovery(dict(hero_row))
                 conn.execute("""
-                    UPDATE heroes SET morale = ?, stress = ?, trauma = ?, morale_state = ? WHERE id = ?
+                    UPDATE heroes SET health = max_health, morale = ?, stress = ?, trauma = ?, morale_state = ? WHERE id = ?
                 """, (recovery["morale"], recovery["stress"], recovery["trauma"], recovery["morale_state"], hid))
 
         if not result.get("run_over") and not result.get("awaiting_choice") and req.floor_number > base_row["highest_floor"]:
             gems_reward = 500 if req.floor_number % 5 == 0 else 100
             conn.execute("UPDATE base SET highest_floor = ?, gems = gems + ? WHERE id = 1", (req.floor_number, gems_reward))
             result["gems_gained"] = gems_reward
+            if survivors:
+                ids_str = ",".join(str(s["id"]) for s in survivors)
+                conn.execute(f"UPDATE heroes SET unique_floors_cleared = unique_floors_cleared + 1 WHERE id IN ({ids_str})")
 
     for hero_dict, is_sacrifice in pending_legacies:
         try:
@@ -403,7 +489,7 @@ def resolve_event_floor(data: ResolveEventRequest):
                     "type": "Accessory",
                     "rarity": "A",
                     "level": 1,
-                    "base_hp": 150, "base_atk": 15, "base_def": 10, "base_spd": 5,
+                    "base_hlt": 150, "base_str": 15, "base_int": 10, "base_agi": 5,
                 }
                 save_equipment(equip, conn=conn)
             except Exception as e:
@@ -423,10 +509,10 @@ def resolve_event_floor(data: ResolveEventRequest):
             updates = []
             params = []
 
-            if "hp_pct" in effects and effects["hp_pct"] != 0:
-                hp_change = int(hero["max_hp"] * effects["hp_pct"])
-                new_hp = max(1, min(hero["max_hp"], hero["hp"] + hp_change))
-                updates.append("hp = ?")
+            if "hlt_pct" in effects and effects["hlt_pct"] != 0:
+                hp_change = int(hero["max_health"] * effects["hlt_pct"])
+                new_hp = max(1, min(hero["max_health"], hero["health"] + hp_change))
+                updates.append("health = ?")
                 params.append(new_hp)
 
             if "morale" in effects and effects["morale"] != 0:

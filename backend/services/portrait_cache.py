@@ -21,10 +21,12 @@ from database import db
 
 CACHE_TARGET = 20
 MIN_PER_STAR = {1: 8, 2: 6, 3: 4, 4: 3, 5: 2, 6: 2, 7: 2}
-# Hard ceiling per star — a last line of defense so a stray duplicate worker
+# Hard ceiling per star — a last line of intelligence so a stray duplicate worker
 # (e.g. two backend processes running at once) can't silently overfill the
-# pool forever instead of just stopping at quota.
-MAX_PER_STAR = {star: minimum * 2 for star, minimum in MIN_PER_STAR.items()}
+# pool forever instead of just stopping at quota. min+1 rather than min*2 —
+# doubling made sense for cheap common tiers but meant pre-generating twice
+# as many of the expensive, rarely-pulled 7-star portraits as intended.
+MAX_PER_STAR = {star: minimum + 1 for star, minimum in MIN_PER_STAR.items()}
 
 CACHE_DIR = "static/portraits/cached"
 
@@ -260,7 +262,21 @@ DEFAULT_OUTFIT = "dark fantasy adventurer's clothing"
 # Prompt building
 # ---------------------------------------------------------------------------
 
-def _random_traits(birth_star: int = 1, gender: str = "unknown") -> dict:
+GLASSES_STYLES = ["thin wire-frame glasses", "round spectacles", "sharp rectangular glasses"]
+GLASSES_BASE_CHANCE = 0.06
+GLASSES_NON_MELEE_BONUS = 0.10  # additive — ranged/caster classes read better with glasses than frontline melee
+
+def _glasses_trait(hero_class: str) -> str:
+    """Rare standalone visual trait, independent of the Magic Engineer's
+    goggles (which are baked into CLASS_OUTFITS, not this roll) — more
+    likely on ranged/caster classes than melee."""
+    from services.class_service import CLASS_MODIFIERS
+    mods = CLASS_MODIFIERS.get(hero_class, {})
+    is_non_melee = bool(mods.get("is_ranged")) or mods.get("power_stat") == "intelligence"
+    chance = GLASSES_BASE_CHANCE + (GLASSES_NON_MELEE_BONUS if is_non_melee else 0)
+    return random.choice(GLASSES_STYLES) if random.random() < chance else ""
+
+def _random_traits(birth_star: int = 1, gender: str = "unknown", hero_class: str = "Classless") -> dict:
     if gender not in ("male", "female"):
         gender = random.choice(["male", "female"])
 
@@ -276,6 +292,7 @@ def _random_traits(birth_star: int = 1, gender: str = "unknown") -> dict:
         "eyes": random.choice(EYE_COLORS),
         "feature": random.choice(DISTINGUISHING_FEATURES),
         "expression": random.choice(EXPRESSIONS),
+        "glasses": _glasses_trait(hero_class),
     }
 
 def _pick_class_for_star(birth_star: int) -> str:
@@ -286,9 +303,10 @@ def _pick_class_for_star(birth_star: int) -> str:
 def _prompt_from_traits(traits: dict, hero_class: str, birth_star: int) -> str:
     outfit = CLASS_OUTFITS.get(hero_class, DEFAULT_OUTFIT)
     gender_tag = "1boy" if traits["gender"] == "male" else "1girl"
+    glasses_tag = f", {traits['glasses']}" if traits.get("glasses") else ""
     return (
         f"{gender_tag}, {traits['race']}, {traits['hair']}, {traits['skin']}, {traits['eyes']}, "
-        f"{traits['expression']}, {traits['feature']}, {outfit}, {_tier_flavor(birth_star)}, "
+        f"{traits['expression']}, {traits['feature']}{glasses_tag}, {outfit}, {_tier_flavor(birth_star)}, "
         f"looking at viewer, {_quality_tag(birth_star)}, "
         f"{FRAMING}, {BASE_STYLE}"
     )
@@ -297,7 +315,7 @@ def build_varied_prompt(birth_star: int = 1, gender: str = "unknown") -> tuple:
     """Build a fully varied portrait prompt in the house style, including a fresh
     class roll. Returns (prompt, gender, hero_class)."""
     hero_class = _pick_class_for_star(birth_star)
-    traits = _random_traits(birth_star, gender)
+    traits = _random_traits(birth_star, gender, hero_class)
     prompt = _prompt_from_traits(traits, hero_class, birth_star)
     return prompt, traits["gender"], hero_class
 
@@ -306,7 +324,7 @@ def build_appearance_prompt(birth_star: int, hero_class: str, gender: str = "unk
     existing hero, keeping their class fixed. Used by the 'Regenerate Portrait'
     button so a player can reroll a bad-looking hero without losing their
     name, lore, or identity."""
-    traits = _random_traits(birth_star, gender)
+    traits = _random_traits(birth_star, gender, hero_class)
     return _prompt_from_traits(traits, hero_class, birth_star)
 
 # ---------------------------------------------------------------------------

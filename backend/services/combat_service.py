@@ -12,13 +12,16 @@ from services.level_service import apply_level_to_stats, talent_score, get_hero_
 class CombatUnit:
     id: int
     name: str
-    hp: int
-    max_hp: int
-    attack: int
-    defense: int
-    speed: int
+    health: int
+    max_health: int
+    strength: int
+    intelligence: int
+    agility: int
     morale: int
     stress: int
+    defense: int = 5
+    power_stat: str = "strength"  # which stat drives this unit's attack damage
+    dmg_reduction_pct: float = 0.0  # flat % mitigation from equipped gear, applied after Defense
     trauma: int = 0
     hero_class: str = "Classless"
     is_hero: bool = True
@@ -41,6 +44,11 @@ class CombatUnit:
     talent: float = 0.5
     regen_pct: float = 0.0
     hero_star: int = 1
+    level: int = 1
+    battle_tendency: str = "Stoic"
+    is_team_leader: bool = False
+    isolated_rounds: int = 0   # Reckless panic response — exposed, takes bonus damage, preferred enemy target
+    bracing_rounds: int = 0    # Calculating panic response — forgoes their strength to brace defensively
 
     def __post_init__(self):
         self.log_name = self.name if self.is_hero else f"[{self.name}]"
@@ -69,24 +77,13 @@ ENEMY_TYPES = [
     ("Obsidian Behemoth", 2.0, 1.6, 0.4, "elite"),
 ]
 
-def make_enemies(floor_number: int, count: int = None, difficulty_mult: float = 1.0) -> list[CombatUnit]:
-    """
-    Generate enemies for a floor. Difficulty is purely a function of floor
-    number — not the player's team strength. A 7★ team and a 1★ team face
-    the identical floor 10 enemies.
-
-    difficulty_mult scales the TOTAL threat of the encounter (not just enemy
-    count) — a "weak" target against an elite archetype still comes out
-    weaker even though elites can't drop below a count of 1; the shortfall
-    that rounding count to an integer can't absorb gets folded into a stat
-    correction instead. This is what lets a choice like "fight defensively"
-    mean something consistent regardless of which archetype gets rolled,
-    rather than just meaning "fewer enemies" (5 weak swarmers can be an
-    easier fight than 1 elite — raw count alone doesn't capture that).
-    """
+def _build_enemy_group(etype, floor_number: int, difficulty_mult: float, id_start: int, count_override: int = None) -> list[CombatUnit]:
+    """Build one monster type's portion of an encounter. Pulled out of
+    make_enemies so a mixed encounter (two archetypes sharing one fight) can
+    call this twice with a split difficulty_mult budget instead of duplicating
+    the count/stat math. id_start offsets negative CombatUnit ids so two
+    groups in the same encounter never collide."""
     scale = 1 + (floor_number * 0.12)
-
-    etype = random.choice(ENEMY_TYPES)
     name, hp_m, def_m, spd_m, archetype = etype
 
     # Apply archetype modifiers first — count/difficulty math below needs
@@ -105,36 +102,37 @@ def make_enemies(floor_number: int, count: int = None, difficulty_mult: float = 
         hp_m *= 1.5
         def_m *= 1.5
 
-    if count is None:
-        # Reference count for this archetype at "normal" (1.0) difficulty —
-        # the midpoint of what the old fixed ranges used to roll.
-        if archetype == "swarm":
-            base_count = 4.5
-        elif archetype == "pack":
-            base_count = 3.5
-        elif archetype == "elite":
-            base_count = 1.0
-        else:  # normal
-            base_count = (1 + min(3, 1 + floor_number // 10)) / 2
+    if archetype == "swarm":
+        base_count = 8.0
+    elif archetype == "pack":
+        base_count = 3.5
+    elif archetype == "elite":
+        base_count = 1.0
+    else:  # normal
+        base_count = (1 + min(3, 1 + floor_number // 10)) / 2
 
-        if difficulty_mult == 1.0:
-            count = max(1, round(random.uniform(base_count - 0.5, base_count + 0.5)))
-        else:
-            unit_power = hp_m * (atk_m + def_m)
-            target_total_power = base_count * unit_power * difficulty_mult
-            count = max(1, min(8, round(target_total_power / unit_power))) if unit_power > 0 else max(1, round(base_count))
-            actual_total = count * unit_power
-            # Rounding count to an integer (especially count=1 for elites)
-            # leaves a gap between actual and target total power — close it
-            # with a stat correction so the encounter's real difficulty.
-            # Power is HP * (ATK+DEF) — a product of two corrected terms —
-            # so the correction must be split via sqrt across them, or it
-            # would double-count and land at correction^2 instead.
-            stat_correction = (target_total_power / actual_total) if actual_total > 0 else 1.0
-            half_correction = stat_correction ** 0.5
-            hp_m *= half_correction
-            atk_m *= half_correction
-            def_m *= half_correction
+    max_count = {"swarm": 20, "pack": 10, "elite": 3}.get(archetype, 8)
+
+    if count_override is not None:
+        count = max(1, min(max_count, count_override))
+    elif difficulty_mult == 1.0:
+        count = max(1, min(max_count, round(random.uniform(base_count - 0.5, base_count + 0.5))))
+    else:
+        unit_power = hp_m * (atk_m + def_m)
+        target_total_power = base_count * unit_power * difficulty_mult
+        count = max(1, min(max_count, round(target_total_power / unit_power))) if unit_power > 0 else max(1, round(base_count))
+        actual_total = count * unit_power
+        # Rounding count to an integer (especially count=1 for elites)
+        # leaves a gap between actual and target total power — close it
+        # with a stat correction so the encounter's real difficulty.
+        # Power is Health * (ATK+DEF) — a product of two corrected terms —
+        # so the correction must be split via sqrt across them, or it
+        # would double-count and land at correction^2 instead.
+        stat_correction = (target_total_power / actual_total) if actual_total > 0 else 1.0
+        half_correction = stat_correction ** 0.5
+        hp_m *= half_correction
+        atk_m *= half_correction
+        def_m *= half_correction
 
     import os
     enemy_portrait_path = f"static/portraits/enemies/{name.lower().replace(' ', '_')}.png"
@@ -142,20 +140,60 @@ def make_enemies(floor_number: int, count: int = None, difficulty_mult: float = 
         enemy_portrait_path = ""
 
     abilities = ["cleave"] if archetype == "elite" else []
+    # Enemy "level" is purely a flavor readout matching floor depth (elites
+    # read a little tougher than their floor) — it doesn't feed back into
+    # their actual stats, which are already fully determined by hp_m/atk_m/
+    # def_m above. Duplicates in an encounter now share one name + level tag
+    # ("Rotting Ghoul [Lv 12]") instead of being numbered 1/2/3.
+    enemy_level = max(1, floor_number + (3 if archetype == "elite" else 0))
 
     enemies = []
     for i in range(count):
         enemies.append(CombatUnit(
-            id=-(i+1),
-            name=f"{name} {i+1}" if count > 1 else name,
-            hp=max(1, int(80 * scale * hp_m)), max_hp=max(1, int(80 * scale * hp_m)),
-            attack=max(1, int(8 * scale * atk_m)), defense=int(5 * scale * def_m),
-            speed=int(10 * scale * spd_m),
+            id=-(id_start + i + 1),
+            name=name,
+            level=enemy_level,
+            health=max(1, int(80 * scale * hp_m)), max_health=max(1, int(80 * scale * hp_m)),
+            strength=max(1, int(8 * scale * atk_m)), intelligence=0, defense=int(5 * scale * def_m),
+            agility=int(10 * scale * spd_m),
             morale=100, stress=0, is_hero=False,
             portrait_path=enemy_portrait_path,
             abilities=list(abilities),
         ))
     return enemies
+
+
+def make_enemies(floor_number: int, count: int = None, difficulty_mult: float = 1.0) -> list[CombatUnit]:
+    """
+    Generate enemies for a floor. Difficulty is purely a function of floor
+    number — not the player's team strength. A 7★ team and a 1★ team face
+    the identical floor 10 enemies.
+
+    difficulty_mult scales the TOTAL threat of the encounter (not just enemy
+    count) — a "weak" target against an elite archetype still comes out
+    weaker even though elites can't drop below a count of 1; the shortfall
+    that rounding count to an integer can't absorb gets folded into a stat
+    correction instead. This is what lets a choice like "fight defensively"
+    mean something consistent regardless of which archetype gets rolled,
+    rather than just meaning "fewer enemies" (5 weak swarmers can be an
+    easier fight than 1 elite — raw count alone doesn't capture that).
+    """
+    etype = random.choice(ENEMY_TYPES)
+
+    # Mixed encounters (two different monster types in one fight) are now
+    # the default flavor for common floors — splits the same difficulty
+    # budget across two archetypes instead of always rolling one. Skipped
+    # when the caller passed an explicit count (survival-floor overrides
+    # etc. want one clean group, not a fractional split of a fixed number).
+    if count is None and random.random() < 0.45:
+        other_types = [e for e in ENEMY_TYPES if e[0] != etype[0]]
+        etype2 = random.choice(other_types)
+        split = random.uniform(0.35, 0.65)
+        group1 = _build_enemy_group(etype, floor_number, difficulty_mult * split, id_start=0)
+        group2 = _build_enemy_group(etype2, floor_number, difficulty_mult * (1 - split), id_start=len(group1))
+        return group1 + group2
+
+    return _build_enemy_group(etype, floor_number, difficulty_mult, id_start=0, count_override=count)
 
 
 _UNSET = object()
@@ -180,7 +218,7 @@ def make_boss(floor_number: int, zone_theme: str = "", is_miniboss: bool = False
         name = boss_data.get("name", "Unknown Boss")
         mod = {
             "name": boss_data.get("modifier", "Enraged"),
-            "hp": boss_data.get("hp_multiplier", 1.2),
+            "health": boss_data.get("hp_multiplier", 1.2),
             "atk": boss_data.get("atk_multiplier", 1.2),
             "def": boss_data.get("def_multiplier", 1.0),
             "spd": boss_data.get("spd_multiplier", 1.0)
@@ -193,12 +231,12 @@ def make_boss(floor_number: int, zone_theme: str = "", is_miniboss: bool = False
         ]
         name = boss_names[min(len(boss_names) - 1, floor_number // 10 - 1)]
         boss_modifiers = [
-            {"name": "Enraged", "atk": 1.5, "def": 0.7, "spd": 1.0, "hp": 1.0},
-            {"name": "Armored", "atk": 1.0, "def": 2.0, "spd": 0.8, "hp": 1.0},
-            {"name": "Colossal", "atk": 1.0, "def": 1.0, "spd": 0.7, "hp": 1.8},
-            {"name": "Frenzied", "atk": 1.2, "def": 1.0, "spd": 1.5, "hp": 1.0},
-            {"name": "Vampiric", "atk": 1.1, "def": 1.1, "spd": 1.1, "hp": 1.1},
-            {"name": "Cursed", "atk": 1.3, "def": 0.8, "spd": 1.2, "hp": 0.9},
+            {"name": "Enraged", "atk": 1.5, "def": 0.7, "spd": 1.0, "health": 1.0},
+            {"name": "Armored", "atk": 1.0, "def": 2.0, "spd": 0.8, "health": 1.0},
+            {"name": "Colossal", "atk": 1.0, "def": 1.0, "spd": 0.7, "health": 1.8},
+            {"name": "Frenzied", "atk": 1.2, "def": 1.0, "spd": 1.5, "health": 1.0},
+            {"name": "Vampiric", "atk": 1.1, "def": 1.1, "spd": 1.1, "health": 1.1},
+            {"name": "Cursed", "atk": 1.3, "def": 0.8, "spd": 1.2, "health": 0.9},
         ]
         mod = random.choice(boss_modifiers)
 
@@ -206,8 +244,8 @@ def make_boss(floor_number: int, zone_theme: str = "", is_miniboss: bool = False
         name = f"Lieutenant of {name}"
     
     # Power curves were originally tuned far too aggressively (a floor-10
-    # boss hit for ~106 base attack — a near-instant kill against an early
-    # team's 80-170 HP heroes). Scaled down so a boss is a meaningfully
+    # boss hit for ~106 base strength — a near-instant kill against an early
+    # team's 80-170 Health heroes). Scaled down so a boss is a meaningfully
     # tougher single-target fight, not a one/two-shot machine.
     if is_miniboss:
         power = 1.5 + (floor_number / 40)
@@ -224,9 +262,11 @@ def make_boss(floor_number: int, zone_theme: str = "", is_miniboss: bool = False
     from services.portrait_cache import get_random_boss_portrait
     boss = CombatUnit(
         id=-99, name=boss_title,
-        hp=int(220 * scale * power * mod['hp']), max_hp=int(220 * scale * power * mod['hp']),
-        attack=int(16 * scale * (power * 0.28) * mod['atk']), defense=int(12 * scale * (power * 0.35) * mod['def']),
-        speed=int(8 * scale * mod['spd']),
+        level=max(1, floor_number + (10 if not is_miniboss else 5)),
+        health=int(220 * scale * power * mod['health']), max_health=int(220 * scale * power * mod['health']),
+        strength=int(16 * scale * (power * 0.28) * mod['atk']), intelligence=0,
+        defense=int(12 * scale * (power * 0.35) * mod['def']),
+        agility=int(8 * scale * mod['spd']),
         morale=100, stress=0, is_hero=False,
         portrait_path=get_random_boss_portrait(is_miniboss=is_miniboss),
         abilities=abilities,
@@ -234,11 +274,15 @@ def make_boss(floor_number: int, zone_theme: str = "", is_miniboss: bool = False
     return [boss]
 
 
-def _fear_check(unit: CombatUnit, log: list) -> bool:
+def _fear_check(unit: CombatUnit, log: list, resist_mult: float = 1.0) -> bool:
     """
     Check if a hero is paralyzed by fear this round.
     Based on trauma + stress levels.
     Returns True if the hero is fear-stunned.
+
+    resist_mult comes from a Stoic Leader's leadership bonus (see
+    LEADERSHIP_BONUS) — 1.0 for everyone else, lower when a calm Leader is
+    steadying the whole squad's nerves for the fight.
     """
     if unit.fear_immune or not unit.is_hero:
         return False
@@ -250,11 +294,11 @@ def _fear_check(unit: CombatUnit, log: list) -> bool:
     if trauma < 40:
         return False
     elif trauma < 60:
-        chance = 0.08 + (stress * 0.001)
+        chance = (0.08 + (stress * 0.001)) * resist_mult
     elif trauma < 80:
-        chance = 0.15 + (stress * 0.002)
+        chance = (0.15 + (stress * 0.002)) * resist_mult
     else:
-        chance = 0.25 + (stress * 0.003)
+        chance = (0.25 + (stress * 0.003)) * resist_mult
 
     if random.random() < chance:
         unit.fear_stunned = True
@@ -270,9 +314,128 @@ def _fear_check(unit: CombatUnit, log: list) -> bool:
     return False
 
 
+# battle_tendency -> the whole squad's passive combat modifier while this
+# Leader is assigned, scaled by leader_star_mult where it's applied. Tuned
+# so a single tendency never reads as strictly better than another — each
+# is a different flavor of "this squad fights like its Leader."
+LEADERSHIP_BONUS = {
+    "Reckless":      {"atk_mult": 0.04},
+    "Calculating":   {"def_mult": 0.04, "crit_bonus": 0.02},
+    "Protective":    {"def_mult": 0.06},
+    "Glory-Seeking": {"crit_bonus": 0.04},
+    "Vengeful":      {"atk_mult": 0.03, "crit_bonus": 0.02},
+    "Stoic":         {"fear_resist": 0.3},  # scales down the whole squad's fear/panic chance
+}
+LEADER_STEADY_CHANCE_BASE = 0.10  # per star, per-round chance to snap a squadmate out of fear/panic
+
+TENDENCY_TARGET_OVERRIDE_CHANCE = 0.3
+
+def _apply_tendency_target_override(default_target: CombatUnit, candidates: list[CombatUnit], squad_tendency: str | None) -> CombatUnit:
+    """Light, probabilistic nudge driven by the team Leader's battle_tendency
+    (squad_tendency) — never overrides class-locked targeting rules (e.g.
+    Assassin's backline rule, handled entirely by the caller before this is
+    invoked), and only fires some of the time so it reshuffles focus rather
+    than replacing the existing front-to-back logic outright."""
+    if not squad_tendency or len(candidates) < 2:
+        return default_target
+    if random.random() > TENDENCY_TARGET_OVERRIDE_CHANCE:
+        return default_target
+
+    if squad_tendency in ("Reckless", "Glory-Seeking"):
+        return min(candidates, key=lambda u: u.health)
+    elif squad_tendency == "Calculating":
+        return max(candidates, key=lambda u: u.strength)
+    return default_target
+
+
+TENDENCY_FLAVOR_CHANCE = 0.25
+TENDENCY_KILL_LINES = {
+    "Reckless": "  ✦ {attacker} doesn't even wait to see {target} fall before moving on.",
+    "Calculating": "  ✦ {attacker} finishes {target} with cold precision.",
+    "Protective": "  ✦ {attacker} ends {target} without hesitation — no one else gets hurt today.",
+    "Glory-Seeking": "  ✦ {attacker} makes a show of {target}'s fall.",
+    "Vengeful": "  ✦ {attacker} drives the killing blow home like it's personal.",
+    "Stoic": "  ✦ {target} falls.",
+}
+
+def _kill_log_line(attacker: CombatUnit, target: CombatUnit) -> str:
+    """Occasionally flavors a kill with the attacker's OWN battle_tendency
+    (individual flavor — distinct from the leader-driven squad targeting
+    nudge above, which is about who gets targeted, not how it's narrated)."""
+    if random.random() < TENDENCY_FLAVOR_CHANCE and attacker.battle_tendency in TENDENCY_KILL_LINES:
+        return TENDENCY_KILL_LINES[attacker.battle_tendency].format(attacker=attacker.log_name, target=target.log_name)
+    return f"  ✦ {target.log_name} falls."
+
+
+# Star rank no longer makes a hero immune to panic outright — it just makes
+# it less likely, alongside talent and battle_tendency. The chance is then
+# scaled by the encounter's power_ratio (enemy power / hero power for this
+# fight, from the same difficulty-budget numbers make_enemies already uses)
+# so a curb-stomp panics people regardless of star, and a clean win rarely
+# does even for a 1-star.
+PANIC_BASE_CHANCE_BY_STAR = {1: 0.20, 2: 0.14, 3: 0.10, 4: 0.07, 5: 0.05, 6: 0.035, 7: 0.025}
+# Reckless/Calculating are no more fear-prone than anyone else now, but the
+# OTHER tendencies hold up better under pressure — Protective/Stoic/Vengeful
+# shield, steel themselves, or get angry instead of scared; Glory-Seeking is
+# partway between (vain confidence helps some, but not as much as the above).
+TENDENCY_PANIC_RESIST = {
+    "Protective": 0.5, "Stoic": 0.55, "Vengeful": 0.6, "Glory-Seeking": 0.8,
+}
+
+# Panic doesn't remove a hero from the fight, it makes them WORSE off in it —
+# there's no escaping the floor, you clear it or you don't:
+#   - Reckless/Glory-Seeking break formation and get isolated — exposed,
+#     take bonus damage, become the enemy's preferred target.
+#   - Everyone else falls back defensively instead, skipping their strength
+#     to brace and try to survive the next hit.
+ISOLATED_ROUNDS = 2
+BRACING_ROUNDS = 1
+
+def _panic_check(unit: CombatUnit, trigger: str, log: list, power_ratio: float = 1.0, resist_mult: float = 1.0) -> bool:
+    """Any hero can panic now — star rank, talent, and battle_tendency reduce
+    susceptibility rather than gating it outright. Distinct from the
+    trauma-gated _fear_check above (which just skips a turn) — this is a
+    rarer, harsher response triggered by specific events (witnessing a death,
+    dropping critically low) rather than an ongoing trauma/stress level."""
+    if not unit.is_hero or not unit.alive:
+        return False
+    if unit.isolated_rounds > 0 or unit.bracing_rounds > 0:
+        return False  # already panicking this fight, don't restack
+
+    base = PANIC_BASE_CHANCE_BY_STAR.get(unit.hero_star, 0.02)
+    base *= (1.0 - unit.talent * 0.4)  # talented heroes keep their cool better
+    tendency_resist = TENDENCY_PANIC_RESIST.get(unit.battle_tendency, 1.0)
+    chance = base * tendency_resist * resist_mult * max(0.4, min(2.2, power_ratio))
+    if trigger == "hp_critical":
+        chance *= 1.5
+    if random.random() >= chance:
+        return False
+
+    if unit.battle_tendency in ("Reckless", "Glory-Seeking"):
+        unit.isolated_rounds = ISOLATED_ROUNDS
+        isolated_lines = [
+            f"  {unit.name} panics and breaks formation — exposed and alone!",
+            f"  {unit.name} loses their head and charges off-formation!",
+            f"  {unit.name} scatters from the group, vulnerable.",
+        ]
+        log.append(random.choice(isolated_lines))
+    else:
+        unit.bracing_rounds = BRACING_ROUNDS
+        bracing_lines = [
+            f"  {unit.name} abandons the offensive, bracing defensively to survive.",
+            f"  {unit.name} knows running alone is a death sentence — they dig in instead.",
+            f"  {unit.name} falls back, covering themselves rather than attacking.",
+        ]
+        log.append(random.choice(bracing_lines))
+    return True
+
+
 def calc_damage(attacker: CombatUnit, defender: CombatUnit) -> tuple[int, bool]:
     effective_def = defender.defense * (1 - attacker.armor_pen)
-    base = attacker.attack * (100 / (100 + max(0, effective_def)))
+    if defender.bracing_rounds > 0:
+        effective_def *= 1.6  # bracing defensively to survive — the whole point of not fleeing
+    power = attacker.intelligence if attacker.power_stat == "intelligence" else attacker.strength
+    base = power * (100 / (100 + max(0, effective_def)))
 
     if attacker.is_hero and attacker.morale < 40:
         morale_factor = 0.5 + (attacker.morale / 80)
@@ -280,6 +443,12 @@ def calc_damage(attacker: CombatUnit, defender: CombatUnit) -> tuple[int, bool]:
 
     variance = random.uniform(0.85, 1.15)
     damage = max(1, int(base * variance))
+
+    if defender.dmg_reduction_pct > 0:
+        damage = max(1, int(damage * (1 - defender.dmg_reduction_pct)))
+
+    if defender.isolated_rounds > 0:
+        damage = int(damage * 1.3)  # exposed and unsupported, out of formation
 
     is_crit = random.random() < attacker.crit_chance
     if is_crit:
@@ -289,23 +458,23 @@ def calc_damage(attacker: CombatUnit, defender: CombatUnit) -> tuple[int, bool]:
 
 
 # Enemy signature abilities — elite/miniboss/boss tiers get 1-2 of these
-# instead of just a plain basic attack every turn. "cleave" can recur each
+# instead of just a plain basic strength every turn. "cleave" can recur each
 # turn (chance-gated); the rest are one-time triggers gated on the
-# attacker's own HP, tracked via used_abilities so they only fire once.
+# attacker's own Health, tracked via used_abilities so they only fire once.
 def _try_use_ability(attacker: CombatUnit, alive_heroes: list, log: list, morale_changes: dict, stress_changes: dict) -> bool:
-    """Returns True if an ability fired this turn (attacker's normal attack
-    is skipped), False to fall through to a normal attack."""
-    hp_pct = attacker.hp / attacker.max_hp if attacker.max_hp else 0
+    """Returns True if an ability fired this turn (attacker's normal strength
+    is skipped), False to fall through to a normal strength."""
+    hlt_pct = attacker.health / attacker.max_health if attacker.max_health else 0
 
     if "cleave" in attacker.abilities and random.random() < 0.20:
         log.append(f"  ⚔ {attacker.log_name} cleaves at the whole party!")
         for target in alive_heroes:
             damage, is_crit = calc_damage(attacker, target)
             damage = int(damage * 0.5)
-            target.hp -= damage
+            target.health -= damage
             crit_text = " CRIT!" if is_crit else ""
-            log.append(f"    → {target.log_name} takes {damage}{crit_text} [{max(0,target.hp)}/{target.max_hp}]")
-            if target.hp <= 0:
+            log.append(f"    → {target.log_name} takes {damage}{crit_text} [{max(0,target.health)}/{target.max_health}]")
+            if target.health <= 0:
                 target.alive = False
                 log.append(f"    ✦ {target.log_name} has fallen.")
                 for h in alive_heroes:
@@ -314,34 +483,34 @@ def _try_use_ability(attacker: CombatUnit, alive_heroes: list, log: list, morale
                         stress_changes[h.id] = stress_changes.get(h.id, 0) + random.randint(5, 12)
         return True
 
-    if "enrage" in attacker.abilities and "enrage" not in attacker.used_abilities and hp_pct < 0.5:
+    if "enrage" in attacker.abilities and "enrage" not in attacker.used_abilities and hlt_pct < 0.5:
         attacker.used_abilities.add("enrage")
-        attacker.attack = int(attacker.attack * 1.4)
-        log.append(f"  ⚡ {attacker.log_name} flies into a rage! Attack sharply rises!")
-        return False  # still takes a normal attack this turn, just buffed first
+        attacker.strength = int(attacker.strength * 1.4)
+        log.append(f"  ⚡ {attacker.log_name} flies into a rage! Strength sharply rises!")
+        return False  # still takes a normal strength this turn, just buffed first
 
-    if "crushing_blow" in attacker.abilities and "crushing_blow" not in attacker.used_abilities and hp_pct < 0.7 and alive_heroes:
+    if "crushing_blow" in attacker.abilities and "crushing_blow" not in attacker.used_abilities and hlt_pct < 0.7 and alive_heroes:
         attacker.used_abilities.add("crushing_blow")
-        target = max(alive_heroes, key=lambda h: h.hp)
+        target = max(alive_heroes, key=lambda h: h.health)
         damage, is_crit = calc_damage(attacker, target)
         damage = int(damage * 2.2)
-        target.hp -= damage
-        log.append(f"  ☠ {attacker.log_name} unleashes a CRUSHING BLOW on {target.log_name} for {damage} damage! [{max(0,target.hp)}/{target.max_hp}]")
-        if target.hp <= 0:
+        target.health -= damage
+        log.append(f"  ☠ {attacker.log_name} unleashes a CRUSHING BLOW on {target.log_name} for {damage} damage! [{max(0,target.health)}/{target.max_health}]")
+        if target.health <= 0:
             target.alive = False
             log.append(f"    ✦ {target.log_name} has fallen.")
         return True
 
-    if "last_stand" in attacker.abilities and "last_stand" not in attacker.used_abilities and hp_pct < 0.2:
+    if "last_stand" in attacker.abilities and "last_stand" not in attacker.used_abilities and hlt_pct < 0.2:
         attacker.used_abilities.add("last_stand")
-        heal = int(attacker.max_hp * 0.25)
-        attacker.hp = min(attacker.max_hp, attacker.hp + heal)
-        log.append(f"  ✚ {attacker.log_name} makes a last stand, recovering {heal} HP! [{attacker.hp}/{attacker.max_hp}]")
+        heal = int(attacker.max_health * 0.25)
+        attacker.health = min(attacker.max_health, attacker.health + heal)
+        log.append(f"  ✚ {attacker.log_name} makes a last stand, recovering {heal} Health! [{attacker.health}/{attacker.max_health}]")
         return True
 
     return False
 
-def run_combat(heroes: list[dict], floor_number: int, is_boss: bool = False, is_miniboss: bool = False, zone_theme: str = "", boss_data_override=_UNSET, enemy_count_override: int = None, difficulty_mult: float = 1.0) -> dict:
+def run_combat(heroes: list[dict], floor_number: int, is_boss: bool = False, is_miniboss: bool = False, zone_theme: str = "", boss_data_override=_UNSET, enemy_count_override: int = None, difficulty_mult: float = 1.0, preset_enemies: list = None, outer_conn=None) -> dict:
     log = []
     turns = []
     morale_changes = {h["id"]: 0 for h in heroes}
@@ -387,19 +556,29 @@ def run_combat(heroes: list[dict], floor_number: int, is_boss: bool = False, is_
         modified = apply_class_combat_modifiers(scaled)
         
         # Apply team class buffs
-        if team_atk_mult > 1.0: modified["attack"] = int(modified["attack"] * team_atk_mult)
-        if team_def_mult > 1.0: modified["defense"] = int(modified["defense"] * team_def_mult)
-        if team_spd_mult > 1.0: modified["speed"] = int(modified["speed"] * team_spd_mult)
+        if team_atk_mult > 1.0: modified["strength"] = int(modified["strength"] * team_atk_mult)
+        if team_def_mult > 1.0: modified["defense"] = int(modified.get("defense", 5) * team_def_mult)
+        if team_spd_mult > 1.0: modified["agility"] = int(modified["agility"] * team_spd_mult)
         
+        # Apply Depression Penalty (-75% stats)
+        if modified.get("condition") == "Depressed":
+            modified["strength"] = max(1, int(modified["strength"] * 0.25))
+            modified["agility"] = max(1, int(modified["agility"] * 0.25))
+            modified["intelligence"] = max(1, int(modified["intelligence"] * 0.25))
+            modified["defense"] = max(1, int(modified.get("defense", 5) * 0.25))
+            modified["max_health"] = max(1, int(modified["max_health"] * 0.25))
+            modified["health"] = min(modified["health"], modified["max_health"])
+
         # Apply synergy buff
         sg = modified.get("synergy_group")
         if sg and synergy_counts.get(sg, 0) > 1:
             multiplier = 1.0 + (0.05 * synergy_counts[sg])
-            modified["max_hp"] = int(modified["max_hp"] * multiplier)
-            modified["hp"] = modified["max_hp"]
-            modified["attack"] = int(modified["attack"] * multiplier)
-            modified["defense"] = int(modified["defense"] * multiplier)
-            modified["speed"] = int(modified["speed"] * multiplier)
+            modified["max_health"] = int(modified["max_health"] * multiplier)
+            modified["health"] = modified["max_health"]
+            modified["strength"] = int(modified["strength"] * multiplier)
+            modified["intelligence"] = int(modified["intelligence"] * multiplier)
+            modified["defense"] = int(modified.get("defense", 5) * multiplier)
+            modified["agility"] = int(modified["agility"] * multiplier)
 
         # Apply equipment bonuses
         try:
@@ -426,11 +605,11 @@ def run_combat(heroes: list[dict], floor_number: int, is_boss: bool = False, is_
             with db() as conn:
                 lp_data = get_floor_lp(conn, modified.get("base_floor", 1))
                 lp_mult = 1.0 + (lp_data["stat_bonus_pct"] / 100.0)
-                modified["max_hp"] = int(modified["max_hp"] * lp_mult)
-                modified["hp"] = min(modified["max_hp"], modified["hp"])
-                modified["attack"] = int(modified["attack"] * lp_mult)
-                modified["defense"] = int(modified["defense"] * lp_mult)
-                modified["speed"] = int(modified["speed"] * lp_mult)
+                modified["max_health"] = int(modified["max_health"] * lp_mult)
+                modified["health"] = min(modified["max_health"], modified["health"])
+                modified["strength"] = int(modified["strength"] * lp_mult)
+                modified["intelligence"] = int(modified["intelligence"] * lp_mult)
+                modified["agility"] = int(modified["agility"] * lp_mult)
         except Exception:
             pass
 
@@ -438,11 +617,11 @@ def run_combat(heroes: list[dict], floor_number: int, is_boss: bool = False, is_
         bond_lvl = bond_totals.get(modified["id"], 0)
         if bond_lvl > 0:
             bond_mult = 1.0 + (0.01 * bond_lvl)
-            modified["max_hp"] = int(modified["max_hp"] * bond_mult)
-            modified["hp"] = min(modified["max_hp"], modified["hp"])
-            modified["attack"] = int(modified["attack"] * bond_mult)
-            modified["defense"] = int(modified["defense"] * bond_mult)
-            modified["speed"] = int(modified["speed"] * bond_mult)
+            modified["max_health"] = int(modified["max_health"] * bond_mult)
+            modified["health"] = min(modified["max_health"], modified["health"])
+            modified["strength"] = int(modified["strength"] * bond_mult)
+            modified["intelligence"] = int(modified["intelligence"] * bond_mult)
+            modified["agility"] = int(modified["agility"] * bond_mult)
 
         # Apply passive skills and traits
         if "skills" in h and h["skills"]:
@@ -478,9 +657,12 @@ def run_combat(heroes: list[dict], floor_number: int, is_boss: bool = False, is_
     for h in processed:
         hero_unit = CombatUnit(
             id=h["id"], name=h["name"],
-            hp=h["hp"], max_hp=h["max_hp"],
-            attack=h["attack"], defense=h["defense"],
-            speed=h["speed"], morale=h["morale"], stress=h["stress"],
+            level=h.get("level", 1),
+            health=h["health"], max_health=h["max_health"],
+            strength=h["strength"], intelligence=h["intelligence"],
+            agility=h["agility"], morale=h["morale"], stress=h["stress"],
+            defense=h.get("defense", 5), power_stat=h.get("power_stat", "strength"),
+            dmg_reduction_pct=h.get("dmg_reduction_pct", 0.0),
             trauma=h.get("trauma", 0),
             hero_class=h.get("hero_class", "Classless"),
             is_ranged=h.get("is_ranged", False),
@@ -496,18 +678,21 @@ def run_combat(heroes: list[dict], floor_number: int, is_boss: bool = False, is_
             talent=talent_score(h),
             regen_pct=h.get("regen_pct", 0.0),
             hero_star=get_hero_star(h),
+            battle_tendency=h.get("battle_tendency") or "Stoic",
+            is_team_leader=bool(h.get("is_team_leader")),
         )
         combatants_heroes.append(hero_unit)
         
         # Summon construct if the hero has the has_construct flag
         if h.get("has_construct"):
-            c_hp = int(h["max_hp"] * 1.5)
-            c_atk = int(h["attack"] * 0.8)
-            c_def = int(h["defense"] * 1.5)
-            c_spd = int(h["speed"] * 0.7)
+            c_hp = int(h["max_health"] * 1.5)
+            c_atk = int(h["strength"] * 0.8)
+            c_def = int(h.get("defense", 5) * 1.5)
+            c_spd = int(h["agility"] * 0.7)
             construct_unit = CombatUnit(
                 id=construct_id, name=f"{h['name']}'s Construct",
-                hp=c_hp, max_hp=c_hp, attack=c_atk, defense=c_def, speed=c_spd,
+                level=h.get("level", 1),
+                health=c_hp, max_health=c_hp, strength=c_atk, intelligence=0, defense=c_def, agility=c_spd,
                 morale=100, stress=0, hero_class="Construct", fear_immune=True
             )
             combatants_heroes.append(construct_unit)
@@ -516,21 +701,29 @@ def run_combat(heroes: list[dict], floor_number: int, is_boss: bool = False, is_
 
     # Generate enemies — difficulty is purely floor-based, not adaptive to team strength.
     if is_boss or is_miniboss:
-        enemies = make_boss(floor_number, zone_theme, is_miniboss, boss_data_override=boss_data_override)
+        if preset_enemies:
+            enemies = preset_enemies
+        else:
+            enemies = make_boss(floor_number, zone_theme, is_miniboss, boss_data_override=boss_data_override)
         log.append(f"🔥💀🔥 {'MINIBOSS' if is_miniboss else 'BOSS'} FLOOR {floor_number} 🔥💀🔥")
         log.append(f"  {enemies[0].name} emerges from the darkness.")
     else:
-        enemies = make_enemies(floor_number, count=enemy_count_override, difficulty_mult=difficulty_mult)
+        if preset_enemies:
+            enemies = preset_enemies
+        else:
+            enemies = make_enemies(floor_number, count=enemy_count_override, difficulty_mult=difficulty_mult)
 
     initial_state = {
         "is_boss": is_boss,
         "is_miniboss": is_miniboss,
         "heroes": [
-            {"id": h.id, "name": h.name, "hero_class": h.hero_class, "max_hp": h.max_hp, "hp": h.hp, "portrait_path": h.portrait_path}
+            {"id": h.id, "name": h.name, "hero_class": h.hero_class, "max_health": h.max_health, "health": h.health,
+             "portrait_path": h.portrait_path, "hero_star": h.hero_star, "level": h.level,
+             "power_stat": h.power_stat, "is_ranged": h.is_ranged}
             for h in combatants_heroes
         ],
         "enemies": [
-            {"id": e.id, "name": e.name, "max_hp": e.max_hp, "hp": e.hp, "portrait_path": e.portrait_path}
+            {"id": e.id, "name": e.name, "max_health": e.max_health, "health": e.health, "portrait_path": e.portrait_path, "level": e.level}
             for e in enemies
         ]
     }
@@ -547,11 +740,48 @@ def run_combat(heroes: list[dict], floor_number: int, is_boss: bool = False, is_
 
     all_units = combatants_heroes + enemies
     max_rounds = 30
-    
+
+    # Squad tactical doctrine: if the team has a manually-assigned Leader, their
+    # battle_tendency nudges everyone's default targeting choice (a "the whole
+    # squad fights the way the Leader fights" effect) — leaderless teams have
+    # no doctrine and fall back to the unmodified default targeting entirely.
+    squad_leader = next((h for h in combatants_heroes if h.is_team_leader), None)
+    squad_tendency = squad_leader.battle_tendency if squad_leader else None
+
+    # Leadership bonus: a manually-assigned Leader's battle_tendency grants
+    # the whole squad one passive combat-wide modifier for the fight, scaled
+    # by the Leader's own star rank — a 1-star Leader barely rallies anyone,
+    # a 7-star one is a real force multiplier. Layered on top of the
+    # targeting-doctrine nudge above and the fear-steadying check below.
+    leader_star_mult = 1.0
+    leader_steady_chance = 0.0
+    fear_resist_mult = 1.0
+    if squad_leader:
+        leader_star_mult = 1 + (squad_leader.hero_star - 1) * 0.3
+        bonus = LEADERSHIP_BONUS.get(squad_leader.battle_tendency, {})
+        atk_mult = 1 + bonus.get("atk_mult", 0) * leader_star_mult
+        def_mult = 1 + bonus.get("def_mult", 0) * leader_star_mult
+        crit_bonus = bonus.get("crit_bonus", 0) * leader_star_mult
+        if atk_mult != 1 or def_mult != 1 or crit_bonus:
+            for h in combatants_heroes:
+                if atk_mult != 1: h.strength = int(h.strength * atk_mult)
+                if def_mult != 1: h.defense = int(h.defense * def_mult)
+                if crit_bonus: h.crit_chance += crit_bonus
+        if bonus.get("fear_resist"):
+            fear_resist_mult = 1 - min(0.6, bonus["fear_resist"] * leader_star_mult)
+        leader_steady_chance = LEADER_STEADY_CHANCE_BASE * leader_star_mult
+
+    # Encounter power ratio (enemy power / hero power) — gates universal
+    # panic susceptibility below; a lopsided fight panics people regardless
+    # of star, a clean win rarely does even for a 1-star.
+    hero_power = sum(h.strength + h.intelligence + h.defense + h.max_health * 0.05 for h in combatants_heroes) or 1
+    enemy_power = sum(e.strength + e.defense + e.max_health * 0.05 for e in enemies) or 1
+    power_ratio = enemy_power / hero_power
+
     damage_dealt_stats = {h.id: 0 for h in combatants_heroes}
 
     for round_num in range(1, max_rounds + 1):
-        all_units.sort(key=lambda u: u.speed + random.uniform(0, 2), reverse=True)
+        all_units.sort(key=lambda u: u.agility + random.uniform(0, 2), reverse=True)
 
         alive_heroes  = [u for u in combatants_heroes if u.alive]
         alive_enemies = [u for u in enemies if u.alive]
@@ -561,14 +791,33 @@ def run_combat(heroes: list[dict], floor_number: int, is_boss: bool = False, is_
         # ─── Fear checks at start of each round ───
         for hero in alive_heroes:
             hero.fear_stunned = False  # Reset from last round
-            _fear_check(hero, log)
+            _fear_check(hero, log, fear_resist_mult)
+            if hero.isolated_rounds > 0:
+                hero.isolated_rounds -= 1
+            if hero.bracing_rounds > 0:
+                hero.bracing_rounds -= 1
+
+        # A steady Leader can pull a squadmate back together mid-fight —
+        # personality-flavored, not guaranteed, and the Leader can't steady
+        # themselves.
+        if squad_leader and squad_leader.alive and not squad_leader.fear_stunned and leader_steady_chance > 0:
+            for hero in alive_heroes:
+                if hero is squad_leader:
+                    continue
+                if hero.fear_stunned and random.random() < leader_steady_chance:
+                    hero.fear_stunned = False
+                    log.append(f"  ◆ {squad_leader.log_name} steadies {hero.log_name} — the line holds.")
+                elif (hero.isolated_rounds > 0 or hero.bracing_rounds > 0) and random.random() < leader_steady_chance:
+                    hero.isolated_rounds = 0
+                    hero.bracing_rounds = 0
+                    log.append(f"  ◆ {squad_leader.log_name} snaps {hero.log_name} out of it — formation reforms.")
 
         # ─── Relic/skill regen ticks ───
         for unit in alive_heroes + alive_enemies:
-            if unit.regen_pct > 0 and unit.hp < unit.max_hp:
-                heal = int(unit.max_hp * unit.regen_pct)
-                unit.hp = min(unit.max_hp, unit.hp + heal)
-                log.append(f"  ✚ {unit.log_name} regenerates {heal} HP [{unit.hp}/{unit.max_hp}]")
+            if unit.regen_pct > 0 and unit.health < unit.max_health:
+                heal = int(unit.max_health * unit.regen_pct)
+                unit.health = min(unit.max_health, unit.health + heal)
+                log.append(f"  ✚ {unit.log_name} regenerates {heal} Health [{unit.health}/{unit.max_health}]")
 
         alive_frontline = [h for h in frontline if h.alive]
 
@@ -579,6 +828,11 @@ def run_combat(heroes: list[dict], floor_number: int, is_boss: bool = False, is_
             # Fear-stunned heroes skip their turn
             if attacker.is_hero and attacker.fear_stunned:
                 stress_changes[attacker.id] = stress_changes.get(attacker.id, 0) + 5
+                continue
+
+            # Bracing heroes forgo their strength to hunker down defensively
+            if attacker.is_hero and attacker.bracing_rounds > 0:
+                log.append(f"  {attacker.name} stays braced, watching for an opening.")
                 continue
 
             if attacker.is_hero:
@@ -592,12 +846,12 @@ def run_combat(heroes: list[dict], floor_number: int, is_boss: bool = False, is_
                     for target in targets:
                         damage, is_crit = calc_damage(attacker, target)
                         damage_dealt_stats[attacker.id] += damage
-                        target.hp -= damage
+                        target.health -= damage
                         crit_text = " CRIT!" if is_crit else ""
-                        log_msg = f"    → {target.log_name} takes {damage}{crit_text} [{max(0,target.hp)}/{target.max_hp}]"
+                        log_msg = f"    → {target.log_name} takes {damage}{crit_text} [{max(0,target.health)}/{target.max_health}]"
                         log.append(log_msg)
-                        turns.append({"round": round_num, "attacker_id": attacker.id, "target_id": target.id, "damage": damage, "is_crit": is_crit, "target_hp": max(0, target.hp), "log": log_msg})
-                        if target.hp <= 0:
+                        turns.append({"round": round_num, "attacker_id": attacker.id, "target_id": target.id, "damage": damage, "is_crit": is_crit, "target_hp": max(0, target.health), "log": log_msg})
+                        if target.health <= 0:
                             target.alive = False
                             attacker.kills += 1
                             kill_counts[attacker.id] = kill_counts.get(attacker.id, 0) + 1
@@ -621,6 +875,9 @@ def run_combat(heroes: list[dict], floor_number: int, is_boss: bool = False, is_
                             target = random.choice(alive_backline_enemies)
                         else:
                             continue
+                        # Squad tactical doctrine — only applies to this unlocked
+                        # default-targeting branch, never to the Assassin rule above.
+                        target = _apply_tendency_target_override(target, targets, squad_tendency)
 
                     # Dodge check
                     if random.random() < target.dodge_chance and not attacker.is_hero:
@@ -636,24 +893,24 @@ def run_combat(heroes: list[dict], floor_number: int, is_boss: bool = False, is_
                         log.append(f"  {target.name}'s construct absorbs the hit!")
                         continue
 
-                    target.hp -= damage
+                    target.health -= damage
                     crit_text = " CRIT!" if is_crit else ""
-                    log_msg = f"  {attacker.log_name} hits {target.log_name} for {damage}{crit_text} [{max(0,target.hp)}/{target.max_hp}]"
+                    log_msg = f"  {attacker.log_name} hits {target.log_name} for {damage}{crit_text} [{max(0,target.health)}/{target.max_health}]"
                     log.append(log_msg)
-                    turns.append({"round": round_num, "attacker_id": attacker.id, "target_id": target.id, "damage": damage, "is_crit": is_crit, "target_hp": max(0, target.hp), "log": log_msg})
+                    turns.append({"round": round_num, "attacker_id": attacker.id, "target_id": target.id, "damage": damage, "is_crit": is_crit, "target_hp": max(0, target.health), "log": log_msg})
 
-                    if target.hp <= 0:
+                    if target.health <= 0:
                         target.alive = False
                         attacker.kills += 1
                         kill_counts[attacker.id] = kill_counts.get(attacker.id, 0) + 1
-                        log.append(f"  ✦ {target.log_name} falls.")
+                        log.append(_kill_log_line(attacker, target))
                         morale_changes[attacker.id] = morale_changes.get(attacker.id, 0) + random.randint(2, 5)
 
             else:
                 if attacker.abilities:
                     alive_heroes_now = [h for h in combatants_heroes if h.alive]
                     if alive_heroes_now and _try_use_ability(attacker, alive_heroes_now, log, morale_changes, stress_changes):
-                        continue  # ability replaced the normal attack this turn
+                        continue  # ability replaced the normal strength this turn
 
                 alive_frontline = [h for h in frontline if h.alive]
                 alive_backline = [h for h in backline if h.alive]
@@ -666,9 +923,15 @@ def run_combat(heroes: list[dict], floor_number: int, is_boss: bool = False, is_
                 else:
                     continue
 
+                # An isolated hero is exposed and out of formation — enemies
+                # preferentially pick them off over the formation's intended target.
+                isolated_targets = [h for h in (alive_frontline + alive_backline) if h.isolated_rounds > 0]
+                if isolated_targets:
+                    target = random.choice(isolated_targets)
+
                 # Dodge check for thief
                 if random.random() < target.dodge_chance:
-                    log.append(f"  {target.name} dodges {attacker.log_name}'s attack!")
+                    log.append(f"  {target.name} dodges {attacker.log_name}'s strength!")
                     continue
 
                 # Construct check
@@ -678,17 +941,17 @@ def run_combat(heroes: list[dict], floor_number: int, is_boss: bool = False, is_
                     continue
 
                 damage, is_crit = calc_damage(attacker, target)
-                target.hp -= damage
+                target.health -= damage
                 crit_text = " CRIT!" if is_crit else ""
-                log_msg = f"  {attacker.log_name} hits {target.log_name} for {damage}{crit_text} [{max(0,target.hp)}/{target.max_hp}]"
+                log_msg = f"  {attacker.log_name} hits {target.log_name} for {damage}{crit_text} [{max(0,target.health)}/{target.max_health}]"
                 log.append(log_msg)
-                turns.append({"round": round_num, "attacker_id": attacker.id, "target_id": target.id, "damage": damage, "is_crit": is_crit, "target_hp": max(0, target.hp), "log": log_msg})
+                turns.append({"round": round_num, "attacker_id": attacker.id, "target_id": target.id, "damage": damage, "is_crit": is_crit, "target_hp": max(0, target.health), "log": log_msg})
 
-                if target.hp <= 0:
+                if target.health <= 0:
                     # Death save check
                     if target.death_save > 0:
                         target.death_save -= 1
-                        target.hp = 1
+                        target.health = 1
                         log.append(f"  ✦ {target.log_name} refuses to fall! (Undying Will)")
                         continue
 
@@ -700,6 +963,9 @@ def run_combat(heroes: list[dict], floor_number: int, is_boss: bool = False, is_
                             morale_changes[h.id] = morale_changes.get(h.id, 0) - random.randint(8, 18)
                             stress_changes[h.id] = stress_changes.get(h.id, 0) + random.randint(5, 12)
                             log.append(f"    {h.name}'s morale wavers...")
+                            _panic_check(h, "witness_death", log, power_ratio, fear_resist_mult)
+                elif target.health > 0 and (target.health / target.max_health) < 0.25:
+                    _panic_check(target, "hp_critical", log, power_ratio, fear_resist_mult)
 
         alive_heroes  = [u for u in combatants_heroes if u.alive]
         alive_enemies = [u for u in enemies if u.alive]
@@ -769,7 +1035,7 @@ def run_combat(heroes: list[dict], floor_number: int, is_boss: bool = False, is_
         "surviving_heroes": [
             {
                 "id": h.id,
-                "hp": max(0, h.hp),
+                "health": max(0, h.health),
                 "morale_delta": morale_changes.get(h.id, 0),
                 "kills_gained": kill_counts.get(h.id, 0),
                 "stress_delta": stress_changes.get(h.id, 0),
@@ -777,6 +1043,7 @@ def run_combat(heroes: list[dict], floor_number: int, is_boss: bool = False, is_
             for h in alive_heroes
         ],
         "dead_heroes": [h.id for h in dead_heroes],
+        "surviving_enemies": alive_enemies,
         "skill_upgrades": skill_upgrades,
         "skills_learned": skills_learned,
         "log": log,
@@ -787,10 +1054,19 @@ def run_combat(heroes: list[dict], floor_number: int, is_boss: bool = False, is_
 
     if heroes_won:
         try:
-            from database import db
-            with db() as conn:
-                base_info = conn.execute("SELECT global_buffs FROM base WHERE id = 1").fetchone()
+            # Reuse the caller's connection if it handed one in — opening a
+            # second connection here while the caller's own `with db()`
+            # transaction is still uncommitted causes "database is locked"
+            # on SQLite, which this block's except then silently swallowed,
+            # also skipping the gold/supplies/materials grant below it.
+            if outer_conn is not None:
+                base_info = outer_conn.execute("SELECT global_buffs FROM base WHERE id = 1").fetchone()
                 buffs = __import__('json').loads(base_info["global_buffs"] or "{}") if base_info else {}
+            else:
+                from database import db
+                with db() as _conn:
+                    base_info = _conn.execute("SELECT global_buffs FROM base WHERE id = 1").fetchone()
+                    buffs = __import__('json').loads(base_info["global_buffs"] or "{}") if base_info else {}
             from services.equipment_service import generate_equipment_drop
             drop_bonus = buffs.get("drop_boost", 0) * 0.05
             equip = generate_equipment_drop(floor_number, is_boss, drop_bonus)
@@ -798,7 +1074,7 @@ def run_combat(heroes: list[dict], floor_number: int, is_boss: bool = False, is_
                 result["equipment_drop"] = equip
 
             from services.relics_service import roll_relic_drop
-            relic = roll_relic_drop(is_boss, is_miniboss, floor_number)
+            relic = roll_relic_drop(is_boss, is_miniboss, floor_number, conn=outer_conn)
             if relic:
                 result["relic_drop"] = relic
 
@@ -824,3 +1100,93 @@ def run_combat(heroes: list[dict], floor_number: int, is_boss: bool = False, is_
             print(f"Error generating drop: {e}")
 
     return result
+
+def run_multi_combat(hero_teams: list[list[dict]], floor_number: int, is_boss: bool = False, is_miniboss: bool = False, zone_theme: str = "", boss_data_override=_UNSET, difficulty_mult: float = 1.0, conn=None) -> dict:
+    # Raid Boss (Every 20th floor is Raid Boss)
+    if is_boss and floor_number % 20 == 0:
+        combined_heroes = []
+        for team in hero_teams:
+            combined_heroes.extend(team)
+        return run_combat(combined_heroes, floor_number, is_boss=True, is_miniboss=False, zone_theme=zone_theme, boss_data_override=boss_data_override, difficulty_mult=difficulty_mult * len(hero_teams), outer_conn=conn)
+    
+    # Shared Encounter relay — one enemy roster scaled for the combined
+    # threat of every deployed team (same scaling the boss-merge branch above
+    # already uses), so teams relay into the SAME fight instead of each
+    # rolling an independent one. Team 2 picks up whatever Team 1 left alive
+    # (same enemy HP/state carried forward). This team-by-team order is just
+    # how the backend computes the HP handoff — the frontend renders every
+    # team's own arena (see team_results) at the same time, so on screen it
+    # reads as simultaneous parallel battles, not one-then-the-other.
+    shared_enemies = make_enemies(floor_number, difficulty_mult=difficulty_mult * len(hero_teams))
+
+    logs = []
+    final_result = {
+        "winner": "enemies",
+        "is_boss": is_boss,
+        "surviving_heroes": [],
+        "dead_heroes": [],
+        "skill_upgrades": {},
+        "skills_learned": {},
+        "log": logs,
+        "combat_metrics": {},
+        "gold_gained": 0,
+        "supplies_gained": 0,
+        "materials_gained": {},
+        # One entry per deployed team (None if that team was empty or had
+        # nothing left to fight) — the frontend renders one CombatArena per
+        # entry, each with its own initial_state/turns/log for that team's leg
+        # of the shared fight.
+        "team_results": [],
+    }
+
+    current_enemies = shared_enemies
+    for i, team in enumerate(hero_teams):
+        logs.append(f"\n=== TEAM {i+1} ENGAGES ===")
+        if not team:
+            logs.append(f"Team {i+1} is empty.")
+            final_result["team_results"].append(None)
+            continue
+        if not current_enemies:
+            logs.append(f"Team {i+1} arrives to find the encounter already cleared.")
+            final_result["team_results"].append(None)
+            continue
+
+        res = run_combat(team, floor_number, is_boss=False, is_miniboss=is_miniboss, zone_theme=zone_theme, difficulty_mult=difficulty_mult, preset_enemies=current_enemies, outer_conn=conn)
+        logs.extend(res.get("log", []))
+        final_result["team_results"].append(res)
+
+        for hid, upg in res.get("skill_upgrades", {}).items():
+            final_result["skill_upgrades"].setdefault(hid, []).extend(upg)
+        for hid, lrn in res.get("skills_learned", {}).items():
+            final_result["skills_learned"].setdefault(hid, []).extend(lrn)
+        for hid, dmg in res.get("combat_metrics", {}).items():
+            final_result["combat_metrics"][hid] = final_result["combat_metrics"].get(hid, 0) + dmg
+
+        final_result["surviving_heroes"].extend(res.get("surviving_heroes", []))
+        final_result["dead_heroes"].extend(res.get("dead_heroes", []))
+        final_result["gold_gained"] += res.get("gold_gained", 0)
+        final_result["supplies_gained"] += res.get("supplies_gained", 0)
+        for k, v in res.get("materials_gained", {}).items():
+            final_result["materials_gained"][k] = final_result["materials_gained"].get(k, 0) + v
+        if "equipment_drop" in res and "equipment_drop" not in final_result:
+            final_result["equipment_drop"] = res["equipment_drop"]
+        if "relic_drop" in res and "relic_drop" not in final_result:
+            final_result["relic_drop"] = res["relic_drop"]
+
+        current_enemies = res.get("surviving_enemies", [])
+
+    # The shared encounter counts as cleared once the relay runs the enemy
+    # roster down to nothing — win/loss is for the encounter as a whole, not
+    # any single team's leg of it.
+    final_result["winner"] = "heroes" if not current_enemies else "enemies"
+
+    # Single-team floors are a relay of length one — also forward that one
+    # team's initial_state/turns/rounds at the top level so the existing
+    # single-arena frontend path keeps working unchanged.
+    if len(hero_teams) == 1 and final_result["team_results"] and final_result["team_results"][0]:
+        only = final_result["team_results"][0]
+        final_result["initial_state"] = only.get("initial_state")
+        final_result["turns"] = only.get("turns")
+        final_result["rounds"] = only.get("rounds")
+
+    return final_result

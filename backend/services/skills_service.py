@@ -39,9 +39,9 @@ SKILL_POOL = {
     "Warrior": {
         "common": [
             {"id": "iron_skin", "name": "Iron Skin", "type": "passive",
-             "desc": "+10% DEF", "effect": {"def_pct": 0.10}},
+             "desc": "+10% DEF", "effect": {"int_pct": 0.10}},
             {"id": "heavy_strikes", "name": "Heavy Strikes", "type": "passive",
-             "desc": "+8% ATK", "effect": {"atk_pct": 0.08}},
+             "desc": "+8% ATK", "effect": {"str_pct": 0.08}},
         ],
         "uncommon": [
             {"id": "shield_wall", "name": "Shield Wall", "type": "active",
@@ -52,14 +52,14 @@ SKILL_POOL = {
         ],
         "rare": [
             {"id": "last_stand", "name": "Last Stand", "type": "passive",
-             "desc": "When below 20% HP, ATK doubles", "effect": {"low_hp_atk_mult": 2.0, "threshold": 0.20}},
+             "desc": "When below 20% Health, ATK doubles", "effect": {"low_hp_atk_mult": 2.0, "threshold": 0.20}},
             {"id": "taunt", "name": "Taunt", "type": "active",
              "desc": "Force all enemies to target you for 2 rounds", "cooldown": 4,
              "effect": {"taunt_duration": 2}},
         ],
         "epic": [
             {"id": "undying_will", "name": "Undying Will", "type": "passive",
-             "desc": "Survive one killing blow with 1 HP (once per fight)",
+             "desc": "Survive one killing blow with 1 Health (once per fight)",
              "effect": {"death_save": 1}},
         ],
         "legendary": [
@@ -71,7 +71,7 @@ SKILL_POOL = {
     "Spearman": {
         "common": [
             {"id": "long_reach", "name": "Long Reach", "type": "passive",
-             "desc": "+5% SPD, +5% ATK", "effect": {"spd_pct": 0.05, "atk_pct": 0.05}},
+             "desc": "+5% SPD, +5% ATK", "effect": {"agi_pct": 0.05, "str_pct": 0.05}},
             {"id": "piercing_thrust", "name": "Piercing Thrust", "type": "passive",
              "desc": "Ignore 10% of enemy DEF", "effect": {"armor_pen": 0.10}},
         ],
@@ -92,7 +92,7 @@ SKILL_POOL = {
         ],
         "legendary": [
             {"id": "dragon_lance", "name": "Dragon Lance", "type": "passive",
-             "desc": "First attack each combat deals 500% damage",
+             "desc": "First strength each combat deals 500% damage",
              "effect": {"first_strike_mult": 5.0}},
         ],
     },
@@ -101,7 +101,7 @@ SKILL_POOL = {
             {"id": "nimble_feet", "name": "Nimble Feet", "type": "passive",
              "desc": "+10% dodge chance", "effect": {"dodge_pct": 0.10}},
             {"id": "quick_hands", "name": "Quick Hands", "type": "passive",
-             "desc": "+10% SPD", "effect": {"spd_pct": 0.10}},
+             "desc": "+10% SPD", "effect": {"agi_pct": 0.10}},
         ],
         "uncommon": [
             {"id": "backstab", "name": "Backstab", "type": "active",
@@ -110,12 +110,12 @@ SKILL_POOL = {
         ],
         "rare": [
             {"id": "shadow_step", "name": "Shadow Step", "type": "passive",
-             "desc": "30% chance to attack twice per round",
+             "desc": "30% chance to strength twice per round",
              "effect": {"double_strike": 0.30}},
         ],
         "epic": [
             {"id": "poison_blade", "name": "Poison Blade", "type": "passive",
-             "desc": "Attacks apply 3% max HP poison for 3 rounds",
+             "desc": "Attacks apply 3% max Health poison for 3 rounds",
              "effect": {"poison_pct": 0.03, "poison_duration": 3}},
         ],
         "legendary": [
@@ -127,7 +127,7 @@ SKILL_POOL = {
     "Archer": {
         "common": [
             {"id": "steady_aim", "name": "Steady Aim", "type": "passive",
-             "desc": "+10% ATK", "effect": {"atk_pct": 0.10}},
+             "desc": "+10% ATK", "effect": {"str_pct": 0.10}},
             {"id": "keen_eyes", "name": "Keen Eyes", "type": "passive",
              "desc": "+5% crit chance", "effect": {"crit_pct": 0.05}},
         ],
@@ -158,7 +158,7 @@ SKILL_POOL = {
     "Mage": {
         "common": [
             {"id": "mana_shield", "name": "Mana Shield", "type": "passive",
-             "desc": "+15% max HP", "effect": {"hp_pct": 0.15}},
+             "desc": "+15% max Health", "effect": {"hlt_pct": 0.15}},
         ],
         "uncommon": [
             {"id": "arcane_blast", "name": "Arcane Blast", "type": "active",
@@ -187,7 +187,7 @@ SKILL_POOL = {
         ],
         "uncommon": [
             {"id": "repair_drone", "name": "Repair Drone", "type": "active",
-             "desc": "Restore 15% HP to lowest-HP ally", "cooldown": 4,
+             "desc": "Restore 15% Health to lowest-Health ally", "cooldown": 4,
              "effect": {"heal_pct": 0.15}},
         ],
         "rare": [
@@ -212,7 +212,7 @@ SKILL_POOL = {
 GENERIC_SKILLS = {
     "common": [
         {"id": "tough", "name": "Tough", "type": "passive",
-         "desc": "+8% HP", "effect": {"hp_pct": 0.08}},
+         "desc": "+8% Health", "effect": {"hlt_pct": 0.08}},
         {"id": "determined", "name": "Determined", "type": "passive",
          "desc": "+5% all stats", "effect": {"all_pct": 0.05}},
         {"id": "calm_mind", "name": "Calm Mind", "type": "passive",
@@ -220,9 +220,9 @@ GENERIC_SKILLS = {
     ],
     "uncommon": [
         {"id": "survivor", "name": "Survivor", "type": "passive",
-         "desc": "+15% HP, -5% ATK", "effect": {"hp_pct": 0.15, "atk_pct": -0.05}},
+         "desc": "+15% Health, -5% ATK", "effect": {"hlt_pct": 0.15, "str_pct": -0.05}},
         {"id": "field_medic", "name": "Field Medic", "type": "passive",
-         "desc": "Restore 3% HP to self each round", "effect": {"regen_pct": 0.03}},
+         "desc": "Restore 3% Health to self each round", "effect": {"regen_pct": 0.03}},
     ],
     "rare": [
         {"id": "iron_will", "name": "Iron Will", "type": "passive",
@@ -357,22 +357,22 @@ def apply_passive_skills(hero: dict, skills: list[dict]) -> dict:
             continue
         eff = skill.get("effect", {})
 
-        if "atk_pct" in eff:
-            h["attack"] = int(h["attack"] * (1 + eff["atk_pct"]))
-        if "def_pct" in eff:
-            h["defense"] = int(h["defense"] * (1 + eff["def_pct"]))
-        if "spd_pct" in eff:
-            h["speed"] = int(h["speed"] * (1 + eff["spd_pct"]))
-        if "hp_pct" in eff:
-            h["max_hp"] = int(h["max_hp"] * (1 + eff["hp_pct"]))
-            h["hp"] = int(h["hp"] * (1 + eff["hp_pct"]))
+        if "str_pct" in eff:
+            h["strength"] = int(h["strength"] * (1 + eff["str_pct"]))
+        if "int_pct" in eff:
+            h["intelligence"] = int(h["intelligence"] * (1 + eff["int_pct"]))
+        if "agi_pct" in eff:
+            h["agility"] = int(h["agility"] * (1 + eff["agi_pct"]))
+        if "hlt_pct" in eff:
+            h["max_health"] = int(h["max_health"] * (1 + eff["hlt_pct"]))
+            h["health"] = int(h["health"] * (1 + eff["hlt_pct"]))
         if "all_pct" in eff:
             mult = 1 + eff["all_pct"]
-            h["attack"] = int(h["attack"] * mult)
-            h["defense"] = int(h["defense"] * mult)
-            h["speed"] = int(h["speed"] * mult)
-            h["max_hp"] = int(h["max_hp"] * mult)
-            h["hp"] = int(h["hp"] * mult)
+            h["strength"] = int(h["strength"] * mult)
+            h["intelligence"] = int(h["intelligence"] * mult)
+            h["agility"] = int(h["agility"] * mult)
+            h["max_health"] = int(h["max_health"] * mult)
+            h["health"] = int(h["health"] * mult)
         if "crit_pct" in eff:
             h["crit_chance"] = h.get("crit_chance", 0.05) + eff["crit_pct"]
         if "dodge_pct" in eff:

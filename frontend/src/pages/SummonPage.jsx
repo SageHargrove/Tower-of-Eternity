@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react'
-import { pullHeroes, getOdds, getBase, getPityInfo, redeemSpark, pullEquipment } from '../api/client'
+import { pullHeroes, getOdds, getEquipmentOdds, getBase, getPityInfo, redeemSpark, pullEquipment } from '../api/client'
 import HeroCard from '../components/HeroCard'
 import SummoningOverlay from '../components/SummoningOverlay'
 
@@ -7,10 +7,20 @@ export default function SummonPage({ onGoldChange }) {
   const [gold, setGold] = useState(0)
   const [gems, setGems] = useState(0)
   const [odds, setOdds] = useState(null)
+  const [goldOdds, setGoldOdds] = useState(null)
+  const [equipGoldOdds, setEquipGoldOdds] = useState(null)
+  const [equipGemOdds, setEquipGemOdds] = useState(null)
   const [pityInfo, setPityInfo] = useState(null)
   const [pulling, setPulling] = useState(false)
   const [redeeming, setRedeeming] = useState(false)
-  const [results, setResults] = useState([])
+  // Hero and equipment results are tracked separately rather than one shared
+  // array — pulling one no longer wipes the other's results off screen.
+  const [heroResults, setHeroResults] = useState([])
+  const [equipResults, setEquipResults] = useState([])
+  const [resultsTab, setResultsTab] = useState('hero')
+  const [heroOddsCurrency, setHeroOddsCurrency] = useState('gem')
+  const [equipOddsCurrency, setEquipOddsCurrency] = useState('gold')
+  const results = resultsTab === 'equipment' ? equipResults : heroResults
   const [error, setError] = useState(null)
   const [usePortrait, setUsePortrait] = useState(true)
   const [expandedId, setExpandedId] = useState(null)
@@ -23,18 +33,23 @@ export default function SummonPage({ onGoldChange }) {
   async function refreshData() {
     getBase().then(b => { setGold(b.gold); setGems(b.gems || 0); })
     getOdds().then(setOdds)
+    getOdds('gold').then(setGoldOdds)
+    getEquipmentOdds('gold').then(setEquipGoldOdds)
+    getEquipmentOdds('gem').then(setEquipGemOdds)
     getPityInfo().then(setPityInfo)
   }
 
-  async function doPull(count) {
+  async function doPull(count, currency = 'gem') {
     setPulling(true)
     setError(null)
-    setResults([])
+    setHeroResults([])
+    setResultsTab('hero')
     try {
-      const data = await pullHeroes(count, usePortrait)
-      setResults(data.pulled)
-      const cost = count * 100
-      setGems(g => g - cost)
+      const data = await pullHeroes(count, usePortrait, currency)
+      setHeroResults(data.pulled)
+      const cost = count * (currency === 'gold' ? 250 : 100)
+      if (currency === 'gold') setGold(g => g - cost)
+      else setGems(g => g - cost)
       setShowAnimation(true)
       await refreshData()
       if (onGoldChange) onGoldChange()
@@ -45,15 +60,17 @@ export default function SummonPage({ onGoldChange }) {
     }
   }
 
-  async function doPullEquipment(count) {
+  async function doPullEquipment(count, currency = 'gold') {
     setPulling(true)
     setError(null)
-    setResults([])
+    setEquipResults([])
+    setResultsTab('equipment')
     try {
-      const data = await pullEquipment(count)
-      setResults(data.results.map(e => ({...e, is_equipment: true})))
-      const cost = count * 500
-      setGold(g => g - cost)
+      const data = await pullEquipment(count, currency)
+      setEquipResults(data.results.map(e => ({...e, is_equipment: true})))
+      const cost = count * (currency === 'gem' ? 150 : 500)
+      if (currency === 'gem') setGems(g => g - cost)
+      else setGold(g => g - cost)
       // setShowAnimation(true) // We can use the same or a different animation later, for now just show results
       await refreshData()
       if (onGoldChange) onGoldChange()
@@ -70,7 +87,8 @@ export default function SummonPage({ onGoldChange }) {
     setError(null)
     try {
       const data = await redeemSpark()
-      setResults([data.hero])
+      setHeroResults([data.hero])
+      setResultsTab('hero')
       await refreshData()
     } catch (e) {
       setError(e.message)
@@ -108,10 +126,11 @@ export default function SummonPage({ onGoldChange }) {
             </label>
           </div>
 
+          <div className="text-dim" style={{ fontSize: '0.85rem', marginTop: '0.5rem' }}>Hero Summon — Gems (premium, 2★-7★)</div>
           <div style={{ display: 'flex', gap: '1.5rem' }}>
-            <button 
-              className="btn btn-gold" 
-              onClick={() => doPull(1)} 
+            <button
+              className="btn btn-gold"
+              onClick={() => doPull(1, 'gem')}
               disabled={pulling || gems < 100}
               style={{ flex: 1, padding: '2rem', fontSize: '1.6rem', fontFamily: 'Cinzel, serif', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.5rem', border: '2px solid var(--gold)', borderRadius: 8, background: 'rgba(201,168,76,0.1)' }}
             >
@@ -119,9 +138,9 @@ export default function SummonPage({ onGoldChange }) {
               <div style={{ fontSize: '1rem', color: '#fff', opacity: 0.8, letterSpacing: '2px' }}>100 GEMS 💎</div>
             </button>
 
-            <button 
-              className="btn btn-gold" 
-              onClick={() => doPull(10)} 
+            <button
+              className="btn btn-gold"
+              onClick={() => doPull(10, 'gem')}
               disabled={pulling || gems < 1000}
               style={{ flex: 1, padding: '2rem', fontSize: '1.6rem', fontFamily: 'Cinzel, serif', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.5rem', border: '2px solid var(--gold)', borderRadius: 8, background: 'rgba(201,168,76,0.15)', boxShadow: '0 0 20px rgba(201,168,76,0.3)' }}
             >
@@ -130,10 +149,34 @@ export default function SummonPage({ onGoldChange }) {
             </button>
           </div>
 
-          <div style={{ display: 'flex', gap: '1.5rem', marginTop: '1rem' }}>
-            <button 
-              className="btn btn-gold" 
-              onClick={() => doPullEquipment(1)} 
+          <div className="text-dim" style={{ fontSize: '0.85rem', marginTop: '1rem' }}>Hero Summon — Gold (common, 1★-4★)</div>
+          <div style={{ display: 'flex', gap: '1.5rem' }}>
+            <button
+              className="btn btn-gold"
+              onClick={() => doPull(1, 'gold')}
+              disabled={pulling || gold < 250}
+              style={{ flex: 1, padding: '1.25rem', fontSize: '1.3rem', fontFamily: 'Cinzel, serif', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.4rem', border: '2px solid var(--star1)', borderRadius: 8, background: 'rgba(150,150,150,0.1)' }}
+            >
+              <div>{pulling ? 'Summoning...' : 'Summon 1x'}</div>
+              <div style={{ fontSize: '0.9rem', color: '#fff', opacity: 0.8, letterSpacing: '2px' }}>250 GOLD 💰</div>
+            </button>
+
+            <button
+              className="btn btn-gold"
+              onClick={() => doPull(10, 'gold')}
+              disabled={pulling || gold < 2500}
+              style={{ flex: 1, padding: '1.25rem', fontSize: '1.3rem', fontFamily: 'Cinzel, serif', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.4rem', border: '2px solid var(--star1)', borderRadius: 8, background: 'rgba(150,150,150,0.15)' }}
+            >
+              <div>{pulling ? 'Summoning...' : 'Summon 10x'}</div>
+              <div style={{ fontSize: '0.9rem', color: '#fff', opacity: 0.8, letterSpacing: '2px' }}>2500 GOLD 💰</div>
+            </button>
+          </div>
+
+          <div className="text-dim" style={{ fontSize: '0.85rem', marginTop: '1.5rem' }}>Equipment Summon — Gold (common, D-B tier)</div>
+          <div style={{ display: 'flex', gap: '1.5rem' }}>
+            <button
+              className="btn btn-gold"
+              onClick={() => doPullEquipment(1, 'gold')}
               disabled={pulling || gold < 500}
               style={{ flex: 1, padding: '2rem', fontSize: '1.6rem', fontFamily: 'Cinzel, serif', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.5rem', border: '2px solid var(--star1)', borderRadius: 8, background: 'rgba(150,150,150,0.1)' }}
             >
@@ -141,14 +184,37 @@ export default function SummonPage({ onGoldChange }) {
               <div style={{ fontSize: '1rem', color: '#fff', opacity: 0.8, letterSpacing: '2px' }}>500 GOLD 💰</div>
             </button>
 
-            <button 
-              className="btn btn-gold" 
-              onClick={() => doPullEquipment(10)} 
+            <button
+              className="btn btn-gold"
+              onClick={() => doPullEquipment(10, 'gold')}
               disabled={pulling || gold < 5000}
               style={{ flex: 1, padding: '2rem', fontSize: '1.6rem', fontFamily: 'Cinzel, serif', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.5rem', border: '2px solid var(--star1)', borderRadius: 8, background: 'rgba(150,150,150,0.15)', boxShadow: '0 0 20px rgba(150,150,150,0.3)' }}
             >
               <div>{pulling ? 'Summoning...' : 'Equip Summon 10x'}</div>
               <div style={{ fontSize: '1rem', color: '#fff', opacity: 0.8, letterSpacing: '2px' }}>5000 GOLD 💰</div>
+            </button>
+          </div>
+
+          <div className="text-dim" style={{ fontSize: '0.85rem', marginTop: '1rem' }}>Equipment Summon — Gems (premium, C-S tier)</div>
+          <div style={{ display: 'flex', gap: '1.5rem' }}>
+            <button
+              className="btn btn-gold"
+              onClick={() => doPullEquipment(1, 'gem')}
+              disabled={pulling || gems < 150}
+              style={{ flex: 1, padding: '1.25rem', fontSize: '1.3rem', fontFamily: 'Cinzel, serif', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.4rem', border: '2px solid var(--gold)', borderRadius: 8, background: 'rgba(201,168,76,0.1)' }}
+            >
+              <div>{pulling ? 'Summoning...' : 'Equip Summon 1x'}</div>
+              <div style={{ fontSize: '0.9rem', color: '#fff', opacity: 0.8, letterSpacing: '2px' }}>150 GEMS 💎</div>
+            </button>
+
+            <button
+              className="btn btn-gold"
+              onClick={() => doPullEquipment(10, 'gem')}
+              disabled={pulling || gems < 1500}
+              style={{ flex: 1, padding: '1.25rem', fontSize: '1.3rem', fontFamily: 'Cinzel, serif', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.4rem', border: '2px solid var(--gold)', borderRadius: 8, background: 'rgba(201,168,76,0.15)' }}
+            >
+              <div>{pulling ? 'Summoning...' : 'Equip Summon 10x'}</div>
+              <div style={{ fontSize: '0.9rem', color: '#fff', opacity: 0.8, letterSpacing: '2px' }}>1500 GEMS 💎</div>
             </button>
           </div>
 
@@ -158,12 +224,18 @@ export default function SummonPage({ onGoldChange }) {
         </div>
 
         {/* Odds table & Pity */}
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '2rem' }}>
-          {odds && (
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '2rem' }}>
+          {(odds || goldOdds) && (
             <div className="card">
-              <div className="section-header" style={{ marginBottom: '1rem', textAlign: 'center' }}>Pull Rates</div>
+              <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '0.5rem', marginBottom: '1rem' }}>
+                <div className="section-header" style={{ margin: 0 }}>Pull Rates</div>
+                <div style={{ display: 'flex', gap: '0.3rem' }}>
+                  <button className="btn" onClick={() => setHeroOddsCurrency('gem')} style={{ padding: '0.2rem 0.6rem', fontSize: '0.75rem', opacity: heroOddsCurrency === 'gem' ? 1 : 0.5 }}>Gem</button>
+                  <button className="btn" onClick={() => setHeroOddsCurrency('gold')} style={{ padding: '0.2rem 0.6rem', fontSize: '0.75rem', opacity: heroOddsCurrency === 'gold' ? 1 : 0.5 }}>Gold</button>
+                </div>
+              </div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-                {Object.entries(odds).map(([star, data]) => {
+                {Object.entries((heroOddsCurrency === 'gold' ? goldOdds : odds) || {}).map(([star, data]) => {
                   const numStar = Number(star);
                   const isRainbow = numStar === 7;
                   return (
@@ -177,6 +249,26 @@ export default function SummonPage({ onGoldChange }) {
                     </div>
                   );
                 })}
+              </div>
+            </div>
+          )}
+
+          {(equipGoldOdds || equipGemOdds) && (
+            <div className="card">
+              <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '0.5rem', marginBottom: '1rem' }}>
+                <div className="section-header" style={{ margin: 0 }}>Equipment Rates</div>
+                <div style={{ display: 'flex', gap: '0.3rem' }}>
+                  <button className="btn" onClick={() => setEquipOddsCurrency('gold')} style={{ padding: '0.2rem 0.6rem', fontSize: '0.75rem', opacity: equipOddsCurrency === 'gold' ? 1 : 0.5 }}>Gold</button>
+                  <button className="btn" onClick={() => setEquipOddsCurrency('gem')} style={{ padding: '0.2rem 0.6rem', fontSize: '0.75rem', opacity: equipOddsCurrency === 'gem' ? 1 : 0.5 }}>Gem</button>
+                </div>
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                {(equipOddsCurrency === 'gold' ? equipGoldOdds : equipGemOdds)?.map((tier, idx) => (
+                  <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', fontSize: '1rem', padding: '0.4rem 1rem', borderBottom: '1px solid rgba(255,255,255,0.05)', background: 'rgba(0,0,0,0.2)', borderRadius: 4 }}>
+                    <span className="text-hi">{tier.grades.join(' / ')}</span>
+                    <span className="text-dim" style={{ fontFamily: 'monospace' }}>{tier.percent.toFixed(2)}%</span>
+                  </div>
+                ))}
               </div>
             </div>
           )}
@@ -218,10 +310,27 @@ export default function SummonPage({ onGoldChange }) {
         </div>
       </div>
 
-      {/* Results */}
-      {results.length > 0 && (
+      {/* Results — hero and equipment pulls keep separate history so summoning
+          one doesn't wipe the other's results off screen; tabs switch between them. */}
+      {(heroResults.length > 0 || equipResults.length > 0) && (
         <div style={{ marginTop: '2rem' }}>
-          <div className="section-header">Summoned</div>
+          <div style={{ display: 'flex', gap: '1rem', alignItems: 'center', marginBottom: '1rem' }}>
+            <div className="section-header" style={{ margin: 0 }}>Summoned</div>
+            <div style={{ display: 'flex', gap: '0.5rem' }}>
+              <button
+                className="btn"
+                onClick={() => setResultsTab('hero')}
+                disabled={heroResults.length === 0}
+                style={{ padding: '0.3rem 0.8rem', fontSize: '0.85rem', opacity: resultsTab === 'hero' ? 1 : 0.5, border: resultsTab === 'hero' ? '1px solid var(--gold)' : '1px solid var(--border)' }}
+              >Heroes ({heroResults.length})</button>
+              <button
+                className="btn"
+                onClick={() => setResultsTab('equipment')}
+                disabled={equipResults.length === 0}
+                style={{ padding: '0.3rem 0.8rem', fontSize: '0.85rem', opacity: resultsTab === 'equipment' ? 1 : 0.5, border: resultsTab === 'equipment' ? '1px solid var(--gold)' : '1px solid var(--border)' }}
+              >Equipment ({equipResults.length})</button>
+            </div>
+          </div>
           <div className="hero-grid">
             {results.map((item, idx) => {
               if (item.is_equipment) {
@@ -250,7 +359,7 @@ export default function SummonPage({ onGoldChange }) {
         }} onClick={() => setExpandedId(null)}>
           <div style={{ width: '1000px', maxWidth: '95vw', maxHeight: '90vh', overflowY: 'auto', borderRadius: '8px' }} onClick={e => e.stopPropagation()}>
             <HeroCard
-              hero={results.find(h => h.id === expandedId)}
+              hero={heroResults.find(h => h.id === expandedId)}
               showFull={true}
             />
           </div>

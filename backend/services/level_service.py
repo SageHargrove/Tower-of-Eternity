@@ -21,7 +21,7 @@ Ascension stars add +5 levels per ascension within the star cap.
 
 Stat scaling per level:
   +2% to ATK, DEF, SPD per level above 1
-  +3% to HP per level above 1
+  +3% to Health per level above 1
 
 Every 5 levels: one hidden aptitude is revealed
 """
@@ -106,13 +106,14 @@ def apply_level_to_stats(hero: dict) -> dict:
     sm = stat_multiplier(level, gm)
     hm = hp_multiplier(level, gm)
 
-    h["attack"]  = int(h["attack"]  * sm)
-    h["defense"] = int(h["defense"] * sm)
-    h["speed"]   = int(h["speed"]   * sm)
-    h["max_hp"]  = int(h["max_hp"]  * hm)
-    # Current HP scales proportionally
-    hp_ratio = h["hp"] / max(1, hero["max_hp"])
-    h["hp"] = int(h["max_hp"] * hp_ratio)
+    h["strength"]  = int(h["strength"]  * sm)
+    h["intelligence"] = int(h["intelligence"] * sm)
+    h["defense"] = int(h.get("defense", 5) * sm)
+    h["agility"]   = int(h["agility"]   * sm)
+    h["max_health"]  = int(h["max_health"]  * hm)
+    # Current Health scales proportionally
+    hp_ratio = h["health"] / max(1, hero["max_health"])
+    h["health"] = int(h["max_health"] * hp_ratio)
 
     return h
 

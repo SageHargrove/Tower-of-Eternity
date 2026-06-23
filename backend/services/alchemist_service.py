@@ -1,10 +1,10 @@
 from datetime import datetime
 
 POTION_CATALOG = [
-    {"name": "Minor Healing Draught", "desc": "Heals a hero for 30% of max HP.", "effect": {"heal_pct": 0.3}, "min_level": 1},
+    {"name": "Minor Healing Draught", "desc": "Heals a hero for 30% of max Health.", "effect": {"heal_pct": 0.3}, "min_level": 1},
     {"name": "Calming Tonic", "desc": "Clears 25 stress from a hero.", "effect": {"stress_delta": -25}, "min_level": 1},
-    {"name": "Vitality Elixir", "desc": "Heals 60% max HP and clears 10 stress.", "effect": {"heal_pct": 0.6, "stress_delta": -10}, "min_level": 5},
-    {"name": "Greater Healing Draught", "desc": "Heals a hero for 90% of max HP.", "effect": {"heal_pct": 0.9}, "min_level": 10},
+    {"name": "Vitality Elixir", "desc": "Heals 60% max Health and clears 10 stress.", "effect": {"heal_pct": 0.6, "stress_delta": -10}, "min_level": 5},
+    {"name": "Greater Healing Draught", "desc": "Heals a hero for 90% of max Health.", "effect": {"heal_pct": 0.9}, "min_level": 10},
     {"name": "Panacea", "desc": "Fully heals a hero and clears 50 stress and 20 trauma.", "effect": {"heal_pct": 1.0, "stress_delta": -50, "trauma_delta": -20}, "min_level": 20},
 ]
 

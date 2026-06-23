@@ -13,8 +13,6 @@ def get_equipment_count(conn) -> int:
     return conn.execute("SELECT COUNT(*) AS c FROM equipment").fetchone()["c"]
 
 RARITY_TIERS = [
-    "F-", "F", "F+",
-    "E-", "E", "E+",
     "D-", "D", "D+",
     "C-", "C", "C+",
     "B-", "B", "B+",
@@ -24,8 +22,6 @@ RARITY_TIERS = [
 ]
 
 RARITY_MULTS = {
-    "F-": 0.5, "F": 0.7, "F+": 0.9,
-    "E-": 1.1, "E": 1.3, "E+": 1.5,
     "D-": 1.8, "D": 2.2, "D+": 2.6,
     "C-": 3.0, "C": 3.5, "C+": 4.0,
     "B-": 4.6, "B": 5.3, "B+": 6.0,
@@ -39,19 +35,27 @@ RARITY_MULTS = {
 TYPES = ["Weapon", "Armor", "Accessory"]
 
 EQUIPMENT_ADJECTIVES = {
-    "F-": "Broken", "F": "Rusted", "F+": "Chipped", "E-": "Poor", "E": "Basic", "E+": "Sturdy",
+    # "F" is intentionally not part of RARITY_TIERS/RARITY_MULTS — it's never
+    # droppable, only ever auto-generated as a hero's guaranteed starting
+    # weapon (see generate_starting_weapon below) so nobody fights bare-handed.
+    "F": "Worn",
     "D-": "Standard", "D": "Polished", "D+": "Heavy", "C-": "Fine", "C": "Refined", "C+": "Balanced",
     "B-": "Masterwork", "B": "Exceptional", "B+": "Flawless", "A-": "Epic", "A": "Legendary", "A+": "Mythic",
     "S-": "Divine", "S": "Godly", "S+": "Transcendent", "SS": "Omnipotent", "SSS": "Absolute", "Z": "Eldritch",
 }
 
+def generate_starting_weapon() -> dict:
+    """Every hero starts with a guaranteed basic weapon instead of fighting
+    unarmed — deliberately not part of the droppable rarity pool, and not
+    worth being picky about (always a plain Sword)."""
+    return {
+        "name": "Worn Sword", "type": "Weapon", "rarity": "F", "level": 1,
+        "base_str": 4, "base_int": 0, "base_hlt": 0, "base_agi": 0, "base_def": 0,
+        "str_pct": 0.0, "int_pct": 0.0, "hlt_pct": 0.0, "agi_pct": 0.0,
+        "crit_chance": 0.0, "dodge_chance": 0.0, "armor_pen": 0.0, "dmg_reduction_pct": 0.0,
+    }
+
 def _rarity_from_score(score: float) -> str:
-    if score < 30: return "F-"
-    if score < 50: return "F"
-    if score < 70: return "F+"
-    if score < 90: return "E-"
-    if score < 110: return "E"
-    if score < 130: return "E+"
     if score < 150: return "D-"
     if score < 170: return "D"
     if score < 190: return "D+"
@@ -68,12 +72,13 @@ def _rarity_from_score(score: float) -> str:
     if score < 420: return "S"
     if score < 450: return "S+"
     if score < 500: return "SS"
-    return "SSS"
+    if score < 600: return "SSS"
+    return "Z"
 
 def _roll_equipment_stats(eq_type: str, mult: float) -> dict:
     """Roll base stats for a piece of gear at a given rarity multiplier.
 
-    The primary stat (base_atk for weapons, base_def/base_hp for armor) is
+    The primary stat (base_str for weapons, base_int/base_hlt for armor) is
     rolled in a tight +/-4% band around a fixed center, NOT a wide range
     like the old random.randint(1, 3) — that 3x in-tier spread overlapped
     with the ~13-25% gap between adjacent rarity multipliers, so a
@@ -84,31 +89,36 @@ def _roll_equipment_stats(eq_type: str, mult: float) -> dict:
     itemization flavor, not the stat that defines the tier.
     """
     scale = int(10 * mult)
-    base_atk = base_def = base_hp = base_spd = 0
-    crit = dodge = armor_pen = 0.0
-    atk_pct = def_pct = hp_pct = spd_pct = 0.0
+    base_str = base_int = base_hlt = base_agi = base_def = 0
+    crit = dodge = armor_pen = dmg_reduction_pct = 0.0
+    str_pct = int_pct = hlt_pct = agi_pct = 0.0
 
     if eq_type == "Weapon":
-        base_atk = int(scale * random.uniform(1.92, 2.08))
-        base_spd = int(scale * random.uniform(0, 0.5))
+        base_str = int(scale * random.uniform(1.92, 2.08))
+        base_agi = int(scale * random.uniform(0, 0.5))
         if random.random() < 0.3: crit = random.uniform(0.01, 0.05) * mult
         if random.random() < 0.2: armor_pen = random.uniform(0.01, 0.05) * mult
     elif eq_type == "Armor":
+        # Armor's primary stat is flat Defense (was base_int, a leftover from
+        # back when Intelligence secretly doubled as the defense stat — that
+        # hack was removed when Defense became its own real CombatUnit field).
         base_def = int(scale * random.uniform(1.92, 2.08))
-        base_hp = int(scale * random.uniform(5.28, 5.72))
+        base_hlt = int(scale * random.uniform(5.28, 5.72))
+        if random.random() < 0.4: dmg_reduction_pct = random.uniform(0.01, 0.04) * mult
     else:
         if random.random() < 0.7: dodge = random.uniform(0.02, 0.08) * mult
         if random.random() < 0.7: crit = random.uniform(0.02, 0.08) * mult
         if random.random() < 0.7: armor_pen = random.uniform(0.02, 0.08) * mult
-        if random.random() < 0.5: atk_pct = random.uniform(0.02, 0.06) * mult
-        if random.random() < 0.5: def_pct = random.uniform(0.02, 0.06) * mult
-        if random.random() < 0.5: hp_pct = random.uniform(0.02, 0.06) * mult
-        if random.random() < 0.5: spd_pct = random.uniform(0.02, 0.06) * mult
+        if random.random() < 0.5: str_pct = random.uniform(0.02, 0.06) * mult
+        if random.random() < 0.5: int_pct = random.uniform(0.02, 0.06) * mult
+        if random.random() < 0.5: hlt_pct = random.uniform(0.02, 0.06) * mult
+        if random.random() < 0.5: agi_pct = random.uniform(0.02, 0.06) * mult
+        if random.random() < 0.3: dmg_reduction_pct = random.uniform(0.01, 0.03) * mult
 
     return {
-        "base_atk": base_atk, "base_def": base_def, "base_hp": base_hp, "base_spd": base_spd,
-        "atk_pct": atk_pct, "def_pct": def_pct, "hp_pct": hp_pct, "spd_pct": spd_pct,
-        "crit_chance": crit, "dodge_chance": dodge, "armor_pen": armor_pen,
+        "base_str": base_str, "base_int": base_int, "base_hlt": base_hlt, "base_agi": base_agi, "base_def": base_def,
+        "str_pct": str_pct, "int_pct": int_pct, "hlt_pct": hlt_pct, "agi_pct": agi_pct,
+        "crit_chance": crit, "dodge_chance": dodge, "armor_pen": armor_pen, "dmg_reduction_pct": dmg_reduction_pct,
     }
 
 def save_equipment(equip: dict, conn=None) -> int:
@@ -118,12 +128,12 @@ def save_equipment(equip: dict, conn=None) -> int:
     Pass `conn` if the caller is already inside a `with db() as conn:` block —
     opening a second connection while the first is still uncommitted raises
     'database is locked' on SQLite."""
-    sql = "INSERT INTO equipment (name, type, rarity, level, base_atk, base_def, base_hp, base_spd, atk_pct, def_pct, hp_pct, spd_pct, crit_chance, dodge_chance, armor_pen) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+    sql = "INSERT INTO equipment (name, type, rarity, level, base_str, base_int, base_hlt, base_agi, base_def, str_pct, int_pct, hlt_pct, agi_pct, crit_chance, dodge_chance, armor_pen, dmg_reduction_pct) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
     params = (
         equip["name"], equip["type"], equip["rarity"], equip.get("level", 1),
-        equip.get("base_atk", 0), equip.get("base_def", 0), equip.get("base_hp", 0), equip.get("base_spd", 0),
-        equip.get("atk_pct", 0.0), equip.get("def_pct", 0.0), equip.get("hp_pct", 0.0), equip.get("spd_pct", 0.0),
-        equip.get("crit_chance", 0.0), equip.get("dodge_chance", 0.0), equip.get("armor_pen", 0.0),
+        equip.get("base_str", 0), equip.get("base_int", 0), equip.get("base_hlt", 0), equip.get("base_agi", 0), equip.get("base_def", 0),
+        equip.get("str_pct", 0.0), equip.get("int_pct", 0.0), equip.get("hlt_pct", 0.0), equip.get("agi_pct", 0.0),
+        equip.get("crit_chance", 0.0), equip.get("dodge_chance", 0.0), equip.get("armor_pen", 0.0), equip.get("dmg_reduction_pct", 0.0),
     )
     if conn is not None:
         return conn.execute(sql, params).lastrowid
@@ -210,25 +220,28 @@ def scrap_equipment(equipment_id: int) -> dict:
 
 def apply_equipment_stats(hero: dict, equipment_list: list = None) -> dict:
     """Add equipped gear's stat bonuses on top of a hero's (already
-    level-scaled, if the caller did that first) attack/defense/speed/hp.
+    level-scaled, if the caller did that first) strength/intelligence/agility/health.
     Pass equipment_list if the caller already has it (e.g. a bulk-fetched
     list for a whole roster) to avoid a redundant per-hero query."""
     hero_eq = equipment_list if equipment_list is not None else get_hero_equipment(hero["id"])
 
-    atk_pct = def_pct = hp_pct = spd_pct = 0.0
-    
+    str_pct = int_pct = hlt_pct = agi_pct = 0.0
+    dmg_reduction_pct = hero.get("dmg_reduction_pct", 0.0)
+
     for eq in hero_eq:
-        hero["attack"] += eq["base_atk"]
-        hero["defense"] += eq["base_def"]
-        hero["max_hp"] += eq["base_hp"]
-        hero["hp"] += eq["base_hp"]
-        hero["speed"] += eq["base_spd"]
-        
-        atk_pct += eq.get("atk_pct", 0.0)
-        def_pct += eq.get("def_pct", 0.0)
-        hp_pct += eq.get("hp_pct", 0.0)
-        spd_pct += eq.get("spd_pct", 0.0)
-        
+        hero["strength"] += eq["base_str"]
+        hero["intelligence"] += eq["base_int"]
+        hero["max_health"] += eq["base_hlt"]
+        hero["health"] += eq["base_hlt"]
+        hero["agility"] += eq["base_agi"]
+        hero["defense"] = hero.get("defense", 5) + eq.get("base_def", 0)
+        dmg_reduction_pct += eq.get("dmg_reduction_pct", 0.0)
+
+        str_pct += eq.get("str_pct", 0.0)
+        int_pct += eq.get("int_pct", 0.0)
+        hlt_pct += eq.get("hlt_pct", 0.0)
+        agi_pct += eq.get("agi_pct", 0.0)
+
         if "crit_chance" in hero:
             hero["crit_chance"] += eq.get("crit_chance", 0)
         if "dodge_chance" in hero:
@@ -237,15 +250,17 @@ def apply_equipment_stats(hero: dict, equipment_list: list = None) -> dict:
             hero["armor_pen"] += eq.get("armor_pen", 0)
 
     # Apply percentage buffs after flat buffs are added
-    if atk_pct > 0: hero["attack"] = int(hero["attack"] * (1 + atk_pct))
-    if def_pct > 0: hero["defense"] = int(hero["defense"] * (1 + def_pct))
-    if spd_pct > 0: hero["speed"] = int(hero["speed"] * (1 + spd_pct))
-    if hp_pct > 0:
-        old_max = hero["max_hp"]
-        hero["max_hp"] = int(hero["max_hp"] * (1 + hp_pct))
-        hero["hp"] += (hero["max_hp"] - old_max)
+    if str_pct > 0: hero["strength"] = int(hero["strength"] * (1 + str_pct))
+    if int_pct > 0: hero["intelligence"] = int(hero["intelligence"] * (1 + int_pct))
+    if agi_pct > 0: hero["agility"] = int(hero["agility"] * (1 + agi_pct))
+    if hlt_pct > 0:
+        old_max = hero["max_health"]
+        hero["max_health"] = int(hero["max_health"] * (1 + hlt_pct))
+        hero["health"] += (hero["max_health"] - old_max)
 
-            
+    # Capped well short of 100% — %DR is meant to stack with the Defense
+    # stat, not let stacked gear make a hero outright unhittable.
+    hero["dmg_reduction_pct"] = min(0.6, dmg_reduction_pct)
     hero["equipment"] = hero_eq
     return hero
 
@@ -286,9 +301,9 @@ def craft_equipment(crafter_id: int):
         name = f"{adj} {eq_type}"
 
         cursor = conn.execute(
-            "INSERT INTO equipment (name, type, rarity, level, base_atk, base_def, base_hp, base_spd, atk_pct, def_pct, hp_pct, spd_pct, crit_chance, dodge_chance, armor_pen) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            (name, eq_type, rarity, level, stats["base_atk"], stats["base_def"], stats["base_hp"], stats["base_spd"],
-             stats["atk_pct"], stats["def_pct"], stats["hp_pct"], stats["spd_pct"],
+            "INSERT INTO equipment (name, type, rarity, level, base_str, base_int, base_hlt, base_agi, str_pct, int_pct, hlt_pct, agi_pct, crit_chance, dodge_chance, armor_pen) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (name, eq_type, rarity, level, stats["base_str"], stats["base_int"], stats["base_hlt"], stats["base_agi"],
+             stats["str_pct"], stats["int_pct"], stats["hlt_pct"], stats["agi_pct"],
              stats["crit_chance"], stats["dodge_chance"], stats["armor_pen"])
         )
         return {"id": cursor.lastrowid, "name": name, "type": eq_type, "rarity": rarity}
@@ -305,55 +320,31 @@ def generate_equipment_drop(floor_number: int, is_boss: bool = False, drop_bonus
     if is_boss:
         score += 100
         
-    if score < 30: rarity = "F-"
-    elif score < 50: rarity = "F"
-    elif score < 70: rarity = "F+"
-    elif score < 90: rarity = "E-"
-    elif score < 110: rarity = "E"
-    elif score < 130: rarity = "E+"
-    elif score < 150: rarity = "D-"
-    elif score < 170: rarity = "D"
-    elif score < 190: rarity = "D+"
-    elif score < 210: rarity = "C-"
-    elif score < 230: rarity = "C"
-    elif score < 250: rarity = "C+"
-    elif score < 270: rarity = "B-"
-    elif score < 290: rarity = "B"
-    elif score < 310: rarity = "B+"
-    elif score < 330: rarity = "A-"
-    elif score < 350: rarity = "A"
-    elif score < 370: rarity = "A+"
-    elif score < 390: rarity = "S-"
-    elif score < 420: rarity = "S"
-    elif score < 450: rarity = "S+"
-    elif score < 500: rarity = "SS"
-    elif score < 600: rarity = "SSS"
-    else: rarity = "Z" # Z can only drop on extreme floors from bosses
-    
+    rarity = _rarity_from_score(score)
     eq_type = random.choice(TYPES)
     mult = RARITY_MULTS[rarity]
     
-    base_atk = base_def = base_hp = base_spd = 0
+    base_str = base_int = base_hlt = base_agi = 0
     crit = dodge = armor_pen = 0.0
-    atk_pct = def_pct = hp_pct = spd_pct = 0.0
+    str_pct = int_pct = hlt_pct = agi_pct = 0.0
     scale = int(10 * mult)
     
     if eq_type == "Weapon":
-        base_atk = scale * random.randint(1, 3)
-        base_spd = int(scale * random.uniform(0, 0.5))
+        base_str = scale * random.randint(1, 3)
+        base_agi = int(scale * random.uniform(0, 0.5))
         if random.random() < 0.3: crit = random.uniform(0.01, 0.05) * mult
         if random.random() < 0.2: armor_pen = random.uniform(0.01, 0.05) * mult
     elif eq_type == "Armor":
-        base_def = scale * random.randint(1, 3)
-        base_hp = scale * random.randint(3, 8)
+        base_int = scale * random.randint(1, 3)
+        base_hlt = scale * random.randint(3, 8)
     else:
         if random.random() < 0.7: dodge = random.uniform(0.02, 0.08) * mult
         if random.random() < 0.7: crit = random.uniform(0.02, 0.08) * mult
         if random.random() < 0.7: armor_pen = random.uniform(0.02, 0.08) * mult
-        if random.random() < 0.5: atk_pct = random.uniform(0.02, 0.06) * mult
-        if random.random() < 0.5: def_pct = random.uniform(0.02, 0.06) * mult
-        if random.random() < 0.5: hp_pct = random.uniform(0.02, 0.06) * mult
-        if random.random() < 0.5: spd_pct = random.uniform(0.02, 0.06) * mult
+        if random.random() < 0.5: str_pct = random.uniform(0.02, 0.06) * mult
+        if random.random() < 0.5: int_pct = random.uniform(0.02, 0.06) * mult
+        if random.random() < 0.5: hlt_pct = random.uniform(0.02, 0.06) * mult
+        if random.random() < 0.5: agi_pct = random.uniform(0.02, 0.06) * mult
         
     adjectives = {"F-": "Broken", "F": "Rusted", "F+": "Chipped", "E-": "Poor", "E": "Basic", "E+": "Sturdy", "D-": "Standard", "D": "Polished", "D+": "Heavy", "C-": "Fine", "C": "Refined", "C+": "Balanced", "B-": "Masterwork", "B": "Exceptional", "B+": "Flawless", "A-": "Epic", "A": "Legendary", "A+": "Mythic", "S-": "Divine", "S": "Godly", "S+": "Transcendent", "SS": "Omnipotent", "SSS": "Absolute", "Z": "Eldritch"}
     adj = adjectives.get(rarity, rarity)
@@ -363,7 +354,7 @@ def generate_equipment_drop(floor_number: int, is_boss: bool = False, drop_bonus
         if get_equipment_count(conn) >= get_vault_capacity(conn):
             return None
         cursor = conn.execute(
-            "INSERT INTO equipment (name, type, rarity, level, base_atk, base_def, base_hp, base_spd, atk_pct, def_pct, hp_pct, spd_pct, crit_chance, dodge_chance, armor_pen) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            (name, eq_type, rarity, max(1, floor_number // 5), base_atk, base_def, base_hp, base_spd, atk_pct, def_pct, hp_pct, spd_pct, crit, dodge, armor_pen)
+            "INSERT INTO equipment (name, type, rarity, level, base_str, base_int, base_hlt, base_agi, str_pct, int_pct, hlt_pct, agi_pct, crit_chance, dodge_chance, armor_pen) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (name, eq_type, rarity, max(1, floor_number // 5), base_str, base_int, base_hlt, base_agi, str_pct, int_pct, hlt_pct, agi_pct, crit, dodge, armor_pen)
         )
         return {"id": cursor.lastrowid, "name": name, "type": eq_type, "rarity": rarity}
