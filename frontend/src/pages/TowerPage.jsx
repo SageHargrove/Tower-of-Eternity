@@ -97,6 +97,7 @@ function PostCombatScreen({ lastResult, combatEntities, onReturn, onRerun, busy 
 
   const metrics = lastResult.combat?.combat_metrics || {};
   const maxDmg = Math.max(1, ...Object.values(metrics));
+  const mvpId = Object.entries(metrics).sort((a, b) => b[1] - a[1])[0]?.[0]
   const wasVictory = !lastResult.run_over && lastResult.combat?.winner !== 'enemies';
   const continueLabel = wasVictory ? 'Continue' : 'Retreat'
 
@@ -144,14 +145,15 @@ function PostCombatScreen({ lastResult, combatEntities, onReturn, onRerun, busy 
             {combatEntities?.heroes?.map(h => {
               const dmg = metrics[h.id] || 0;
               const pct = (dmg / maxDmg) * 100;
+              const isMvp = dmg > 0 && String(h.id) === String(mvpId)
               return (
                 <div key={h.id}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8rem', marginBottom: '0.2rem' }}>
-                    <span>{h.name}</span>
+                    <span>{isMvp && '🏆 '}{h.name}{isMvp && <span className="text-gold" style={{ fontSize: '0.7rem', marginLeft: '0.4rem' }}>MVP</span>}</span>
                     <span className="text-gold">{dmg.toLocaleString()}</span>
                   </div>
                   <div style={{ height: '8px', background: '#222', borderRadius: 4, overflow: 'hidden' }}>
-                    <div style={{ height: '100%', width: `${pct}%`, background: 'var(--gold)', transition: 'width 1s ease-out' }} />
+                    <div style={{ height: '100%', width: `${pct}%`, background: isMvp ? 'var(--star5)' : 'var(--gold)', transition: 'width 1s ease-out', boxShadow: isMvp ? '0 0 8px var(--star5)' : 'none' }} />
                   </div>
                 </div>
               )
@@ -215,7 +217,16 @@ function PostCombatScreen({ lastResult, combatEntities, onReturn, onRerun, busy 
               ))
             ))}
 
-            {(!lastResult.gold_gained && !lastResult.gems_gained && !lastResult.equipment_drop && !lastResult.combat?.skill_upgrades && !lastResult.supplies_gained && !(lastResult.materials_gained && Object.keys(lastResult.materials_gained).length > 0)) && (
+            {lastResult.level_ups && lastResult.level_ups.length > 0 && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.3rem', padding: '0.75rem', background: 'rgba(201,168,76,0.1)', border: '1px solid var(--gold)', borderRadius: 6 }}>
+                <span className="text-gold" style={{ fontFamily: 'Cinzel, serif' }}>⬆ Level Up</span>
+                {lastResult.level_ups.map((msg, i) => (
+                  <div key={i} style={{ fontSize: '0.85rem', color: msg.startsWith('  ') ? 'var(--star5)' : 'var(--text-hi)' }}>{msg}</div>
+                ))}
+              </div>
+            )}
+
+            {(!lastResult.gold_gained && !lastResult.gems_gained && !lastResult.equipment_drop && !lastResult.combat?.skill_upgrades && !lastResult.supplies_gained && !(lastResult.level_ups && lastResult.level_ups.length > 0) && !(lastResult.materials_gained && Object.keys(lastResult.materials_gained).length > 0)) && (
                <div className="text-dim text-center" style={{ padding: '2rem' }}>No loot found.</div>
             )}
 

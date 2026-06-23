@@ -3,6 +3,7 @@ from fastapi.responses import FileResponse
 from database import db
 from pydantic import BaseModel
 from services.level_service import get_revealed_aptitudes, recalculate_hero_level
+from services.materials_service import get_material_total, consume_material
 import json
 import random
 import os
@@ -555,7 +556,7 @@ def get_ascension_info(hero_id: int):
         "level_req": ASCENSION_LEVEL_REQ.get(current_asc, 100),
         "hero_level": hero["level"],
         "materials_required": required,
-        "materials_have": {m: materials.get(m, 0) for m in required},
+        "materials_have": {m: get_material_total(materials, m) for m in required},
         "fail_chance": ASCENSION_FAIL_CHANCE.get(current_asc, 0.6),
     }
 
@@ -589,14 +590,15 @@ def ascend_hero(hero_id: int):
         required = ASCENSION_MATERIAL_COST.get(current_asc, {})
         base = conn.execute("SELECT materials FROM base WHERE id = 1").fetchone()
         materials = json.loads(base["materials"]) if base["materials"] else {}
-        missing = {m: qty for m, qty in required.items() if materials.get(m, 0) < qty}
+        missing = {m: qty for m, qty in required.items() if get_material_total(materials, m) < qty}
         if missing:
-            detail = ", ".join(f"{m} (need {q}, have {materials.get(m, 0)})" for m, q in missing.items())
+            detail = ", ".join(f"{m} (need {q}, have {get_material_total(materials, m)})" for m, q in missing.items())
             raise HTTPException(status_code=400, detail=f"Not enough materials: {detail}")
 
         # Materials are spent on the attempt itself — that's the risk.
+        # Spends lowest tier first so better material stays banked.
         for m, qty in required.items():
-            materials[m] -= qty
+            consume_material(materials, m, qty)
         conn.execute("UPDATE base SET materials = ? WHERE id = 1", (json.dumps(materials),))
 
         fail_chance = ASCENSION_FAIL_CHANCE.get(current_asc, 0.6)

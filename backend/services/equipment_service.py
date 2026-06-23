@@ -195,7 +195,7 @@ def scrap_equipment(equipment_id: int) -> dict:
     by rarity — a way to clean up the Vault without just deleting value."""
     import json
     import random
-    from services.floor_templates import CRAFTING_MATERIALS
+    from services.materials_service import CRAFTING_MATERIALS, MATERIAL_TIERS, tiered_material_name
 
     with db() as conn:
         item = conn.execute("SELECT * FROM equipment WHERE id = ?", (equipment_id,)).fetchone()
@@ -206,7 +206,9 @@ def scrap_equipment(equipment_id: int) -> dict:
             raise ValueError("Unequip this item before scrapping it.")
 
         mult = RARITY_MULTS.get(item["rarity"], 1.0)
-        mat_name = random.choice(CRAFTING_MATERIALS)
+        # Better gear scraps into a better material tier, not just more of it.
+        tier_idx = min(len(MATERIAL_TIERS) - 1, int(mult / 4))
+        mat_name = tiered_material_name(random.choice(CRAFTING_MATERIALS), MATERIAL_TIERS[tier_idx])
         amount = max(1, int(random.randint(2, 4) * mult / 2))
 
         base_row = conn.execute("SELECT materials FROM base WHERE id = 1").fetchone()

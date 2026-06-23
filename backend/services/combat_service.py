@@ -1082,10 +1082,10 @@ def run_combat(heroes: list[dict], floor_number: int, is_boss: bool = False, is_
             result["gold_gained"] = int(300 * (1 + (floor_number/10)))
             result["supplies_gained"] = random.randint(2, 5)
             
-            mats = ["Slime Core", "Iron Ore", "Goblin Ear", "Monster Bone", "Mystic Dust"]
+            from services.materials_service import CRAFTING_MATERIALS, tiered_material_name
             drops = {}
             for _ in range(random.randint(2, 4)):
-                mat = random.choice(mats)
+                mat = tiered_material_name(random.choice(CRAFTING_MATERIALS))
                 drops[mat] = drops.get(mat, 0) + 1
             result["materials_gained"] = drops
 
@@ -1093,7 +1093,7 @@ def run_combat(heroes: list[dict], floor_number: int, is_boss: bool = False, is_
                 result["gold_gained"] += int(1500 * (1 + (floor_number/10)))
                 result["supplies_gained"] += 10
                 for _ in range(5):
-                    mat = random.choice(mats)
+                    mat = tiered_material_name(random.choice(CRAFTING_MATERIALS))
                     drops[mat] = drops.get(mat, 0) + 1
                 result["materials_gained"] = drops
         except Exception as e:

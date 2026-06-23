@@ -535,15 +535,16 @@ def forge_craft(req: CraftRequest):
         else:
             recipe = {"Mystic Dust": 3, "Goblin Ear": 1}
             
+        from services.materials_service import get_material_total, consume_material
         for m, q in recipe.items():
-            if mats.get(m, 0) < q:
+            if get_material_total(mats, m) < q:
                 raise HTTPException(status_code=400, detail=f"Not enough {m}. Need {q} for {req.slot}.")
-                
+
         if base["gold"] < 100:
             raise HTTPException(status_code=400, detail="Not enough gold (costs 100).")
-            
+
         for m, q in recipe.items():
-            mats[m] -= q
+            consume_material(mats, m, q)
 
         # Find Forge facility
         forge = conn.execute("SELECT id FROM facilities WHERE type = 'Forge'").fetchone()
