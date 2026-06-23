@@ -191,6 +191,7 @@ CREATE TABLE IF NOT EXISTS base (
             global_buffs TEXT DEFAULT '{}',
             pity_counter INTEGER DEFAULT 0,
             spark_points INTEGER DEFAULT 0,
+            equip_spark_points INTEGER DEFAULT 0,
             last_training_tick TIMESTAMP,
             last_fatigue_tick TIMESTAMP
         , last_research_tick TIMESTAMP, last_mage_tick TIMESTAMP, last_alchemist_tick TIMESTAMP, last_restaurant_tick TIMESTAMP);
@@ -360,6 +361,12 @@ INSERT OR IGNORE INTO base (id) VALUES (1);
         try:
             conn.execute("ALTER TABLE base ADD COLUMN fairy_gender TEXT")
             print("[DB] Migrated: added column 'fairy_gender' to base")
+        except sqlite3.OperationalError:
+            pass
+
+        try:
+            conn.execute("ALTER TABLE base ADD COLUMN equip_spark_points INTEGER DEFAULT 0")
+            print("[DB] Migrated: added column 'equip_spark_points' to base")
         except sqlite3.OperationalError:
             pass
 

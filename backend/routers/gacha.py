@@ -287,7 +287,8 @@ def pull_heroes(req: PullRequest):
             sparks = (base_row["spark_points"] if base_row else 0) or 0
 
             pity += 1
-            sparks += 1
+            if not use_gold:
+                sparks += 1
 
             # Pity: guaranteed 3★+ after 10 pulls
             if pity >= 10 and birth_star < 3:
@@ -433,6 +434,8 @@ def pull_equipment(req: PullRequest):
                 equip_id = save_equipment(equip_dict, conn=conn)
                 equip_dict["id"] = equip_id
                 results.append(equip_dict)
+                if currency == "gem":
+                    conn.execute("UPDATE base SET equip_spark_points = equip_spark_points + 1 WHERE id = 1")
             except ValueError as e:
                 if str(e).startswith("Not enough"):
                     if not results:
@@ -460,7 +463,16 @@ def get_equipment_odds(currency: str = "gold"):
     from services.gacha_service import EQUIPMENT_PULL_ODDS
     tiers = EQUIPMENT_PULL_ODDS.get(currency, EQUIPMENT_PULL_ODDS["gold"])
     return [
-        {"grades": list(t[:-1]), "percent": round(t[-1] * 100, 2)}
+        {
+            "grades": list(t[:-1]),
+            "percent": round(t[-1] * 100, 2),
+            # pull_equipment_gacha() rolls a sub-grade with random.choice()
+            # once the group is hit — an even split, not a separate weight.
+            "breakdown": [
+                {"grade": g, "percent": round(t[-1] * 100 / len(t[:-1]), 2)}
+                for g in t[:-1]
+            ],
+        }
         for t in tiers
     ]
 
@@ -476,31 +488,65 @@ def class_info():
     return {"icons": CLASS_ICONS, "descriptions": CLASS_DESCRIPTIONS}
 
 
+SPARK_THRESHOLD = 50
+EQUIP_SPARK_THRESHOLD = 50
+
 @router.get("/pity-info")
 def pity_info():
-    """Get current pity counter and spark points."""
+    """Get current pity counter and spark points (hero + equipment)."""
     with db() as conn:
-        base = conn.execute("SELECT pity_counter, spark_points FROM base WHERE id = 1").fetchone()
+        base = conn.execute("SELECT pity_counter, spark_points, equip_spark_points FROM base WHERE id = 1").fetchone()
         pity = (base["pity_counter"] if base else 0) or 0
         sparks = (base["spark_points"] if base else 0) or 0
+        equip_sparks = (base["equip_spark_points"] if base else 0) or 0
     return {
         "pity_counter": pity,
         "pity_threshold": 50,
         "pulls_until_pity": max(0, 50 - pity),
         "spark_points": sparks,
-        "spark_threshold": 100,
-        "sparks_until_redeem": max(0, 100 - sparks),
+        "spark_threshold": SPARK_THRESHOLD,
+        "sparks_until_redeem": max(0, SPARK_THRESHOLD - sparks),
+        "equip_spark_points": equip_sparks,
+        "equip_spark_threshold": EQUIP_SPARK_THRESHOLD,
+        "equip_sparks_until_redeem": max(0, EQUIP_SPARK_THRESHOLD - equip_sparks),
     }
+
+
+@router.post("/equip-spark-redeem")
+def equip_spark_redeem():
+    """Spend equip spark points (gem equipment pulls only) for a guaranteed
+    random A-tier (A-/A/A+) item."""
+    import random
+    from services.equipment_service import _roll_equipment_stats, RARITY_MULTS, EQUIPMENT_ADJECTIVES, save_equipment
+
+    with db() as conn:
+        base = conn.execute("SELECT equip_spark_points FROM base WHERE id = 1").fetchone()
+        equip_sparks = (base["equip_spark_points"] if base else 0) or 0
+        if equip_sparks < EQUIP_SPARK_THRESHOLD:
+            raise HTTPException(status_code=400, detail=f"Need {EQUIP_SPARK_THRESHOLD} equip spark points. Have {equip_sparks}.")
+
+        conn.execute("UPDATE base SET equip_spark_points = equip_spark_points - ? WHERE id = 1", (EQUIP_SPARK_THRESHOLD,))
+
+        rarity = random.choice(["A-", "A", "A+"])
+        eq_type = random.choice(["Weapon", "Armor", "Accessory"])
+        mult = RARITY_MULTS[rarity]
+        stats = _roll_equipment_stats(eq_type, mult)
+        name = f"{EQUIPMENT_ADJECTIVES.get(rarity, rarity)} {eq_type}"
+        equip_dict = {"name": name, "type": eq_type, "rarity": rarity, "level": 1, **stats}
+        equip_id = save_equipment(equip_dict, conn=conn)
+        equip_dict["id"] = equip_id
+
+    return {"equipment": equip_dict, "spark_cost": EQUIP_SPARK_THRESHOLD}
 
 
 @router.post("/spark-redeem")
 def spark_redeem():
-    """Spend 100 spark points for a guaranteed random 5★ hero."""
+    """Spend spark points (gem hero pulls only) for a guaranteed random 5★ hero."""
     with db() as conn:
         base = conn.execute("SELECT spark_points, gold, max_roster_size FROM base WHERE id = 1").fetchone()
         sparks = (base["spark_points"] if base else 0) or 0
-        if sparks < 100:
-            raise HTTPException(status_code=400, detail=f"Need 100 spark points. Have {sparks}.")
+        if sparks < SPARK_THRESHOLD:
+            raise HTTPException(status_code=400, detail=f"Need {SPARK_THRESHOLD} spark points. Have {sparks}.")
 
         roster_count = conn.execute("SELECT COUNT(*) AS c FROM heroes WHERE is_alive = 1").fetchone()["c"]
         max_roster = base["max_roster_size"] or 10
@@ -508,7 +554,7 @@ def spark_redeem():
             raise HTTPException(status_code=400, detail=f"Roster is full ({roster_count}/{max_roster}). Upgrade your base before redeeming sparks.")
 
         # Deduct sparks
-        conn.execute("UPDATE base SET spark_points = spark_points - 100 WHERE id = 1")
+        conn.execute("UPDATE base SET spark_points = spark_points - ? WHERE id = 1", (SPARK_THRESHOLD,))
 
     # Pull a guaranteed 5★ using the normal pull mechanism but overriding rarity
     from services.gacha_service import generate_base_stats, generate_aptitudes, apply_class_stat_bias
@@ -596,4 +642,4 @@ def spark_redeem():
         fallback_portrait_prompt=profile.portrait_prompt,
     )
 
-    return {"hero": dict(hero), "spark_cost": 100}
+    return {"hero": dict(hero), "spark_cost": SPARK_THRESHOLD}

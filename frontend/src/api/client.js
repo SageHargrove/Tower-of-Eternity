@@ -137,6 +137,7 @@ export const getOdds = (currency = 'gem') => request(`/gacha/odds?currency=${cur
 export const getEquipmentOdds = (currency = 'gold') => request(`/gacha/equipment-odds?currency=${currency}`)
 export const getPityInfo = () => request('/gacha/pity-info')
 export const redeemSpark = () => request('/gacha/spark-redeem', { method: 'POST' })
+export const redeemEquipSpark = () => request('/gacha/equip-spark-redeem', { method: 'POST' })
 
 // Tower / Runs
 export const enterFloor = (floorNumber, teamIds) => request('/tower/floor/enter', { method: 'POST', body: JSON.stringify({ floor_number: floorNumber, team_ids: Array.isArray(teamIds) ? teamIds : [teamIds] }) })
