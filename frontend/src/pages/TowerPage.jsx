@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react'
-import { getAllTeams, getBase, enterFloor, resolveEvent, resolveExplore, previewFloor } from '../api/client'
+import { getAllTeams, getBase, enterFloor, resolveEvent, resolveExplore, previewFloor, getNarrative } from '../api/client'
 import { emitToast } from '../toastBus'
 import CombatArena from '../components/CombatArena'
 import FairyGuide from '../components/FairyGuide'
@@ -103,6 +103,12 @@ function PostCombatScreen({ lastResult, combatEntities, onReturn, onRerun, busy 
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '2rem', marginTop: '2rem' }}>
+
+      {lastResult.narrative && (
+        <div className="card" style={{ fontStyle: 'italic', color: 'var(--text-dim)', lineHeight: 1.6 }}>
+          {lastResult.narrative}
+        </div>
+      )}
 
       {/* Team Status */}
       <div className="card">
@@ -325,6 +331,22 @@ export default function TowerPage({ onGoldChange }) {
     }
   }
 
+  function pollNarrative(narrativeId, attemptsLeft = 4) {
+    if (!narrativeId || attemptsLeft <= 0) return
+    setTimeout(async () => {
+      try {
+        const res = await getNarrative(narrativeId)
+        if (res.ready && res.narrative) {
+          setLastResult(prev => prev ? { ...prev, narrative: res.narrative } : prev)
+        } else {
+          pollNarrative(narrativeId, attemptsLeft - 1)
+        }
+      } catch {
+        // Flavor text only — silently give up on failure.
+      }
+    }, 2000)
+  }
+
   async function enterFloorFlow(floorNumber, { skipAnimation = false } = {}) {
     setAdvancing(true)
     setError(null)
@@ -343,6 +365,7 @@ export default function TowerPage({ onGoldChange }) {
       const result = await enterFloor(floorNumber, deployTeamIds.slice(0, requiredTeams))
       setLastResult(result)
       setCombatEntities(mergedCombatEntities(result))
+      if (result.narrative_id) pollNarrative(result.narrative_id)
 
       if (result.awaiting_choice && result.event) {
         setPendingEvent(result)

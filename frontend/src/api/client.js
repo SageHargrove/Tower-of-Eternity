@@ -140,6 +140,7 @@ export const redeemSpark = () => request('/gacha/spark-redeem', { method: 'POST'
 
 // Tower / Runs
 export const enterFloor = (floorNumber, teamIds) => request('/tower/floor/enter', { method: 'POST', body: JSON.stringify({ floor_number: floorNumber, team_ids: Array.isArray(teamIds) ? teamIds : [teamIds] }) })
+export const getNarrative = (narrativeId) => request(`/tower/narrative/${narrativeId}`)
 export const previewFloor = (floorNumber) => request(`/tower/floor/preview/${floorNumber}`)
 export const resolveEvent = (floorNumber, teamId, templateId, choiceId, theme) => request('/tower/floor/event/resolve', { method: 'POST', body: JSON.stringify({ floor_number: floorNumber, team_id: teamId, template_id: templateId, choice_id: choiceId, theme: theme }) })
 export const resolveExplore = (floorNumber, teamId, choiceId) => request('/tower/floor/explore/resolve', { method: 'POST', body: JSON.stringify({ floor_number: floorNumber, team_id: teamId, choice_id: choiceId }) })

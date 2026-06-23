@@ -20,12 +20,41 @@ class EnterFloorRequest(BaseModel):
     team_id: int = 1
     floor_number: int
 
+# Combat narration used to block floor-entry for up to 1.5s waiting on an LLM
+# call that has nowhere to render on the frontend anyway. Now fired in the
+# background; the response carries an id the frontend can poll once, a
+# moment later, to upgrade the placeholder text if the real one is ready.
+_narrative_futures = {}
+_narrative_id_counter = 0
+
+def _register_narrative_future(future):
+    global _narrative_id_counter
+    _narrative_id_counter += 1
+    nid = _narrative_id_counter
+    _narrative_futures[nid] = future
+    if len(_narrative_futures) > 50:
+        for old_id in sorted(_narrative_futures)[:-50]:
+            del _narrative_futures[old_id]
+    return nid
+
+@router.get("/narrative/{narrative_id}")
+def get_narrative(narrative_id: int):
+    future = _narrative_futures.get(narrative_id)
+    if future is None:
+        return {"ready": False}
+    if not future.done():
+        return {"ready": False}
+    try:
+        return {"ready": True, "narrative": future.result()}
+    except Exception:
+        return {"ready": True, "narrative": "A fierce battle took place."}
+
 
 def _resolve_real_combat(conn, hero_teams, floor_number, is_boss, is_miniboss, zone_theme,
                           boss_data_override, base_row, pending_legacies,
                           enemy_count_override=None, flavor_intro=None, difficulty_mult=1.0):
     """Run a real fight and apply every resulting effect."""
-    from services.llm_service import generate_combat_narration, call_with_timeout
+    from services.llm_service import generate_combat_narration, submit_flavor_text
     from services.combat_service import run_multi_combat
 
     try:
@@ -50,10 +79,9 @@ def _resolve_real_combat(conn, hero_teams, floor_number, is_boss, is_miniboss, z
         result["run_over"] = True
 
     flat_hero_names = [h["name"] for team in hero_teams for h in team]
-    narrative = call_with_timeout(
-        generate_combat_narration, combat_result.get("log", []), flat_hero_names,
-        timeout=1.5, fallback="A fierce battle took place."
-    )
+    narrative_future = submit_flavor_text(generate_combat_narration, combat_result.get("log", []), flat_hero_names)
+    narrative = "A fierce battle took place."
+    result["narrative_id"] = _register_narrative_future(narrative_future)
 
     import datetime
     from services.bonds_service import get_bond
