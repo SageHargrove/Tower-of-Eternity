@@ -119,9 +119,17 @@ NEGATIVE_STYLE = (
 # goal is balanced: visible and detailed, not pitch black, not blown out.
 # ---------------------------------------------------------------------------
 
+# "monstrous and beast-like, not a human or attractive humanoid figure" is
+# deliberate insurance, not redundant with the negative prompt — hero
+# portraits get the same kind of insurance via FRAMING's "fully clothed,
+# wearing detailed outfit", which monsters never had an equivalent for.
+# Without it, this checkpoint's anime-style bias pulls small/humanoid-ish
+# creature prompts (goblin, rat, hyena) toward sexualized "monster girl"
+# anime-pinup interpretations instead of actual monsters.
 MONSTER_STYLE = (
-    "(Solo Leveling manhwa art style:1.2), dark fantasy anime monster design, "
-    "(bold black ink outlines:1.15), thick clean lineart, cel shading, multiple distinct shading tones, "
+    "(Solo Leveling manhwa art style, cel-shaded anime illustration:1.35), dark fantasy anime monster design, "
+    "monstrous and beast-like in form, not a human or attractive humanoid figure, fully non-sexual, "
+    "(bold black ink outlines:1.25), thick clean lineart, cel shading, multiple distinct shading tones, "
     "well-lit subject with clearly visible surface detail and texture, balanced natural exposure, "
     "rich saturated but balanced colors across the entire body, vivid distinct material colors, "
     "highly detailed surface texture, intricate detailed anatomy, "
@@ -150,7 +158,12 @@ MONSTER_NEGATIVE = NEGATIVE_STYLE + (
     "second character, multiple subjects, a human standing in the scene, "
     "exposed chest, bare chest, bare torso, exposed abs, exposed midriff, exposed stomach, "
     "open shirt, unbuttoned shirt, unbuttoned jacket, shirtless, open coat exposing skin, "
-    "topless, nude, nudity"
+    "topless, nude, nudity, nsfw, sexualized, sexually suggestive, suggestive pose, seductive pose, "
+    "cleavage, exposed breasts, bikini, lingerie, underwear, panties, swimsuit, partial nudity, "
+    "see-through clothing, skin-tight revealing clothing, exposed thighs, exposed hips, exposed buttocks, "
+    "monster girl, kemonomimi, anime girl with animal ears, attractive human woman, beautiful woman, "
+    "pin-up pose, ecchi, fanservice, erotic, provocative, a human female body, voluptuous figure, "
+    "anthropomorphized into an attractive human, humanoid female version of the creature"
 )
 
 def _quality_tag(birth_star: int) -> str:
