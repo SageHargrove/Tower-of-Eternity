@@ -8,6 +8,7 @@ import InventoryPage from './pages/InventoryPage'
 import ProfileSelect from './components/ProfileSelect'
 import HeroChat from './components/HeroChat'
 import ToastContainer from './components/ToastContainer'
+import TutorialOverlay from './components/TutorialOverlay'
 import { getBase, listProfiles, grantResources, clearDevInventory, setDevLevel, grantInventoryItem, listHeroes } from './api/client'
 import { initAudio, setSoundEnabled, isSoundEnabled, playClick, setBgmVolume, setSfxVolume } from './audio'
 
@@ -25,6 +26,8 @@ export default function App() {
   const [gold, setGold] = useState(null)
   const [supplies, setSupplies] = useState(null)
   const [gems, setGems] = useState(null)
+  const [tutorialComplete, setTutorialComplete] = useState(true)
+  const [fairyGender, setFairyGender] = useState('female')
   const [showSettings, setShowSettings] = useState(false)
   const [soundOn, setSoundOn] = useState(localStorage.getItem('soundEnabled') !== 'false')
   const [bgmVol, setBgmVol] = useState(parseFloat(localStorage.getItem('bgmVolume') || '0.5') * 100)
@@ -63,7 +66,15 @@ export default function App() {
       setGold(data.gold)
       setSupplies(data.supplies)
       setGems(data.gems || 0)
+      setTutorialComplete(!!data.tutorial_complete)
+      setFairyGender(data.fairy_gender || 'female')
     } catch {}
+  }
+
+  function handleTutorialComplete(gemsGranted) {
+    setTutorialComplete(true)
+    if (gemsGranted > 0) setGems(g => (g || 0) + gemsGranted)
+    setTab('summon')
   }
 
   useEffect(() => {
@@ -276,6 +287,9 @@ export default function App() {
         </div>
       )}
       <ToastContainer />
+      {!tutorialComplete && (
+        <TutorialOverlay fairyGender={fairyGender} onComplete={handleTutorialComplete} />
+      )}
     </div>
   )
 }

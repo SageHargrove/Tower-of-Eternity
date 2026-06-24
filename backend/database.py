@@ -194,7 +194,7 @@ CREATE TABLE IF NOT EXISTS base (
             equip_spark_points INTEGER DEFAULT 0,
             last_training_tick TIMESTAMP,
             last_fatigue_tick TIMESTAMP
-        , last_research_tick TIMESTAMP, last_mage_tick TIMESTAMP, last_alchemist_tick TIMESTAMP, last_restaurant_tick TIMESTAMP);
+        , last_research_tick TIMESTAMP, last_mage_tick TIMESTAMP, last_alchemist_tick TIMESTAMP, last_restaurant_tick TIMESTAMP, master_name TEXT, tutorial_complete INTEGER DEFAULT 0);
 
 CREATE TABLE IF NOT EXISTS event_log (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -367,6 +367,25 @@ INSERT OR IGNORE INTO base (id) VALUES (1);
         try:
             conn.execute("ALTER TABLE base ADD COLUMN equip_spark_points INTEGER DEFAULT 0")
             print("[DB] Migrated: added column 'equip_spark_points' to base")
+        except sqlite3.OperationalError:
+            pass
+
+        try:
+            conn.execute("ALTER TABLE base ADD COLUMN master_name TEXT")
+            print("[DB] Migrated: added column 'master_name' to base")
+        except sqlite3.OperationalError:
+            pass
+
+        try:
+            conn.execute("ALTER TABLE base ADD COLUMN tutorial_complete INTEGER DEFAULT 0")
+            # Backfill: an existing save with real progress already lived
+            # through everything the tutorial would teach — don't make it
+            # pop up retroactively on profiles that aren't brand new.
+            conn.execute(
+                "UPDATE base SET tutorial_complete = 1 WHERE highest_floor > 0 "
+                "OR EXISTS (SELECT 1 FROM heroes)"
+            )
+            print("[DB] Migrated: added column 'tutorial_complete' to base")
         except sqlite3.OperationalError:
             pass
 

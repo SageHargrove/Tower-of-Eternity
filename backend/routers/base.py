@@ -59,6 +59,39 @@ def rename_base(req: RenameRequest):
         conn.execute("UPDATE base SET name = ? WHERE id = 1", (req.name.strip()[:30],))
     return {"ok": True, "name": req.name.strip()[:30]}
 
+class MasterNameRequest(BaseModel):
+    name: str
+
+@router.post("/master-name")
+def set_master_name(req: MasterNameRequest):
+    """The player's own chosen name — distinct from base.name (the tower's
+    name). Heroes refer to the player generically as 'the Master' in flavor
+    text until this is set, after which that text uses the real name."""
+    if not req.name or len(req.name.strip()) == 0:
+        raise HTTPException(status_code=400, detail="Name cannot be empty.")
+    with db() as conn:
+        conn.execute("UPDATE base SET master_name = ? WHERE id = 1", (req.name.strip()[:24],))
+    return {"ok": True, "master_name": req.name.strip()[:24]}
+
+TUTORIAL_COMPLETION_GEMS = 500
+
+@router.post("/tutorial/complete")
+def complete_tutorial():
+    """Marks the tutorial as seen (so it never shows again on this profile)
+    and grants the starter-gem bonus — awarded whether the player finished
+    every step or hit Skip, since the point is getting them into their first
+    summon either way, not gating the reward on sitting through the whole thing."""
+    with db() as conn:
+        already = conn.execute("SELECT tutorial_complete FROM base WHERE id = 1").fetchone()
+        if already and already["tutorial_complete"]:
+            return {"ok": True, "already_complete": True, "gems_granted": 0}
+        conn.execute(
+            "UPDATE base SET tutorial_complete = 1, gems = gems + ? WHERE id = 1",
+            (TUTORIAL_COMPLETION_GEMS,),
+        )
+        row = conn.execute("SELECT gems FROM base WHERE id = 1").fetchone()
+    return {"ok": True, "already_complete": False, "gems_granted": TUTORIAL_COMPLETION_GEMS, "gems": row["gems"]}
+
 class GrantResourcesRequest(BaseModel):
     gold: int = 0
     gems: int = 0
