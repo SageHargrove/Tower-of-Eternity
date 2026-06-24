@@ -50,7 +50,7 @@ def get_hero_card_image(hero_id: int, mini: bool = False):
 
     from services.card_template_service import composite_card
     try:
-        card_path = composite_card(hero_id, hero["portrait_path"], hero["birth_star"], hero["name"], crop_face=mini)
+        card_path = composite_card(hero_id, hero["portrait_path"], hero["birth_star"], hero["name"], crop_face=mini, hero_class=hero["hero_class"])
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Card compositing failed: {e}")
     return FileResponse(card_path, media_type="image/png")

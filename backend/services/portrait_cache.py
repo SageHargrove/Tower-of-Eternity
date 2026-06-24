@@ -479,12 +479,12 @@ def _prewarm_card(hero_id: int, portrait_path: str):
     screen at once."""
     try:
         with db() as conn:
-            hero = conn.execute("SELECT birth_star, name FROM heroes WHERE id = ?", (hero_id,)).fetchone()
+            hero = conn.execute("SELECT birth_star, name, hero_class FROM heroes WHERE id = ?", (hero_id,)).fetchone()
         if not hero:
             return
         from services.card_template_service import composite_card
-        composite_card(hero_id, portrait_path, hero["birth_star"], hero["name"], crop_face=False)
-        composite_card(hero_id, portrait_path, hero["birth_star"], hero["name"], crop_face=True)
+        composite_card(hero_id, portrait_path, hero["birth_star"], hero["name"], crop_face=False, hero_class=hero["hero_class"])
+        composite_card(hero_id, portrait_path, hero["birth_star"], hero["name"], crop_face=True, hero_class=hero["hero_class"])
     except Exception as e:
         print(f"[Cache] Card prewarm failed for hero {hero_id}: {e}")
 

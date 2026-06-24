@@ -58,27 +58,56 @@ class CombatUnit:
         if self.has_construct:
             self.construct_active = True
 
-# name, hp_m, def_m, spd_m, archetype — shared with services/portrait_cache.py
+# name, hp_m, def_m, spd_m, archetype, tier — shared with services/portrait_cache.py
 # so the enemy portrait library is pre-generated for exactly these types.
+# "archetype" (swarm/pack/normal/elite) drives count/difficulty math in
+# _build_enemy_group; "tier" is a separate floor-gate (see ENEMY_TIER_FLOORS
+# below) so a floor-2 fight can't roll something named like an end-game
+# threat — the original 17 monster types (all undead/horror-flavored) read
+# fine as "advanced"/"legendary" content but were previously available from
+# floor 1, which is why early fights felt over-tuned in theme even when the
+# raw stats were scaled down to match.
 ENEMY_TYPES = [
-    ("Corpse Rat", 1.0, 1.0, 1.5, "swarm"),
-    ("Grave Scarab", 1.0, 1.0, 1.6, "swarm"),
-    ("Carrion Bat", 0.9, 0.8, 1.9, "swarm"),
-    ("Plague Crawler", 1.0, 1.0, 1.3, "pack"),
-    ("Abyssal Spider", 1.0, 1.0, 1.4, "pack"),
-    ("Rotting Ghoul", 1.1, 0.9, 1.2, "pack"),
-    ("Hollow Knight", 1.2, 1.1, 0.9, "normal"),
-    ("Bone Warden", 1.0, 1.3, 0.8, "normal"),
-    ("Flame Wraith", 0.9, 0.6, 1.4, "normal"),
-    ("Shriek Shade", 0.7, 0.5, 1.6, "normal"),
-    ("Iron Revenant", 1.3, 1.4, 0.7, "normal"),
-    ("Venom Stalker", 0.9, 0.8, 1.5, "normal"),
-    ("Stone Golem", 1.5, 1.8, 0.5, "elite"),
-    ("Dread Brute", 1.8, 1.2, 0.7, "elite"),
-    ("Abyssal Lurker", 1.3, 0.9, 1.8, "elite"),
-    ("Frost Wight", 1.4, 1.1, 0.9, "elite"),
-    ("Obsidian Behemoth", 2.0, 1.6, 0.4, "elite"),
+    # --- beginner (floor 1+) ---
+    ("Giant Rat", 0.8, 0.8, 1.6, "swarm", "beginner"),
+    ("Wild Boar", 1.0, 0.9, 1.3, "pack", "beginner"),
+    ("Goblin", 0.8, 0.7, 1.1, "normal", "beginner"),
+    ("Bandit", 0.9, 0.8, 1.2, "normal", "beginner"),
+    ("Wolf", 0.9, 0.7, 1.5, "pack", "beginner"),
+    # --- intermediate (floor 15+) ---
+    ("Dire Wolf", 1.1, 0.9, 1.6, "pack", "intermediate"),
+    ("Orc", 1.1, 1.0, 0.9, "normal", "intermediate"),
+    ("Harpy", 0.8, 0.6, 1.8, "pack", "intermediate"),
+    ("Ogre", 1.6, 1.3, 0.6, "elite", "intermediate"),
+    ("Troll", 1.7, 1.0, 0.6, "elite", "intermediate"),
+    # --- advanced (floor 40+) ---
+    ("Corpse Rat", 1.0, 1.0, 1.5, "swarm", "advanced"),
+    ("Grave Scarab", 1.0, 1.0, 1.6, "swarm", "advanced"),
+    ("Carrion Bat", 0.9, 0.8, 1.9, "swarm", "advanced"),
+    ("Plague Crawler", 1.0, 1.0, 1.3, "pack", "advanced"),
+    ("Abyssal Spider", 1.0, 1.0, 1.4, "pack", "advanced"),
+    ("Rotting Ghoul", 1.1, 0.9, 1.2, "pack", "advanced"),
+    ("Hollow Knight", 1.2, 1.1, 0.9, "normal", "advanced"),
+    ("Bone Warden", 1.0, 1.3, 0.8, "normal", "advanced"),
+    ("Flame Wraith", 0.9, 0.6, 1.4, "normal", "advanced"),
+    ("Shriek Shade", 0.7, 0.5, 1.6, "normal", "advanced"),
+    ("Iron Revenant", 1.3, 1.4, 0.7, "normal", "advanced"),
+    ("Venom Stalker", 0.9, 0.8, 1.5, "normal", "advanced"),
+    # --- legendary (floor 70+) ---
+    ("Stone Golem", 1.5, 1.8, 0.5, "elite", "legendary"),
+    ("Dread Brute", 1.8, 1.2, 0.7, "elite", "legendary"),
+    ("Abyssal Lurker", 1.3, 0.9, 1.8, "elite", "legendary"),
+    ("Frost Wight", 1.4, 1.1, 0.9, "elite", "legendary"),
+    ("Obsidian Behemoth", 2.0, 1.6, 0.4, "elite", "legendary"),
 ]
+
+ENEMY_TIER_UNLOCK_FLOOR = {"beginner": 1, "intermediate": 15, "advanced": 40, "legendary": 70}
+
+def _enemy_pool_for_floor(floor_number: int) -> list[tuple]:
+    """Every tier unlocked at or below this floor stays available — a
+    floor-80 fight can still roll a Goblin, it's just no longer ONLY
+    Goblins. Mirrors services/materials_service.py's tiered drop gating."""
+    return [e for e in ENEMY_TYPES if floor_number >= ENEMY_TIER_UNLOCK_FLOOR[e[5]]]
 
 def _build_enemy_group(etype, floor_number: int, difficulty_mult: float, id_start: int, count_override: int = None) -> list[CombatUnit]:
     """Build one monster type's portion of an encounter. Pulled out of
@@ -87,7 +116,7 @@ def _build_enemy_group(etype, floor_number: int, difficulty_mult: float, id_star
     the count/stat math. id_start offsets negative CombatUnit ids so two
     groups in the same encounter never collide."""
     scale = 1 + (floor_number * 0.12)
-    name, hp_m, def_m, spd_m, archetype = etype
+    name, hp_m, def_m, spd_m, archetype, _tier = etype
 
     # Apply archetype modifiers first — count/difficulty math below needs
     # the post-archetype numbers, not the raw per-monster base stats.
@@ -182,7 +211,8 @@ def make_enemies(floor_number: int, count: int = None, difficulty_mult: float = 
     rather than just meaning "fewer enemies" (5 weak swarmers can be an
     easier fight than 1 elite — raw count alone doesn't capture that).
     """
-    etype = random.choice(ENEMY_TYPES)
+    pool = _enemy_pool_for_floor(floor_number)
+    etype = random.choice(pool)
 
     # Mixed encounters (two different monster types in one fight) are now
     # the default flavor for common floors — splits the same difficulty
@@ -190,7 +220,7 @@ def make_enemies(floor_number: int, count: int = None, difficulty_mult: float = 
     # when the caller passed an explicit count (survival-floor overrides
     # etc. want one clean group, not a fractional split of a fixed number).
     if count is None and random.random() < 0.45:
-        other_types = [e for e in ENEMY_TYPES if e[0] != etype[0]]
+        other_types = [e for e in pool if e[0] != etype[0]]
         etype2 = random.choice(other_types)
         split = random.uniform(0.35, 0.65)
         group1 = _build_enemy_group(etype, floor_number, difficulty_mult * split, id_start=0)

@@ -14,7 +14,6 @@ AI image calls) and cached to disk; composited cards are cached per (hero
 portrait, tier) so this work only runs once per hero, not on every page view.
 """
 import os
-import math
 from io import BytesIO
 from PIL import Image, ImageDraw, ImageFont, ImageFilter
 
@@ -26,6 +25,7 @@ CARD_CACHE_DIR = os.path.join("static", "portraits", "cards")
 # Fonts at runtime, not bundled as a file) — Georgia Bold is a close-enough
 # elegant serif already present on Windows, so no new asset/download needed.
 _NAME_FONT_PATH = r"C:\Windows\Fonts\georgiab.ttf"
+_EMOJI_FONT_PATH = r"C:\Windows\Fonts\seguiemj.ttf"
 
 
 def _name_font(size: int) -> ImageFont.FreeTypeFont:
@@ -33,6 +33,10 @@ def _name_font(size: int) -> ImageFont.FreeTypeFont:
         return ImageFont.truetype(_NAME_FONT_PATH, size)
     except OSError:
         return ImageFont.load_default()
+
+
+def _emoji_font(size: int) -> ImageFont.FreeTypeFont:
+    return ImageFont.truetype(_EMOJI_FONT_PATH, size)
 
 TIER_COLORS = {
     "bronze": (140, 78, 38),    # deep copper-brown, pushed away from gold
@@ -69,15 +73,6 @@ def _tier_color_at(tier: str, t: float) -> tuple:
     return tuple(int(c0[k] + (c1[k] - c0[k]) * frac) for k in range(3))
 
 
-def _draw_star(draw: ImageDraw.ImageDraw, cx: int, cy: int, r: int, color: tuple):
-    points = []
-    for i in range(10):
-        angle = math.pi / 2 + i * math.pi / 5
-        radius = r if i % 2 == 0 else r * 0.45
-        points.append((cx + radius * math.cos(angle), cy - radius * math.sin(angle)))
-    draw.polygon(points, fill=color)
-
-
 def _build_template(tier: str) -> Image.Image:
     w, h = CANVAS_SIZE
     img = Image.new("RGB", (w, h), (10, 10, 12))
@@ -110,12 +105,11 @@ def _build_template(tier: str) -> Image.Image:
         diamond_color = _tier_color_at(tier, 0.25)
         draw.polygon([(dx, dy - diamond_r), (dx + diamond_r, dy), (dx, dy + diamond_r), (dx - diamond_r, dy)], fill=(*diamond_color, 255))
 
-    # Star-tier icon medallion at the top. Sampled at a cooler point on the
-    # prismatic wheel (blue) specifically so it never reads as gold-ish.
-    icon_y = margin + 46
-    icon_color = _tier_color_at(tier, 0.6)
-    draw.ellipse([cx - 28, icon_y - 28, cx + 28, icon_y + 28], fill=(20, 20, 24, 255), outline=(*icon_color, 255), width=4)
-    _draw_star(draw, cx, icon_y, 16, (*icon_color, 255))
+    # The icon medallion at the top used to be baked in here as a plain star,
+    # but it's now drawn per-hero in composite_card() instead (as that hero's
+    # class icon) — this shared template is cached and reused across every
+    # hero of the same tier, so anything hero-specific has to be drawn later,
+    # on the per-hero canvas, not here.
 
     # Nameplate banner near the bottom — decorative band only, no baked-in
     # text (the app already renders the hero's name as a separate HTML
@@ -173,7 +167,7 @@ def _fit_name_font(draw: ImageDraw.ImageDraw, name: str, max_width: int, max_siz
     return _name_font(min_size)
 
 
-def composite_card(hero_id: int, portrait_path: str, birth_star: int, hero_name: str = "", crop_face: bool = False) -> str:
+def composite_card(hero_id: int, portrait_path: str, birth_star: int, hero_name: str = "", crop_face: bool = False, hero_class: str = "") -> str:
     """Builds (or returns the cached) composited card image path for a hero.
     Cache key includes the portrait file's mtime (so a regenerated/rerolled
     portrait invalidates the old composited card) and a hash of the name (so
@@ -190,7 +184,7 @@ def composite_card(hero_id: int, portrait_path: str, birth_star: int, hero_name:
     os.makedirs(CARD_CACHE_DIR, exist_ok=True)
     tier = tier_for_star(birth_star)
     mtime = int(os.path.getmtime(portrait_path))
-    name_hash = abs(hash(hero_name)) % 100000
+    name_hash = abs(hash((hero_name, hero_class))) % 100000
     variant = "mini" if crop_face else "full"
     out_path = os.path.join(CARD_CACHE_DIR, f"{hero_id}_{variant}_{tier}_{mtime}_{name_hash}.png")
     if os.path.exists(out_path):
@@ -230,6 +224,21 @@ def composite_card(hero_id: int, portrait_path: str, birth_star: int, hero_name:
     margin = 18
     outer_color = _tier_color_at(tier, 0.0)
     draw.rounded_rectangle([margin, margin, w - margin, h - margin], radius=22, outline=(*outer_color, 230), width=6)
+
+    # Class icon medallion at the top — drawn per-hero (not baked into the
+    # shared cached template) since it differs hero to hero. Sampled at a
+    # cooler point on the prismatic wheel (blue) so it never reads as gold-ish.
+    from services.class_service import get_class_icon
+    cx = w // 2
+    icon_y = margin + 46
+    icon_color = _tier_color_at(tier, 0.6)
+    draw.ellipse([cx - 28, icon_y - 28, cx + 28, icon_y + 28], fill=(20, 20, 24, 255), outline=(*icon_color, 255), width=4)
+    icon_glyph = get_class_icon(hero_class)
+    icon_font = _emoji_font(28)
+    bbox = draw.textbbox((0, 0), icon_glyph, font=icon_font, embedded_color=True)
+    icon_w, icon_h = bbox[2] - bbox[0], bbox[3] - bbox[1]
+    draw.text((cx - icon_w // 2 - bbox[0], icon_y - icon_h // 2 - bbox[1]), icon_glyph, font=icon_font, embedded_color=True)
+
     band_top = int(h * 0.86)
     band_bot = int(h * 0.94)
     band_color = _tier_color_at(tier, 0.75)
