@@ -10,6 +10,7 @@ import ProfileSelect from './components/ProfileSelect'
 import HeroChat from './components/HeroChat'
 import ToastContainer from './components/ToastContainer'
 import TutorialOverlay from './components/TutorialOverlay'
+import TabTourOverlay from './components/TabTourOverlay'
 import { getBase, listProfiles, grantResources, clearDevInventory, setDevLevel, grantInventoryItem, listHeroes } from './api/client'
 import { initAudio, setSoundEnabled, isSoundEnabled, playClick, setBgmVolume, setSfxVolume } from './audio'
 
@@ -20,6 +21,27 @@ const TABS = [
   { id: 'tower',  label: 'Tower' },
   { id: 'arena',  label: 'Arena' },
   { id: 'base',   label: 'Base' },
+]
+
+// Runs once per browser after the intro TutorialOverlay finishes (or, for
+// existing profiles that already finished it before this feature shipped,
+// the first time they load in). Walks every top-level tab plus the two
+// Base sub-tabs worth calling out specifically — see TabTourOverlay.jsx.
+const TAB_TOUR_STEPS = [
+  { tab: 'summon', label: 'Summon', title: 'The Summoning Gate',
+    body: "This is where you call new heroes into the Tower — spend Gold or Gems to pull. Every hero's stats, class, and face are unique." },
+  { tab: 'heroes', label: 'Heroes', title: 'Your Roster',
+    body: "Every hero you've ever summoned lives here. Set your active Tower team, check stats, manage equipment, and assign a team leader." },
+  { tab: 'inventory', label: 'Items', title: 'Items',
+    body: "Potions, scrolls, and crafting materials you've picked up sit here, ready to use on a hero or save for crafting." },
+  { tab: 'tower', label: 'Tower', title: 'The Tower',
+    body: "The main event. Send your team up floor by floor — each one's a fight, sometimes worse. Climb as high as you can." },
+  { tab: 'arena', label: 'Arena', title: 'The Arena',
+    body: "PvP against other players — submit a team snapshot and challenge a friend by username. Never touches your real save, and heroes never actually die here." },
+  { tab: 'base', subTab: 'lobby', label: 'Base', title: 'Home Base',
+    body: "Rest your heroes here between runs, watch your gold and supply income, and manage Legacies." },
+  { tab: 'base', subTab: 'facilities', label: 'Facilities', title: 'Facilities',
+    body: "Build and staff facilities like the Forge, Restaurant, and Infirmary — assign support-class heroes (Blacksmith, Chef, Medic, Tanner, Carpenter, etc.) here for big bonuses. Most support classes can't fight, so this is where they actually pull their weight." },
 ]
 
 export default function App() {
@@ -41,6 +63,10 @@ export default function App() {
   const [devItemType, setDevItemType] = useState('material')
   const [devItemQty, setDevItemQty] = useState(5)
   const [devBusy, setDevBusy] = useState(false)
+  const [tourActive, setTourActive] = useState(false)
+  const [tourStepIndex, setTourStepIndex] = useState(0)
+  const [tourTabEntered, setTourTabEntered] = useState(false)
+  const [baseSubTab, setBaseSubTab] = useState('lobby')
 
   useEffect(() => { 
     checkProfile()
@@ -70,13 +96,50 @@ export default function App() {
       setGems(data.gems || 0)
       setTutorialComplete(!!data.tutorial_complete)
       setFairyGender(data.fairy_gender || 'female')
+      maybeStartTabTour(!!data.tutorial_complete)
     } catch {}
+  }
+
+  // Covers returning profiles that finished the intro tutorial before this
+  // tour existed — they still get it once. Brand-new profiles get it via
+  // handleTutorialComplete below instead (refreshResources never observes
+  // tutorial_complete flip true->true for them in time).
+  function maybeStartTabTour(introDone) {
+    if (introDone && !tourActive && localStorage.getItem('tab_tour_complete') !== 'true') {
+      setTourStepIndex(0)
+      setTourActive(true)
+    }
   }
 
   function handleTutorialComplete(gemsGranted) {
     setTutorialComplete(true)
     if (gemsGranted > 0) setGems(g => (g || 0) + gemsGranted)
     setTab('summon')
+    maybeStartTabTour(true)
+  }
+
+  // Re-evaluates whenever the active tab, Base's internal sub-tab, or the
+  // current tour step changes — covers both "just clicked the target tab"
+  // and "advanced to a step whose target tab I was already sitting on"
+  // (the lobby -> facilities step, both inside the already-open Base tab).
+  useEffect(() => {
+    if (!tourActive) return
+    const step = TAB_TOUR_STEPS[tourStepIndex]
+    if (!step) return
+    setTourTabEntered(tab === step.tab && (!step.subTab || baseSubTab === step.subTab))
+  }, [tab, baseSubTab, tourActive, tourStepIndex])
+
+  function finishTabTour() {
+    localStorage.setItem('tab_tour_complete', 'true')
+    setTourActive(false)
+  }
+
+  function handleTourNext() {
+    if (tourStepIndex + 1 >= TAB_TOUR_STEPS.length) {
+      finishTabTour()
+    } else {
+      setTourStepIndex(i => i + 1)
+    }
   }
 
   useEffect(() => {
@@ -142,7 +205,8 @@ export default function App() {
     inventory: <InventoryPage />,
     tower:  <TowerPage onGoldChange={refreshResources} />,
     arena:  <ArenaPage />,
-    base:   <BasePage onGoldChange={refreshResources} />,
+    base:   <BasePage onGoldChange={refreshResources} onSubTabChange={setBaseSubTab}
+               tourTargetSubTab={tourActive && TAB_TOUR_STEPS[tourStepIndex]?.tab === 'base' ? TAB_TOUR_STEPS[tourStepIndex].subTab : null} />,
     log:    <LogPage />,
   }
 
@@ -170,15 +234,21 @@ export default function App() {
       </header>
 
       <nav className="tabs">
-        {TABS.map(t => (
-          <button
-            key={t.id}
-            className={`tab-btn ${tab === t.id ? 'active' : ''}`}
-            onClick={() => { setTab(t.id); if (t.id === 'base' || t.id === 'summon' || t.id === 'tower') refreshResources() }}
-          >
-            {t.label}
-          </button>
-        ))}
+        {TABS.map(t => {
+          const tourTarget = tourActive ? TAB_TOUR_STEPS[tourStepIndex]?.tab : null
+          const locked = tourActive && t.id !== tourTarget
+          return (
+            <button
+              key={t.id}
+              className={`tab-btn ${tab === t.id ? 'active' : ''}`}
+              disabled={locked}
+              onClick={() => { if (locked) return; setTab(t.id); if (t.id === 'base' || t.id === 'summon' || t.id === 'tower') refreshResources() }}
+              style={locked ? { opacity: 0.35, cursor: 'not-allowed' } : (t.id === tourTarget ? { boxShadow: '0 0 10px var(--gold)' } : undefined)}
+            >
+              {t.label}
+            </button>
+          )
+        })}
       </nav>
 
       <main className="main-content">
@@ -292,6 +362,17 @@ export default function App() {
       <ToastContainer />
       {!tutorialComplete && (
         <TutorialOverlay fairyGender={fairyGender} onComplete={handleTutorialComplete} />
+      )}
+      {tutorialComplete && tourActive && (
+        <TabTourOverlay
+          step={TAB_TOUR_STEPS[tourStepIndex]}
+          stepIndex={tourStepIndex}
+          totalSteps={TAB_TOUR_STEPS.length}
+          entered={tourTabEntered}
+          fairyGender={fairyGender}
+          onNext={handleTourNext}
+          onSkip={finishTabTour}
+        />
       )}
     </div>
   )

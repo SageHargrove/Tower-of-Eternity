@@ -14,7 +14,7 @@ const FACILITY_TOOLTIPS = {
   "Mage Tower": "Conducts magical research. Magic Engineers are the most effective, with Mages and Spellswords close behind."
 }
 
-export default function BasePage({ onGoldChange }) {
+export default function BasePage({ onGoldChange, onSubTabChange, tourTargetSubTab }) {
   const [activeTab, setActiveTab] = useState('lobby')
   const [base, setBase] = useState(null)
   const [facilitiesData, setFacilitiesData] = useState(null)
@@ -55,6 +55,8 @@ export default function BasePage({ onGoldChange }) {
   const [filterClass, setFilterClass] = useState('All')
   
   useEffect(() => { loadAll() }, [])
+
+  useEffect(() => { onSubTabChange?.(activeTab) }, [activeTab])
 
   // Hero Chatter feed polls on its own, faster cadence than the rest of the
   // page — it should feel like an ongoing conversation, not a static log
@@ -267,17 +269,22 @@ const handleRenameBase = async () => {
 
   const renderTabs = () => (
     <div style={{ display: 'flex', gap: '1rem', marginBottom: '1.5rem', borderBottom: '1px solid var(--border)', overflowX: 'auto' }}>
-      {['lobby', 'facilities', 'legacy', 'floors'].map(tab => (
-        <button key={tab} className={`tab-btn ${activeTab === tab ? 'active' : ''}`} onClick={() => setActiveTab(tab)} 
-        style={{ 
-          background: 'none', border: 'none', padding: '0.5rem 1rem', cursor: 'pointer', whiteSpace: 'nowrap',
-          color: activeTab === tab ? 'var(--gold)' : 'var(--text-dim)', 
-          borderBottom: activeTab === tab ? '2px solid var(--gold)' : '2px solid transparent', 
-          fontFamily: 'Cinzel, serif', fontSize: '1.1rem', textTransform: 'uppercase' 
-        }}>
-          {tab === 'floors' ? 'Base Hierarchy' : tab === 'legacy' ? 'Legacies' : tab === 'lobby' ? 'The Lobby' : tab}
-        </button>
-      ))}
+      {['lobby', 'facilities', 'legacy', 'floors'].map(tab => {
+        const locked = !!tourTargetSubTab && tab !== tourTargetSubTab
+        return (
+          <button key={tab} className={`tab-btn ${activeTab === tab ? 'active' : ''}`} disabled={locked} onClick={() => { if (!locked) setActiveTab(tab) }}
+          style={{
+            background: 'none', border: 'none', padding: '0.5rem 1rem', cursor: locked ? 'not-allowed' : 'pointer', whiteSpace: 'nowrap',
+            color: activeTab === tab ? 'var(--gold)' : 'var(--text-dim)',
+            borderBottom: activeTab === tab ? '2px solid var(--gold)' : '2px solid transparent',
+            fontFamily: 'Cinzel, serif', fontSize: '1.1rem', textTransform: 'uppercase',
+            opacity: locked ? 0.35 : 1,
+            boxShadow: tab === tourTargetSubTab ? '0 0 8px var(--gold)' : 'none',
+          }}>
+            {tab === 'floors' ? 'Base Hierarchy' : tab === 'legacy' ? 'Legacies' : tab === 'lobby' ? 'The Lobby' : tab}
+          </button>
+        )
+      })}
     </div>
   )
 
