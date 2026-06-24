@@ -200,10 +200,14 @@ def composite_card(hero_id: int, portrait_path: str, birth_star: int, hero_name:
     portrait = _fit_with_feathered_edges(portrait_path)
 
     if crop_face:
-        # Keep the top ~58% (face/hair down to about collarbone) and zoom
-        # that into the same frame area the full card uses for the entire
-        # head-to-chest composition.
-        crop_h = int(portrait.height * 0.58)
+        # Keep the top ~80% (full face through chin/neck, cropping out just
+        # the lower shoulders/chest) and zoom that into the same frame area
+        # the full card uses for the entire head-to-chest composition.
+        # NOTE: a tighter 58% crop was tried first and cut faces off at the
+        # mouth/chin on several real portraits — composition (how much
+        # headroom/hair sits above the face) varies enough between
+        # generations that a fixed crop needs real margin, not a precise gust.
+        crop_h = int(portrait.height * 0.80)
         portrait = portrait.crop((0, 0, portrait.width, crop_h))
 
     w, h = template.size
