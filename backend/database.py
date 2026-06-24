@@ -28,16 +28,15 @@ if os.path.exists("game.db") and not os.path.exists(os.path.join(SAVES_DIR, "mai
     os.rename("game.db", os.path.join(SAVES_DIR, "main.db"))
 
 def get_db_path():
-    return os.path.join(SAVES_DIR, f"{ACTIVE_PROFILE}.db")
+    prof = ACTIVE_PROFILE if ACTIVE_PROFILE else "main"
+    return os.path.join(SAVES_DIR, f"{prof}.db")
 
 def set_profile(profile_name):
     global ACTIVE_PROFILE
     ACTIVE_PROFILE = profile_name
-    try:
-        with open(_ACTIVE_PROFILE_FILE, "w", encoding="utf-8") as f:
-            f.write(profile_name)
-    except Exception:
-        pass
+    os.makedirs(SAVES_DIR, exist_ok=True)
+    with open(_ACTIVE_PROFILE_FILE, "w") as f:
+        f.write(profile_name)
     init_db()
 
 def clear_active_profile():
@@ -51,13 +50,11 @@ def clear_active_profile():
 
 def get_profiles():
     if not os.path.exists(SAVES_DIR):
-        return ["main"]
+        return []
     profiles = []
     for f in os.listdir(SAVES_DIR):
-        if f.endswith(".db"):
+        if f.endswith(".db") and f != "None.db":
             profiles.append(f.replace(".db", ""))
-    if not profiles:
-        return ["main"]
     return profiles
 
 def get_conn():
