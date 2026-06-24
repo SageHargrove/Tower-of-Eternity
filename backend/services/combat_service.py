@@ -70,7 +70,7 @@ class CombatUnit:
 ENEMY_TYPES = [
     # --- beginner (floor 1+) ---
     ("Giant Rat", 0.8, 0.8, 1.6, "swarm", "beginner"),
-    ("Wild Boar", 1.0, 0.9, 1.3, "pack", "beginner"),
+    ("Mangy Hyena", 1.0, 0.9, 1.3, "pack", "beginner"),
     ("Goblin", 0.8, 0.7, 1.1, "normal", "beginner"),
     ("Bandit", 0.9, 0.8, 1.2, "normal", "beginner"),
     ("Wolf", 0.9, 0.7, 1.5, "pack", "beginner"),
@@ -99,6 +99,7 @@ ENEMY_TYPES = [
     ("Abyssal Lurker", 1.3, 0.9, 1.8, "elite", "legendary"),
     ("Frost Wight", 1.4, 1.1, 0.9, "elite", "legendary"),
     ("Obsidian Behemoth", 2.0, 1.6, 0.4, "elite", "legendary"),
+    ("Shrouded Reaper", 1.3, 1.0, 1.3, "elite", "legendary"),
 ]
 
 ENEMY_TIER_UNLOCK_FLOOR = {"beginner": 1, "intermediate": 15, "advanced": 40, "legendary": 70}
