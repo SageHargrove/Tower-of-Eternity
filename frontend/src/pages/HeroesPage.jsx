@@ -3,6 +3,24 @@ import { listHeroes, setTeam, removeHeroFromTeam, reorderTeam, dismissHero, dism
 import HeroCard from '../components/HeroCard'
 import ClassEvolutionModal from '../components/ClassEvolutionModal'
 
+function formatEquipmentStats(eq) {
+  const parts = []
+  if (eq.base_str > 0) parts.push(`STR +${eq.base_str}`)
+  if (eq.base_int > 0) parts.push(`INT +${eq.base_int}`)
+  if (eq.base_def > 0) parts.push(`DEF +${eq.base_def}`)
+  if (eq.base_hlt > 0) parts.push(`Health +${eq.base_hlt}`)
+  if (eq.base_agi > 0) parts.push(`AGI +${eq.base_agi}`)
+  if (eq.str_pct > 0) parts.push(`STR +${(eq.str_pct * 100).toFixed(0)}%`)
+  if (eq.int_pct > 0) parts.push(`INT +${(eq.int_pct * 100).toFixed(0)}%`)
+  if (eq.hlt_pct > 0) parts.push(`Health +${(eq.hlt_pct * 100).toFixed(0)}%`)
+  if (eq.agi_pct > 0) parts.push(`AGI +${(eq.agi_pct * 100).toFixed(0)}%`)
+  if (eq.crit_chance > 0) parts.push(`Crit +${(eq.crit_chance * 100).toFixed(0)}%`)
+  if (eq.dodge_chance > 0) parts.push(`Dodge +${(eq.dodge_chance * 100).toFixed(0)}%`)
+  if (eq.armor_pen > 0) parts.push(`ArmorPen +${(eq.armor_pen * 100).toFixed(0)}%`)
+  if (eq.dmg_reduction_pct > 0) parts.push(`DR +${(eq.dmg_reduction_pct * 100).toFixed(0)}%`)
+  return parts.length ? parts.join(' ') : 'No bonus stats'
+}
+
 export default function HeroesPage() {
   const [heroes, setHeroes] = useState([])
   const [selected, setSelected] = useState(new Set())
@@ -443,15 +461,22 @@ export default function HeroesPage() {
             {index < 2 ? 'FRONTLINE' : 'BACKLINE'}
           </div>
         )}
-        {hero.is_team_leader && (
-          <div title="Team Leader" style={{
-            position: 'absolute', top: -10, right: 8,
-            background: 'rgba(201, 168, 76, 0.95)', color: '#000',
-            padding: '2px 6px', borderRadius: 12, fontSize: '0.75rem',
-            zIndex: 10, boxShadow: '0 0 8px rgba(201,168,76,0.6)'
-          }}>
+        {activeTab !== 'all' && hero.is_alive && (
+          <button
+            title={hero.is_team_leader ? 'Team Leader' : 'Make Team Leader'}
+            onClick={(e) => handleAssignLeader(hero.id, e)}
+            style={{
+              position: 'absolute', top: -10, right: 8,
+              background: hero.is_team_leader ? 'rgba(201, 168, 76, 0.95)' : 'rgba(20,20,24,0.9)',
+              border: hero.is_team_leader ? 'none' : '1px solid var(--border)',
+              color: hero.is_team_leader ? '#000' : 'var(--text-dim)',
+              padding: '2px 6px', borderRadius: 12, fontSize: '0.75rem',
+              zIndex: 10, cursor: 'pointer',
+              boxShadow: hero.is_team_leader ? '0 0 8px rgba(201,168,76,0.6)' : 'none'
+            }}
+          >
             👑
-          </div>
+          </button>
         )}
         <HeroCard
           hero={hero}
@@ -818,7 +843,9 @@ export default function HeroesPage() {
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                   <div>
                     <div style={{ color: 'var(--gold)', fontFamily: 'Cinzel, serif' }}>{eqModal.currentEq.name}</div>
-                    <div style={{ fontSize: '0.75rem', color: 'var(--text-dim)' }}>Rarity: {eqModal.currentEq.rarity}</div>
+                    <div style={{ fontSize: '0.75rem', color: 'var(--text-dim)' }}>
+                      Rarity: {eqModal.currentEq.rarity} | Level: {eqModal.currentEq.level} | {formatEquipmentStats(eqModal.currentEq)}
+                    </div>
                   </div>
                   <button className="btn btn-danger" onClick={async () => {
                     await unequipItem(eqModal.currentEq.id);
@@ -844,7 +871,7 @@ export default function HeroesPage() {
                     <div>
                       <div style={{ color: 'var(--text-hi)', fontFamily: 'Cinzel, serif' }}>{eq.name}</div>
                       <div style={{ fontSize: '0.75rem', color: 'var(--text-dim)' }}>
-                        Rarity: {eq.rarity} | Level: {eq.level} | {eq.base_str > 0 && `STR +${eq.base_str} `}{eq.base_int > 0 && `INT +${eq.base_int} `}{eq.base_hlt > 0 && `Health +${eq.base_hlt} `}{eq.base_agi > 0 && `AGI +${eq.base_agi} `}{eq.str_pct > 0 && `STR +${(eq.str_pct*100).toFixed(0)}% `}{eq.int_pct > 0 && `INT +${(eq.int_pct*100).toFixed(0)}% `}{eq.hlt_pct > 0 && `Health +${(eq.hlt_pct*100).toFixed(0)}% `}{eq.agi_pct > 0 && `AGI +${(eq.agi_pct*100).toFixed(0)}% `}{eq.crit_chance > 0 && `Crit +${(eq.crit_chance*100).toFixed(0)}% `}{eq.dodge_chance > 0 && `Dodge +${(eq.dodge_chance*100).toFixed(0)}% `}{eq.armor_pen > 0 && `ArmorPen +${(eq.armor_pen*100).toFixed(0)}%`}
+                        Rarity: {eq.rarity} | Level: {eq.level} | {formatEquipmentStats(eq)}
                       </div>
                     </div>
                     <button className="btn btn-primary" onClick={async () => {

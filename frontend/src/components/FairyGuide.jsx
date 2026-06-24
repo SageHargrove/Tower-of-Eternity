@@ -1,16 +1,20 @@
 import React, { useState, useEffect } from 'react'
 
-export default function FairyGuide({ floor, lastResult, fairyGender }) {
+export default function FairyGuide({ floor, lastResult, fairyGender, highestFloor }) {
   const [show, setShow] = useState(false)
   const [message, setMessage] = useState('')
   const fairyImg = `http://localhost:8000/static/portraits/fairy/${fairyGender === 'male' ? 'male' : 'female'}.png`
 
   useEffect(() => {
     let timer
-    
+
     const evaluateTriggers = async () => {
       let triggered = false
-      if (floor === 1 && !lastResult) {
+      // floor starts at 1 as a transient default before real save progress
+      // loads, so this must also check highestFloor — otherwise it re-fires
+      // on every page mount even deep into a run, during the brief window
+      // before selectedFloor auto-advances past 1.
+      if (floor === 1 && !highestFloor && !lastResult) {
         setMessage("Welcome to the Hollow Spire! Assemble your heroes and let's clear the first floor!")
         triggered = true
       } else if (floor === 20 && !lastResult) {
@@ -34,9 +38,9 @@ export default function FairyGuide({ floor, lastResult, fairyGender }) {
     }
     
     evaluateTriggers()
-    
+
     return () => clearTimeout(timer)
-  }, [floor, lastResult])
+  }, [floor, lastResult, highestFloor])
 
   if (!show) return null
 

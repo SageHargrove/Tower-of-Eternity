@@ -106,14 +106,35 @@ def _roll_equipment_stats(eq_type: str, mult: float) -> dict:
         base_hlt = int(scale * random.uniform(5.28, 5.72))
         if random.random() < 0.4: dmg_reduction_pct = random.uniform(0.01, 0.04) * mult
     else:
-        if random.random() < 0.7: dodge = random.uniform(0.02, 0.08) * mult
-        if random.random() < 0.7: crit = random.uniform(0.02, 0.08) * mult
-        if random.random() < 0.7: armor_pen = random.uniform(0.02, 0.08) * mult
-        if random.random() < 0.5: str_pct = random.uniform(0.02, 0.06) * mult
-        if random.random() < 0.5: int_pct = random.uniform(0.02, 0.06) * mult
-        if random.random() < 0.5: hlt_pct = random.uniform(0.02, 0.06) * mult
-        if random.random() < 0.5: agi_pct = random.uniform(0.02, 0.06) * mult
-        if random.random() < 0.3: dmg_reduction_pct = random.uniform(0.01, 0.03) * mult
+        # Every stat below used to roll independently — rare bad luck across
+        # all eight chances could leave an accessory with nothing useful on
+        # it at all (confirmed: a real drop with only a 5% dmg_reduction_pct
+        # and zero everything else). Force at least 2 of these to roll no
+        # matter what, then let the rest stay probabilistic for variety on
+        # top of that floor.
+        rolls = {
+            "dodge": (0.7, lambda: random.uniform(0.02, 0.08) * mult),
+            "crit": (0.7, lambda: random.uniform(0.02, 0.08) * mult),
+            "armor_pen": (0.7, lambda: random.uniform(0.02, 0.08) * mult),
+            "str_pct": (0.5, lambda: random.uniform(0.02, 0.06) * mult),
+            "int_pct": (0.5, lambda: random.uniform(0.02, 0.06) * mult),
+            "hlt_pct": (0.5, lambda: random.uniform(0.02, 0.06) * mult),
+            "agi_pct": (0.5, lambda: random.uniform(0.02, 0.06) * mult),
+            "dmg_reduction_pct": (0.3, lambda: random.uniform(0.01, 0.03) * mult),
+        }
+        guaranteed = set(random.sample(list(rolls.keys()), 2))
+        results = {}
+        for key, (chance, roll_fn) in rolls.items():
+            if key in guaranteed or random.random() < chance:
+                results[key] = roll_fn()
+        dodge = results.get("dodge", 0.0)
+        crit = results.get("crit", 0.0)
+        armor_pen = results.get("armor_pen", 0.0)
+        str_pct = results.get("str_pct", 0.0)
+        int_pct = results.get("int_pct", 0.0)
+        hlt_pct = results.get("hlt_pct", 0.0)
+        agi_pct = results.get("agi_pct", 0.0)
+        dmg_reduction_pct = results.get("dmg_reduction_pct", 0.0)
 
     return {
         "base_str": base_str, "base_int": base_int, "base_hlt": base_hlt, "base_agi": base_agi, "base_def": base_def,

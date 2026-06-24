@@ -117,9 +117,15 @@ function PostCombatScreen({ lastResult, combatEntities, onReturn, onRerun, busy 
           {combatEntities?.heroes?.map(h => {
             const status = heroCombatStatus(h.id, lastResult, combatEntities)
             const STATUS_LABEL = { injured: 'Injured', kia: 'Killed In Action' }
+            const isMvp = (metrics[h.id] || 0) > 0 && String(h.id) === String(mvpId)
             return (
-              <div key={h.id} style={{ width: 96, textAlign: 'center' }}>
-                <CardFrame birthStar={h.hero_star} status={status === 'alive' ? null : status}>
+              <div key={h.id} style={{ width: 96, textAlign: 'center', position: 'relative' }}>
+                {isMvp && (
+                  <div title="MVP" style={{ position: 'absolute', top: -14, left: '50%', transform: 'translateX(-50%)', fontSize: '1.4rem', zIndex: 10, filter: 'drop-shadow(0 0 4px var(--star5))' }}>
+                    👑
+                  </div>
+                )}
+                <CardFrame birthStar={h.hero_star} status={status === 'alive' ? null : status} style={isMvp ? { boxShadow: '0 0 12px var(--star5)', border: '2px solid var(--star5)' } : undefined}>
                   {h.portrait_path ? (
                     <img
                       src={`http://localhost:8000/heroes/${h.id}/card-image`}
@@ -131,7 +137,7 @@ function PostCombatScreen({ lastResult, combatEntities, onReturn, onRerun, busy 
                     <div style={{ width: '100%', height: 96, borderRadius: 4, background: 'var(--bg-panel)' }} />
                   )}
                 </CardFrame>
-                <div style={{ fontSize: '0.72rem', marginTop: '0.3rem' }}>{h.name}</div>
+                <div style={{ fontSize: '0.72rem', marginTop: '0.3rem', color: isMvp ? 'var(--star5)' : undefined }}>{h.name}</div>
                 {status !== 'alive' && status !== 'unknown' && (
                   <div className={status === 'injured' ? 'text-red' : 'text-dim'} style={{ fontSize: '0.62rem' }}>{STATUS_LABEL[status]}</div>
                 )}
@@ -865,7 +871,7 @@ export default function TowerPage({ onGoldChange }) {
           </div>
         </div>
       )}
-      <FairyGuide floor={resolvedFloor || selectedFloor} lastResult={lastResult} fairyGender={base.fairy_gender} />
+      <FairyGuide floor={resolvedFloor || selectedFloor} lastResult={lastResult} fairyGender={base.fairy_gender} highestFloor={highestFloor} />
     </div>
   )
 }

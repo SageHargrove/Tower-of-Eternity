@@ -203,7 +203,7 @@ Make the battle sound desperate, brutal, and cinematic. Be specific about the he
 Describe it as if observing a tense turn-based battle unfold before your eyes, emphasizing the decisive blows, the weight of every strike, and near-misses.
 Do not sugarcoat injuries or deaths. Respond with only the narration text, no preamble."""
 
-    return _generate_with_fallback(prompt, max_tokens=200, temperature=0.8)
+    return _generate_with_fallback(prompt, max_tokens=400, temperature=0.8)
 
 
 def generate_event_text(floor_number: int, event_type: str, context: str = "") -> dict:

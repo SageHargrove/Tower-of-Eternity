@@ -275,6 +275,11 @@ h1, h2, h3, .title-font {
   border-radius: 2px;
   margin-bottom: 0.5em;
   display: block;
+  /* The source art is crisp cel-shaded line work (thin 1-2px black
+     outlines) — browsers' default downscale filtering smears those into
+     gray at small card sizes. This sharpens the downscale instead. */
+  image-rendering: -webkit-optimize-contrast;
+  image-rendering: crisp-edges;
 }
 
 /* Placeholder when no portrait exists */

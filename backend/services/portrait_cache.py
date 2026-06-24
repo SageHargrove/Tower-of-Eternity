@@ -59,8 +59,8 @@ BASE_STYLE = (
     "highly detailed facial shading, multiple distinct shading tones, colored midtones in shadow, "
     "detailed hair strands, textured hair shading, "
     "rich saturated colors, vivid true-to-color hair, natural skin tone unaffected by lighting, "
-    "vivid saturated emerald-green studio backdrop, soft radial gradient lighting on the backdrop, "
-    "faint atmospheric haze, subtle backdrop color variation, "
+    "dark moody background with smooth even gradient lighting from corner to corner, "
+    "faint atmospheric haze, subtle background color variation, "
     "sharp rim lighting along silhouette edge, intense contrast, "
     "intricate details, masterpiece, best quality, same universe aesthetic"
 )
@@ -99,7 +99,10 @@ NEGATIVE_STYLE = (
     "blurry, low quality, watermark, text, signature, bad anatomy, "
     "deformed, ugly, disfigured, worst quality, jpeg artifacts, "
     "hair extending beyond frame edges, hair cropped at image border, hair cut off by frame, "
-    "long hair flowing out of frame, hair touching image edge"
+    "long hair flowing out of frame, hair touching image edge, "
+    "glowing orb behind character, glowing circle behind character, halo effect background, "
+    "magic circle background, floating colored sphere background, spotlight circle background, "
+    "vignette ring, glowing aura sphere, radial light burst background"
 )
 
 # ---------------------------------------------------------------------------

@@ -34,6 +34,13 @@ function extractRewards(data) {
   return lines.length ? lines : null
 }
 
+// These already reveal their own rewards through dedicated, properly-paced
+// UI (the post-combat screen, event/explore resolution panels) — the
+// generic toast below would otherwise fire the instant the response lands,
+// which for floor/enter means "before the player has even watched the
+// fight play out."
+const SKIP_AUTO_TOAST_PATHS = ['/tower/floor/enter', '/tower/floor/event/resolve', '/tower/floor/explore/resolve']
+
 async function request(path, options = {}) {
   const isGet = !options.method || options.method === 'GET'
   const url = isGet ? BASE + path + (path.includes('?') ? '&' : '?') + 't=' + Date.now() : BASE + path
@@ -49,7 +56,8 @@ async function request(path, options = {}) {
     throw new Error(msg)
   }
   const data = await res.json()
-  const lines = extractRewards(data)
+  const skipToast = SKIP_AUTO_TOAST_PATHS.some(p => path.startsWith(p))
+  const lines = skipToast ? null : extractRewards(data)
   if (lines) emitToast({ title: 'Rewards', lines, borderColor: 'var(--gold)' })
   if (Array.isArray(data?.ego_rebellions) && data.ego_rebellions.length) {
     for (const reb of data.ego_rebellions) {
