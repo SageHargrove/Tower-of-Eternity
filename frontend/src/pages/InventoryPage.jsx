@@ -406,10 +406,32 @@ export default function InventoryPage() {
                   </div>
 
                   <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '0.8rem' }}>
-                    {selectedItem.base_str > 0 && <div style={{ display: 'flex', justifyContent: 'space-between', background: 'rgba(201,168,76,0.1)', padding: '0.8rem 1rem', borderRadius: 4 }}><span className="text-dim">Strength</span><span className="text-gold" style={{ fontFamily: 'Cinzel, serif', fontSize: '1.2rem' }}>+{selectedItem.base_str}</span></div>}
-                    {selectedItem.base_int > 0 && <div style={{ display: 'flex', justifyContent: 'space-between', background: 'rgba(201,168,76,0.1)', padding: '0.8rem 1rem', borderRadius: 4 }}><span className="text-dim">Intelligence</span><span className="text-gold" style={{ fontFamily: 'Cinzel, serif', fontSize: '1.2rem' }}>+{selectedItem.base_int}</span></div>}
-                    {selectedItem.base_hlt > 0 && <div style={{ display: 'flex', justifyContent: 'space-between', background: 'rgba(201,168,76,0.1)', padding: '0.8rem 1rem', borderRadius: 4 }}><span className="text-dim">Max Health</span><span className="text-gold" style={{ fontFamily: 'Cinzel, serif', fontSize: '1.2rem' }}>+{selectedItem.base_hlt}</span></div>}
-                    {selectedItem.base_agi > 0 && <div style={{ display: 'flex', justifyContent: 'space-between', background: 'rgba(201,168,76,0.1)', padding: '0.8rem 1rem', borderRadius: 4 }}><span className="text-dim">Agility</span><span className="text-gold" style={{ fontFamily: 'Cinzel, serif', fontSize: '1.2rem' }}>+{selectedItem.base_agi}</span></div>}
+                    {[
+                      ['Strength', selectedItem.base_str, v => `+${v}`],
+                      ['Intelligence', selectedItem.base_int, v => `+${v}`],
+                      ['Defense', selectedItem.base_def, v => `+${v}`],
+                      ['Max Health', selectedItem.base_hlt, v => `+${v}`],
+                      ['Agility', selectedItem.base_agi, v => `+${v}`],
+                      ['Strength %', selectedItem.str_pct, v => `+${(v * 100).toFixed(0)}%`],
+                      ['Intelligence %', selectedItem.int_pct, v => `+${(v * 100).toFixed(0)}%`],
+                      ['Max Health %', selectedItem.hlt_pct, v => `+${(v * 100).toFixed(0)}%`],
+                      ['Agility %', selectedItem.agi_pct, v => `+${(v * 100).toFixed(0)}%`],
+                      ['Crit Chance', selectedItem.crit_chance, v => `+${(v * 100).toFixed(0)}%`],
+                      ['Dodge Chance', selectedItem.dodge_chance, v => `+${(v * 100).toFixed(0)}%`],
+                      ['Armor Penetration', selectedItem.armor_pen, v => `+${(v * 100).toFixed(0)}%`],
+                      ['Damage Reduction', selectedItem.dmg_reduction_pct, v => `+${(v * 100).toFixed(0)}%`],
+                    ].filter(([, val]) => val > 0).map(([label, val, fmt]) => (
+                      <div key={label} style={{ display: 'flex', justifyContent: 'space-between', background: 'rgba(201,168,76,0.1)', padding: '0.8rem 1rem', borderRadius: 4 }}>
+                        <span className="text-dim">{label}</span>
+                        <span className="text-gold" style={{ fontFamily: 'Cinzel, serif', fontSize: '1.2rem' }}>{fmt(val)}</span>
+                      </div>
+                    ))}
+                    {[selectedItem.base_str, selectedItem.base_int, selectedItem.base_def, selectedItem.base_hlt, selectedItem.base_agi,
+                      selectedItem.str_pct, selectedItem.int_pct, selectedItem.hlt_pct, selectedItem.agi_pct,
+                      selectedItem.crit_chance, selectedItem.dodge_chance, selectedItem.armor_pen, selectedItem.dmg_reduction_pct
+                    ].every(v => !v) && (
+                      <div className="text-dim" style={{ fontStyle: 'italic', textAlign: 'center', padding: '1rem' }}>No bonus stats.</div>
+                    )}
                   </div>
 
                   <div style={{ marginTop: 'auto', paddingTop: '1rem', borderTop: '1px solid var(--border)' }}>
