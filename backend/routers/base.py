@@ -611,30 +611,36 @@ def forge_craft(req: CraftRequest):
         # Calculate crafting power
         level = 1
         apt = 10
-        blacksmith_name = "Nobody"
-        
+        crafter_name = "Nobody"
+
         if assigned:
+            from services.class_service import forge_specialist_for_slot, forge_teamwork_bonus
+
             # Average level and apt
             level = sum(h["level"] for h in assigned) // len(assigned)
             apt = sum(h["apt_tactical"] + h["apt_survival"] for h in assigned) // (2 * len(assigned))
-            
-            # Find if there is a blacksmith class
-            best_smith = None
-            for h in assigned:
-                if h["hero_class"] in ('Blacksmith', 'Master Smith', 'Forge Lord', 'Runesmith'):
-                    best_smith = h
-                    break
-            
-            if best_smith:
-                # Blacksmith gives huge bonus
+
+            assigned_classes = [h["hero_class"] for h in assigned]
+
+            # Blacksmith/Tanner/Carpenter are each the dedicated specialist
+            # for one slot (weapon/armor/accessory) — present alone, they
+            # craft at full specialist quality, no other class needed.
+            specialist_cls = forge_specialist_for_slot(assigned_classes, req.slot)
+            if specialist_cls:
                 apt += 30
                 level += 5
-                blacksmith_name = best_smith["name"]
+                crafter_name = next(h["name"] for h in assigned if h["hero_class"] == specialist_cls)
             else:
-                blacksmith_name = assigned[0]["name"] + " (Unskilled)"
-                
+                crafter_name = assigned[0]["name"] + " (Unskilled)"
+
+            # Having more than one of the three lines in the Forge together
+            # adds a smaller bonus on top — they share the same fire.
+            team_apt, team_level = forge_teamwork_bonus(assigned_classes)
+            apt += team_apt
+            level += team_level
+
         conn.execute("UPDATE base SET gold = gold - 100, materials = ? WHERE id = 1", (json.dumps(mats),))
-        
+
         # Craft
         equip = craft_equipment_for_slot(req.slot, level, apt)
         equip_id = save_equipment(equip, conn=conn)
@@ -645,7 +651,7 @@ def forge_craft(req: CraftRequest):
             for h in assigned:
                 conn.execute("UPDATE heroes SET xp = COALESCE(xp, 0) + 500 WHERE id = ?", (h["id"],))
         
-        return {"ok": True, "equipment": equip, "blacksmith_used": blacksmith_name}
+        return {"ok": True, "equipment": equip, "crafter_used": crafter_name}
 
 @router.get("/inventory/equipment")
 def get_equipment_inventory():

@@ -323,20 +323,28 @@ def craft_equipment(crafter_id: int):
         level = crafter["level"]
         apt = crafter["apt_tactical"]
         hero_class = crafter["hero_class"]
-        
+
+        eq_type = random.choice(TYPES)
+
         score = (level) + (apt)
-        
+
+        from services.class_service import forge_specialist_for_slot
         if hero_class in ("Forge Lord", "Runesmith"):
             score *= 2.5
         elif hero_class == "Master Smith":
             score *= 1.8
-        elif hero_class == "Blacksmith":
+        elif forge_specialist_for_slot([hero_class], eq_type.lower()):
+            # Specialist crafting their own slot solo (Blacksmith->weapon,
+            # Tanner->armor, Carpenter->accessory) — full specialist quality.
             score *= 1.3
-            
+        elif hero_class in ("Blacksmith", "Tanner", "Leatherworker", "Hideworker", "Cobbler", "Master Tanner", "Hide Artisan", "Bootmaker",
+                            "Carpenter", "Woodwright", "Joiner", "Fletcher", "Master Carpenter", "Cabinetmaker", "Bowyer"):
+            # One of the three lines, but crafting outside their specialty slot.
+            score *= 1.1
+
         score += random.randint(-20, 100)
         rarity = _rarity_from_score(score)
 
-        eq_type = random.choice(TYPES)
         mult = RARITY_MULTS[rarity]
         stats = _roll_equipment_stats(eq_type, mult)
 
