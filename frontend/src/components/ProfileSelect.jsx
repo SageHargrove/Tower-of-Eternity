@@ -91,14 +91,31 @@ export default function ProfileSelect({ onSelect }) {
   if (loading && profiles.length === 0) return <div className="page" style={{display: 'flex', justifyContent: 'center', alignItems: 'center'}}>Loading saves...</div>
 
   return (
-    <div className="page" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', minHeight: '100vh', background: 'var(--bg)' }}>
-      <div style={{ textAlign: 'center', marginBottom: '2rem' }}>
-        <h1 style={{ fontFamily: 'Cinzel, serif', fontSize: '3rem', color: 'var(--gold)', textShadow: '0 0 20px rgba(201,168,76,0.5)', margin: 0 }}>⬡</h1>
-        <h1 style={{ fontFamily: 'Cinzel, serif', fontSize: '2rem', color: 'var(--text)', margin: '0.5rem 0' }}>Tower of Eternity</h1>
+    <div className="page" style={{
+      display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', minHeight: '100vh',
+      position: 'relative', overflow: 'hidden', background: '#000',
+    }}>
+      {/* Full-bleed tower art behind everything — the same logo image, just
+          given room to actually read as "insanely huge" on the splash
+          screen instead of being squeezed into a small header icon.
+          "contain" (not "cover") so the whole spire — tip to base forest —
+          stays visible instead of being cropped down to just the middle. */}
+      <div style={{
+        position: 'absolute', inset: 0,
+        backgroundImage: 'url(/tower_logo.png)',
+        backgroundSize: 'cover', backgroundPosition: 'center 42%', backgroundRepeat: 'no-repeat',
+      }} />
+      <div style={{
+        position: 'absolute', inset: 0,
+        background: 'linear-gradient(to bottom, rgba(10,10,14,0.1) 0%, rgba(10,10,14,0.2) 50%, rgba(10,10,14,0.7) 78%, rgba(10,10,14,0.95) 100%)',
+      }} />
+
+      <div style={{ textAlign: 'center', marginBottom: '2rem', position: 'relative', zIndex: 1 }}>
+        <h1 style={{ fontFamily: 'Cinzel, serif', fontSize: '2.6rem', color: 'var(--text)', margin: '0.5rem 0', textShadow: '0 2px 12px rgba(0,0,0,0.8)' }}>Tower of Eternity</h1>
         <div className="text-dim" style={{ fontSize: '0.9rem', letterSpacing: '2px' }}>SELECT SAVE PROFILE</div>
       </div>
 
-      <div className="card" style={{ width: '450px', maxWidth: '90vw', padding: '2rem' }}>
+      <div className="card" style={{ width: '450px', maxWidth: '90vw', padding: '2rem', position: 'relative', zIndex: 1 }}>
         {msg && <div className="text-red text-sm" style={{ marginBottom: '1rem', textAlign: 'center' }}>{msg}</div>}
         
         {/* Create Bar at the top */}

@@ -215,7 +215,7 @@ export default function App() {
       <header className="app-header" style={{ display: 'flex', justifyContent: 'space-between', width: '100%', padding: '1rem 2rem' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '2rem' }}>
           <h1 style={{ fontSize: '2.5rem', margin: 0, display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-            <img src="/tower_logo.png" alt="" style={{ height: '3.4rem', width: 'auto', filter: 'drop-shadow(0 0 6px rgba(201,168,76,0.5))' }} />
+            <span style={{ color: 'var(--gold)', fontSize: '1.8rem', textShadow: '0 0 8px rgba(201,168,76,0.5)' }}>⬡</span>
             Tower of Eternity
           </h1>
           <div className="text-dim" style={{ borderLeft: '2px solid var(--border)', paddingLeft: '2rem', fontSize: '1.6rem' }}>
