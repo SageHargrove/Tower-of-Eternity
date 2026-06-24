@@ -406,7 +406,7 @@ CLASS_ICONS = {
     "Thief": "🗡️", "Assassin": "☠️", "Rogue": "🥷", "Ninja": "💨",
     "Archer": "🏹", "Sniper": "🎯", "Ranger": "🐺", "Crossbowman": "⚙️",
     "Spellsword": "⚔️✨",
-    "Mage": "🧙‍♂️", "Sorcerer": "🔮", "Warlock": "👁️‍🗨️", "Necromancer": "💀", "Summoner": "🐉",
+    "Mage": "🪄", "Sorcerer": "🔮", "Warlock": "👁️‍🗨️", "Necromancer": "💀", "Summoner": "🐉",
     "Acolyte": "✝️", "Cleric": "🩹", "Bard": "🎵", "Druid": "🌿", "Monk": "👊",
     "Magic Engineer": "🤖",
     "Chef": "🍳", "Medic": "🩺", "Scout": "🔭", "Blacksmith": "⚒️", 
