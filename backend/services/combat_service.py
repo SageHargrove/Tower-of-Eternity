@@ -832,8 +832,9 @@ def resolve_hero_stats(heroes: list[dict]) -> list[dict]:
             with db() as conn:
                 lp_data = get_floor_lp(conn, modified.get("base_floor", 1))
                 lp_mult = 1.0 + (lp_data["stat_bonus_pct"] / 100.0)
-                modified["max_health"] = int(modified["max_health"] * lp_mult)
-                modified["health"] = min(modified["max_health"], modified["health"])
+                # 6 stats, not 7 -- Endurance already determines Health
+                # (see health_from_endurance in gacha_service.py), so
+                # buffing Health on top of Endurance here would double-count it.
                 modified["strength"] = int(modified["strength"] * lp_mult)
                 modified["intelligence"] = int(modified["intelligence"] * lp_mult)
                 modified["agility"] = int(modified["agility"] * lp_mult)
