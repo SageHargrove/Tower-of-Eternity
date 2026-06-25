@@ -2,7 +2,7 @@ from fastapi import APIRouter, HTTPException
 from fastapi.responses import FileResponse
 from database import db
 from pydantic import BaseModel
-from services.level_service import get_revealed_aptitudes, recalculate_hero_level
+from services.level_service import get_revealed_aptitudes, recalculate_hero_level, get_talent_title, estimate_talent_rarity
 from services.materials_service import get_material_total, consume_material
 import json
 import random
@@ -372,7 +372,12 @@ def get_hero_aptitudes(hero_id: int):
         raise HTTPException(status_code=404, detail="Hero not found")
     hero = dict(row)
     revealed = get_revealed_aptitudes(hero, archive_level)
-    return {"hero_id": hero_id, "level": hero.get("level", 1), "aptitudes": revealed}
+    rarity = estimate_talent_rarity(hero, archive_level)
+    return {
+        "hero_id": hero_id, "level": hero.get("level", 1), "aptitudes": revealed,
+        "talent_rarity_one_in": round(rarity) if rarity else None,
+        "talent_title": get_talent_title(hero, archive_level),
+    }
 
 
 # ─── Synthesis endpoint ─────────────────────────────────────────────

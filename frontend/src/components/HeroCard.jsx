@@ -1,5 +1,5 @@
-import React, { useState } from 'react'
-import { regenerateProfile } from '../api/client'
+import React, { useState, useEffect } from 'react'
+import { regenerateProfile, getHeroAptitudes } from '../api/client'
 
 const MORALE_STATE_LABEL = {
   steady: 'Steady', shaken: 'Shaken', fearful: 'Fearful', broken: 'Broken',
@@ -259,9 +259,17 @@ function AscensionStars({ count }) {
 }
 
 function AptitudeDisplay({ hero }) {
-  const level = hero.level || 1
-  const reveals = Math.min(5, Math.floor(level / 5))
-  const aptitudes = hero.aptitudes || {}
+  const [data, setData] = useState(null)
+
+  useEffect(() => {
+    let cancelled = false
+    getHeroAptitudes(hero.id).then(d => { if (!cancelled) setData(d) }).catch(() => {})
+    return () => { cancelled = true }
+  }, [hero.id, hero.level])
+
+  const aptitudes = data?.aptitudes || {}
+  const reveals = Object.values(aptitudes).filter(v => v != null).length
+  const talentTitle = data?.talent_title
 
   return (
     <div style={{ marginTop: '0.5em' }}>
@@ -269,9 +277,10 @@ function AptitudeDisplay({ hero }) {
         Aptitudes
       </div>
       <div style={{ display: 'flex', flexDirection: 'column', gap: '0.2em' }}>
-        {APTITUDE_ORDER.map((apt, index) => {
-          const isRevealed = index < reveals
-          const value = aptitudes[apt.toLowerCase()] ?? aptitudes[apt]
+        {APTITUDE_ORDER.map((apt) => {
+          const key = `apt_${apt.toLowerCase()}`
+          const value = aptitudes[key]
+          const isRevealed = value != null
           return (
             <div key={apt} style={{
               display: 'flex', justifyContent: 'space-between', alignItems: 'center',
@@ -281,7 +290,7 @@ function AptitudeDisplay({ hero }) {
               borderRadius: 2,
             }}>
               <span className="text-dim">{apt}</span>
-              {isRevealed && value != null ? (
+              {isRevealed ? (
                 <span style={{
                   color: getAptitudeColor(value),
                   fontFamily: 'Cinzel, serif',
@@ -296,6 +305,18 @@ function AptitudeDisplay({ hero }) {
           )
         })}
       </div>
+      {talentTitle && (
+        <div style={{
+          marginTop: '0.4em', textAlign: 'center', fontSize: '0.78em',
+          fontFamily: 'Cinzel, serif', fontWeight: 'bold', color: '#c9a84c',
+          textShadow: '0 0 6px rgba(201,168,76,0.5)',
+        }}>
+          ✦ {talentTitle} ✦
+          <div className="text-dim" style={{ fontSize: '0.65em', fontWeight: 'normal', fontStyle: 'italic' }}>
+            est. 1 in {data.talent_rarity_one_in?.toLocaleString()}
+          </div>
+        </div>
+      )}
       {reveals < 5 && (
         <div className="text-dim" style={{ fontSize: '0.6em', marginTop: '0.2em', fontStyle: 'italic' }}>
           Next reveal at Lv.{(reveals + 1) * 5}

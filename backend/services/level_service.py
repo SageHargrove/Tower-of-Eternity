@@ -88,9 +88,10 @@ def talent_score(hero: dict) -> float:
     return min(TALENT_SCORE_CLAMP, raw)
 
 def growth_multiplier(hero: dict) -> float:
-    """0.7x (untalented) up to 1.9x (clamp-talent prodigy) — applied to
-    per-level stat gain."""
-    return 0.7 + talent_score(hero) * 0.6
+    """0.5x (untalented) up to 3.0x (clamp-talent prodigy) — applied to
+    per-level stat gain. The gap between these is deliberately wide now —
+    talent is supposed to matter a lot, not just nudge growth by a little."""
+    return 0.5 + talent_score(hero) * 1.25
 
 # Base skill capacity mirrors the old birth-time skill counts (1/4★+ gets a
 # 2nd, 6★+ gets a 3rd) — talent adds up to 3 more slots on top, so a highly
@@ -185,3 +186,48 @@ def get_revealed_aptitudes(hero: dict, archive_level: int = 0) -> dict:
         else:
             result[apt_key] = None
     return result
+
+# Matches the manhwa trope this game is styled after — nobody just reads a
+# "talent: 94%" stat off a character sheet, they piece it together from how
+# fast someone grows and how much they can learn. Since this game DOES
+# reveal raw aptitude numbers gradually (Archive upgrade speeds it up), the
+# title below is the payoff for that reveal: an estimated rarity computed
+# from whatever's visible so far, which sharpens as more gets revealed.
+# Same powers-of-10 anchors as gacha_service.TALENT_FLOOR, so "One in a
+# Million" here means the exact same rarity a natural 7★'s floor guarantees.
+TALENT_TITLES = [
+    (1_000_000, "One in a Million"),
+    (100_000, "Prodigy"),
+    (10_000, "Exceptional Talent"),
+    (1_000, "Gifted"),
+    (100, "Promising"),
+    (10, "Adequate"),
+]
+
+def estimate_talent_rarity(hero: dict, archive_level: int = 0) -> float | None:
+    """Inverts gacha_service's floor formula (rarity = e^(talent/SCALE)) to
+    turn whatever aptitude average is currently visible into a "1 in X"
+    estimate — the same number a hero's birth star floor is itself
+    calibrated against, so a revealed-prodigy 1★ and a guaranteed-rare 7★
+    converge on the same title at the same rarity. Returns None until at
+    least one aptitude has been revealed."""
+    import math
+    from services.gacha_service import TALENT_TAIL_SCALE
+    revealed = get_revealed_aptitudes(hero, archive_level)
+    known = [v for v in revealed.values() if v is not None]
+    if not known:
+        return None
+    avg = sum(known) / len(known)
+    return max(1.0, math.exp(avg / TALENT_TAIL_SCALE))
+
+def get_talent_title(hero: dict, archive_level: int = 0) -> str | None:
+    """None below the 'Adequate' (1-in-10) threshold — most heroes simply
+    don't have a talent title yet, which is the point; this is meant to
+    read as a rare callout, not a stat every hero has filled in."""
+    rarity = estimate_talent_rarity(hero, archive_level)
+    if rarity is None:
+        return None
+    for threshold, title in TALENT_TITLES:
+        if rarity >= threshold:
+            return title
+    return None

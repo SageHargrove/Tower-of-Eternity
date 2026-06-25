@@ -106,19 +106,22 @@ def apply_class_stat_bias(stats: dict, hero_class: str) -> dict:
 # rare as a 7★'s GUARANTEED floor — i.e. a real, math-backed "1 in 900,000
 # talent on a 1★" moment, not a flavor-text exaggeration.
 #
-# Floors below were chosen as TALENT_TAIL_SCALE * ln(rarity), so each one
-# IS that rarity within the same exponential distribution every bonus roll
-# uses (see _roll_talent) — this is also why outliers are unbounded: an
+# Floors below are TALENT_TAIL_SCALE * ln(rarity), so each one IS that
+# rarity within the same exponential distribution every bonus roll uses
+# (see _roll_talent) — this is also why outliers are unbounded: an
 # exponential tail never hits a wall, it just keeps getting rarer.
+# Rarity anchors are clean powers of 10 (10, 100, 1k, 10k, 100k, 1M) so
+# 7★'s floor lands on exactly 1-in-1,000,000 as requested, and every other
+# star's floor falls out of the same formula rather than being hand-picked.
 TALENT_TAIL_SCALE = 10.0
 TALENT_FLOOR = {
-    1: 0,      # no guarantee at all — full open-ended range, good or bad
-    2: 18,     # ~1-in-6 floor
-    3: 32,     # ~1-in-25 floor
-    4: 53,     # ~1-in-200 floor
-    5: 76,     # ~1-in-2,000 floor
-    6: 108,    # ~1-in-50,000 floor
-    7: 137,    # ~1-in-900,000 floor
+    1: 0,                                    # no guarantee — full open-ended range
+    2: round(TALENT_TAIL_SCALE * math.log(10)),         # ~1-in-10
+    3: round(TALENT_TAIL_SCALE * math.log(100)),        # ~1-in-100
+    4: round(TALENT_TAIL_SCALE * math.log(1_000)),      # ~1-in-1,000
+    5: round(TALENT_TAIL_SCALE * math.log(10_000)),     # ~1-in-10,000
+    6: round(TALENT_TAIL_SCALE * math.log(100_000)),    # ~1-in-100,000
+    7: round(TALENT_TAIL_SCALE * math.log(1_000_000)),  # ~1-in-1,000,000
 }
 
 def _roll_talent(birth_star: int) -> float:
