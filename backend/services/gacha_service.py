@@ -94,31 +94,50 @@ def apply_class_stat_bias(stats: dict, hero_class: str) -> dict:
         stats["strength"] = max(1, stats["strength"] - shift)
     return stats
 
-APTITUDE_RANGES = {
-    1: (10, 55), 2: (15, 60), 3: (25, 65), 4: (35, 70),
-    5: (55, 80), 6: (70, 90), 7: (85, 100),
+# Talent has NO ceiling — a 0-100 scale can't fit the "genuine 1-in-a-
+# million prodigy" the brief asked for without either capping it (defeats
+# the point) or making the cap meaningless (a "200 out of 100"). Instead,
+# every star gets a guaranteed FLOOR, then an unbounded exponential
+# "bonus" roll on top, same shape for every star rank. That second part is
+# what makes the headline trick work: a 1★'s bonus roll alone has *exactly
+# the same odds* of reaching any given height as a 7★'s bonus roll does —
+# the only thing star rank buys is a higher starting point. A 1★ landing
+# 137+ purely from its own bonus (no floor to help it) is precisely as
+# rare as a 7★'s GUARANTEED floor — i.e. a real, math-backed "1 in 900,000
+# talent on a 1★" moment, not a flavor-text exaggeration.
+#
+# Floors below were chosen as TALENT_TAIL_SCALE * ln(rarity), so each one
+# IS that rarity within the same exponential distribution every bonus roll
+# uses (see _roll_talent) — this is also why outliers are unbounded: an
+# exponential tail never hits a wall, it just keeps getting rarer.
+TALENT_TAIL_SCALE = 10.0
+TALENT_FLOOR = {
+    1: 0,      # no guarantee at all — full open-ended range, good or bad
+    2: 18,     # ~1-in-6 floor
+    3: 32,     # ~1-in-25 floor
+    4: 53,     # ~1-in-200 floor
+    5: 76,     # ~1-in-2,000 floor
+    6: 108,    # ~1-in-50,000 floor
+    7: 137,    # ~1-in-900,000 floor
 }
 
-# A 1-5★ pull has a tiny, genuinely rare chance to be a hidden prodigy —
-# talent on par with a natural 7★, just born into a lower rarity. This
-# drives growth potential (see level_service.talent_score), NOT current
-# stats — you have to find it, then choose to invest in raising them.
-# 6-7★ are already near the talent ceiling, so there's no jackpot to roll
-# into; pulling a 7★ means you can assume top-tier talent already.
-APTITUDE_JACKPOT_CHANCE = {1: 0.005, 2: 0.005, 3: 0.01, 4: 0.015, 5: 0.03}
+def _roll_talent(birth_star: int) -> float:
+    floor = TALENT_FLOOR.get(birth_star, 0)
+    bonus = random.expovariate(1.0 / TALENT_TAIL_SCALE)
+    return floor + bonus
 
 def generate_aptitudes(birth_star: int) -> dict:
     """
-    Hidden aptitudes drive how steeply a hero's stats grow per level —
-    not their current power. Higher birth_star reliably rolls high
-    aptitude; lower birth_star usually rolls modest aptitude, with a rare
-    jackpot chance at true prodigy-tier talent.
+    Hidden aptitudes drive how steeply a hero's stats grow per level — not
+    their current power. One overall talent roll (_roll_talent) sets the
+    hero's "true" talent; each of the 6 aptitudes wobbles a little around
+    that core value rather than rolling fully independently, so
+    talent_score (level_service.py, the average of 5 of these) reflects
+    the same roll instead of compounding into a far-rarer separate event.
     """
-    if random.random() < APTITUDE_JACKPOT_CHANCE.get(birth_star, 0):
-        return {f"apt_{apt}": random.randint(90, 100) for apt in ["combat", "tactical", "survival", "mental", "leadership", "diligence"]}
-
-    lo, hi = APTITUDE_RANGES.get(birth_star, (10, 55))
-    return {f"apt_{apt}": random.randint(lo, hi) for apt in ["combat", "tactical", "survival", "mental", "leadership", "diligence"]}
+    base = _roll_talent(birth_star)
+    return {f"apt_{apt}": max(0, round(base + random.uniform(-8, 8)))
+            for apt in ["combat", "tactical", "survival", "mental", "leadership", "diligence"]}
 
 def get_pull_cost() -> int:
     return 100  # gold per pull, can expand to pity system later

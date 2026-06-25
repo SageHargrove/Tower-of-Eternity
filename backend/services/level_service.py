@@ -60,30 +60,47 @@ def calculate_level(floors_survived: int, kills: int, hero_star: int, ascension_
 
 APTITUDE_KEYS = ["apt_combat", "apt_tactical", "apt_survival", "apt_mental", "apt_leadership"]
 
+# Raw apt_* values are unbounded (see gacha_service.generate_aptitudes —
+# a true outlier can roll deep into the hundreds). TALENT_REFERENCE is
+# where a "normal" 7★'s roll typically lands, not a hard cap — talent_score
+# can and does exceed 1.0 for real prodigies. The 2.0 clamp below exists
+# purely so combat math consuming talent downstream (panic resistance,
+# skill-learn chance, etc. in combat_service.py) can't go nonsensical for
+# an extreme roll — e.g. unclamped, panic resistance's "1.0 - talent*0.4"
+# would go negative above talent=2.5. The raw apt_* numbers stored on the
+# hero stay completely uncapped regardless; only this normalized,
+# mechanically-consumed value is clamped.
+TALENT_REFERENCE = 140.0
+TALENT_SCORE_CLAMP = 2.0
+
 def talent_score(hero: dict) -> float:
     """
-    Average of the 5 hidden aptitudes, normalized to 0.0-1.0. This drives
-    growth RATE per level, not base stats — birth_star still sets a hero's
-    starting floor (see generate_base_stats), talent decides how steep
-    their climb is from there. A high-aptitude 1-star promoted all the way
-    to 7-star ends up growing at roughly the same rate a natural 7-star
-    does; a low-aptitude 1-star never catches up even fully promoted.
+    Average of the 5 hidden aptitudes, normalized against TALENT_REFERENCE.
+    This drives growth RATE per level, not base stats — birth_star still
+    sets a hero's starting floor (see generate_base_stats), talent decides
+    how steep their climb is from there. A high-aptitude 1-star promoted
+    all the way to 7-star ends up growing at roughly the same rate a
+    natural 7-star does; a low-aptitude 1-star never catches up even fully
+    promoted.
     """
-    apts = [hero.get(k, 50) for k in APTITUDE_KEYS]
-    return sum(apts) / len(apts) / 100.0
+    apts = [hero.get(k, 0) for k in APTITUDE_KEYS]
+    raw = (sum(apts) / len(apts)) / TALENT_REFERENCE
+    return min(TALENT_SCORE_CLAMP, raw)
 
 def growth_multiplier(hero: dict) -> float:
-    """0.7x (untalented) to 1.3x (max talent) — applied to per-level stat gain."""
+    """0.7x (untalented) up to 1.9x (clamp-talent prodigy) — applied to
+    per-level stat gain."""
     return 0.7 + talent_score(hero) * 0.6
 
 # Base skill capacity mirrors the old birth-time skill counts (1/4★+ gets a
 # 2nd, 6★+ gets a 3rd) — talent adds up to 3 more slots on top, so a highly
 # talented hero can out-learn a less-talented hero of the same rarity.
 MAX_SKILLS_BASE = {1: 1, 2: 1, 3: 1, 4: 2, 5: 2, 6: 3, 7: 3}
+MAX_SKILLS_TALENT_BONUS_CAP = 5
 
 def max_skill_slots(hero_star: int, talent: float) -> int:
     base = MAX_SKILLS_BASE.get(hero_star, 1)
-    return base + int(talent * 3)
+    return base + min(MAX_SKILLS_TALENT_BONUS_CAP, int(talent * 3))
 
 def stat_multiplier(level: int, growth_mult: float = 1.0) -> float:
     """Overall stat multiplier for a given level."""
