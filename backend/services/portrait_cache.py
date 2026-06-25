@@ -150,16 +150,21 @@ MONSTER_STYLE = (
 # intentionally humanoid villain here. Negative prompt is its own list
 # rather than MONSTER_NEGATIVE, which blacklists "human, person, soldier"
 # outright (correct for beasts, would sabotage this).
+# Kept deliberately minimal — an earlier version baked "intricate ornate
+# armor, elaborate accessories, glowing aura, commanding villainous
+# presence" directly into this constant, and it overpowered every hint's
+# actual creature description: Lizardman/Minotaur/Hobgoblin Berserker all
+# came back as generic anime knights with zero scales/horns/tusks visible.
+# Style/quality tags only now, same division of labor MONSTER_STYLE already
+# uses successfully — the hint carries 100% of what the creature looks
+# like, this constant only carries art-style and lighting.
 HUMANOID_EVIL_STYLE = (
-    "(Solo Leveling manhwa art style, cel-shaded anime illustration:1.3), dark fantasy anime villain design, "
-    "(menacing evil humanoid:1.2), (bold black ink outlines:1.2), thick clean lineart, cel shading, "
-    "intricate ornate dark armor or sinister regalia, elaborate menacing accessories, "
-    "glowing malevolent magical aura in background, commanding villainous presence, cruel expression, "
+    "(Solo Leveling manhwa art style, cel-shaded anime illustration:1.3), dark fantasy anime, "
+    "(bold black ink outlines:1.2), thick clean lineart, cel shading, "
     "well-lit subject with clearly visible surface detail and texture, balanced natural exposure, "
     "rich saturated but balanced colors across the entire body, vivid distinct material colors, "
-    "highly detailed surface texture, intricate detailed anatomy, "
-    "dark atmospheric background, soft directional lighting on the subject, "
-    "full-body or three-quarter pose, dramatic rim lighting accenting edges only, "
+    "highly detailed surface texture, full-body or three-quarter pose, "
+    "dark atmospheric background, dramatic rim lighting accenting edges only, "
     "intricate details, masterpiece, best quality"
 )
 
