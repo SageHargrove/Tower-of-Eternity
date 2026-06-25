@@ -87,53 +87,79 @@ ENEMY_TYPES = [
     ("Goblin Shaman", 1.0, 0.8, 1.0, "elite", "beginner"),
     ("Giant Rat Alpha", 1.1, 0.8, 1.7, "elite", "beginner"),
     ("Wolf Alpha", 1.2, 0.9, 1.6, "elite", "beginner"),
-    # --- intermediate (floor 15+) ---
+    # --- intermediate (floor 15+) — checklist family is "Kobolds, Skeletons,
+    # Orcs, Giant Spiders" (PLAN_floor_workshop_enemies.md); Dire Wolf/Harpy
+    # predate that checklist and stay as bonus extras, not removed ---
     ("Dire Wolf", 1.1, 0.9, 1.6, "pack", "intermediate"),
     ("Orc", 1.1, 1.0, 0.9, "normal", "intermediate"),
     ("Harpy", 0.8, 0.6, 1.8, "pack", "intermediate"),
+    ("Kobold", 0.7, 0.6, 1.3, "swarm", "intermediate"),
+    ("Skeleton", 0.9, 0.9, 1.0, "normal", "intermediate"),
+    ("Giant Spider", 1.0, 0.7, 1.2, "pack", "intermediate"),
     ("Ogre", 1.6, 1.3, 0.6, "elite", "intermediate"),
     ("Troll", 1.7, 1.0, 0.6, "elite", "intermediate"),
-    # --- veteran (floor 21+) ---
+    # --- veteran (floor 21+) — checklist: "Hobgoblins, Ghouls, Harpies,
+    # Lizardmen" (Harpies already covered by the persisting intermediate
+    # entry above) ---
     ("Hobgoblin", 1.0, 0.9, 1.0, "normal", "veteran"),
     ("Lizardman", 0.9, 0.8, 1.3, "normal", "veteran"),
+    ("Feral Ghoul", 1.0, 0.8, 1.1, "normal", "veteran"),
     ("Hobgoblin Berserker", 1.3, 1.0, 1.1, "elite", "veteran"),
     ("Lizardman Stalker", 1.1, 0.9, 1.5, "elite", "veteran"),
-    # --- advanced (floor 31+) ---
+    # --- advanced (floor 31+) — checklist: "Ogres, Trolls, Gargoyles,
+    # Wraiths" (Ogres/Trolls already covered by the persisting intermediate
+    # elites above) ---
     ("Grave Scarab", 1.0, 1.0, 1.6, "swarm", "advanced"),
     ("Rotting Ghoul", 1.1, 0.9, 1.2, "pack", "advanced"),
     ("Bone Warden", 1.0, 1.3, 0.8, "normal", "advanced"),
+    ("Gargoyle", 1.1, 1.4, 0.9, "normal", "advanced"),
+    ("Wraith", 0.9, 0.7, 1.3, "normal", "advanced"),
     ("Scarab Swarmlord", 1.2, 1.1, 1.4, "elite", "advanced"),
     ("Plague Harbinger", 1.3, 1.0, 1.0, "elite", "advanced"),
-    # --- mighty (floor 41+) ---
+    # --- mighty (floor 41+) — checklist: "Minotaurs, Manticores, Wyverns,
+    # Elementals" ---
     ("Minotaur", 1.4, 1.2, 0.7, "normal", "mighty"),
     ("Wyvern", 1.1, 0.8, 1.6, "normal", "mighty"),
+    ("Manticore", 1.3, 1.0, 1.2, "normal", "mighty"),
+    ("Elemental", 1.2, 1.3, 0.8, "normal", "mighty"),
     ("Minotaur Juggernaut", 1.7, 1.4, 0.6, "elite", "mighty"),
     ("Wyvern Stormrider", 1.4, 1.0, 1.8, "elite", "mighty"),
-    # --- ascendant (floor 51+) ---
+    # --- ascendant (floor 51+) — checklist: "Vampire Spawn, Chimeras,
+    # Golems, Naga" (Golems covered by Stone Sentinel/Lesser Golem here;
+    # Chimera/Naga land in mythic below since the checklist's 51-70 range
+    # spans both this tier and the next) ---
     ("Stone Sentinel", 1.3, 1.6, 0.5, "normal", "ascendant"),
     ("Lesser Golem", 1.1, 1.3, 0.5, "normal", "ascendant"),
+    ("Vampire Spawn", 1.2, 0.9, 1.3, "normal", "ascendant"),
     ("Stone Golem", 1.5, 1.8, 0.5, "elite", "ascendant"),
     ("Dread Brute", 1.8, 1.2, 0.7, "elite", "ascendant"),
     ("Obsidian Behemoth", 2.0, 1.6, 0.4, "elite", "ascendant"),
-    # --- mythic (floor 61+) ---
+    # --- mythic (floor 61+) — Chimeras/Naga half of the 51-70 checklist
+    # range ---
     ("Chimera", 1.2, 1.0, 1.1, "normal", "mythic"),
     ("Naga", 1.1, 0.9, 1.2, "normal", "mythic"),
     ("Abyssal Lurker", 1.3, 0.9, 1.8, "elite", "mythic"),
     ("Frost Wight", 1.4, 1.1, 0.9, "elite", "mythic"),
     ("Shrouded Reaper", 1.3, 1.0, 1.3, "elite", "mythic"),
-    # --- apex (floor 71+) ---
+    # --- apex (floor 71+) — checklist: "Hydras, Giants, Death Knights,
+    # Demon Lords" (Demon Lords land in dread below, same 71-90 split) ---
     ("Death Knight", 1.3, 1.2, 0.9, "normal", "apex"),
     ("Giant", 1.6, 1.1, 0.6, "normal", "apex"),
+    ("Hydra", 1.6, 1.2, 0.8, "normal", "apex"),
     ("Hydra Spawn", 1.5, 1.0, 1.0, "elite", "apex"),
     ("Black Knight Commander", 1.6, 1.4, 1.0, "elite", "apex"),
-    # --- dread (floor 81+) ---
+    # --- dread (floor 81+) — Demon Lords half of the 71-90 checklist range ---
     ("Demon", 1.3, 1.0, 1.2, "normal", "dread"),
     ("Imp", 0.8, 0.6, 1.8, "pack", "dread"),
+    ("Demon Lord", 1.4, 1.1, 1.0, "normal", "dread"),
     ("Pit Fiend", 1.7, 1.3, 1.0, "elite", "dread"),
     ("Wraith Sovereign", 1.4, 0.9, 1.5, "elite", "dread"),
-    # --- ancient (floor 91+) ---
+    # --- ancient (floor 91+) — checklist: "Dragons, Liches, Archdemons,
+    # Ancient Guardians" ---
     ("Lich Acolyte", 1.2, 0.9, 1.0, "normal", "ancient"),
     ("Young Dragon", 1.6, 1.2, 1.0, "normal", "ancient"),
+    ("Archdemon", 1.5, 1.2, 1.0, "normal", "ancient"),
+    ("Ancient Guardian", 1.4, 1.6, 0.6, "normal", "ancient"),
     ("Dracolich", 1.8, 1.3, 0.9, "elite", "ancient"),
     ("Archdemon Enforcer", 1.8, 1.5, 1.0, "elite", "ancient"),
 ]
@@ -154,14 +180,15 @@ ENEMY_WAVE = {
     "Slime": 1, "Goblin": 1, "Giant Rat": 1, "Wolf": 1,
     "Acid Slime": 1, "Goblin Warrior": 1, "Goblin Shaman": 1, "Giant Rat Alpha": 1, "Wolf Alpha": 1,
     "Bandit": 2, "Dire Wolf": 2, "Harpy": 2, "Orc": 2, "Ogre": 2, "Troll": 2,
-    "Hobgoblin": 3, "Lizardman": 3, "Hobgoblin Berserker": 3, "Lizardman Stalker": 3,
-    "Grave Scarab": 4, "Rotting Ghoul": 4, "Bone Warden": 4, "Scarab Swarmlord": 4, "Plague Harbinger": 4,
-    "Minotaur": 5, "Wyvern": 5, "Minotaur Juggernaut": 5, "Wyvern Stormrider": 5,
-    "Stone Sentinel": 6, "Lesser Golem": 6, "Stone Golem": 6, "Obsidian Behemoth": 6, "Dread Brute": 6,
+    "Kobold": 2, "Skeleton": 2, "Giant Spider": 2,
+    "Hobgoblin": 3, "Lizardman": 3, "Feral Ghoul": 3, "Hobgoblin Berserker": 3, "Lizardman Stalker": 3,
+    "Grave Scarab": 4, "Rotting Ghoul": 4, "Bone Warden": 4, "Gargoyle": 4, "Wraith": 4, "Scarab Swarmlord": 4, "Plague Harbinger": 4,
+    "Minotaur": 5, "Wyvern": 5, "Manticore": 5, "Elemental": 5, "Minotaur Juggernaut": 5, "Wyvern Stormrider": 5,
+    "Stone Sentinel": 6, "Lesser Golem": 6, "Vampire Spawn": 6, "Stone Golem": 6, "Obsidian Behemoth": 6, "Dread Brute": 6,
     "Chimera": 7, "Naga": 7, "Abyssal Lurker": 7, "Frost Wight": 7, "Shrouded Reaper": 7,
-    "Death Knight": 8, "Giant": 8, "Hydra Spawn": 8, "Black Knight Commander": 8,
-    "Demon": 9, "Imp": 9, "Pit Fiend": 9, "Wraith Sovereign": 9,
-    "Lich Acolyte": 10, "Young Dragon": 10, "Dracolich": 10, "Archdemon Enforcer": 10,
+    "Death Knight": 8, "Giant": 8, "Hydra": 8, "Hydra Spawn": 8, "Black Knight Commander": 8,
+    "Demon": 9, "Imp": 9, "Demon Lord": 9, "Pit Fiend": 9, "Wraith Sovereign": 9,
+    "Lich Acolyte": 10, "Young Dragon": 10, "Archdemon": 10, "Ancient Guardian": 10, "Dracolich": 10, "Archdemon Enforcer": 10,
 }
 
 # Per-name ability overrides — lets a specific elite/miniboss/boss entry use
@@ -444,7 +471,12 @@ def make_boss(floor_number: int, zone_theme: str = "", is_miniboss: bool = False
         # are named by archetype (boss_undead_monarch.png), not by the
         # family's display name ("The Undead Monarch"), so the slug-based
         # lookup wouldn't find them on its own.
-        portrait_path = family_override.get("portrait_path") or _enemy_portrait_path(boss_title, "miniboss" if is_miniboss else "boss") or None
+        # Raid Bosses (every-20th-floor merge) get their own tier folder —
+        # enemies/raid_boss/ — distinct from a regular boss floor's
+        # enemies/boss/, even though both are is_miniboss=False.
+        is_raid = (not is_miniboss) and floor_number % 20 == 0 and floor_number != 100
+        portrait_tier_dir = "raid_boss" if is_raid else ("miniboss" if is_miniboss else "boss")
+        portrait_path = family_override.get("portrait_path") or _enemy_portrait_path(boss_title, portrait_tier_dir) or None
         power = (1.5 + (floor_number / 40)) if is_miniboss else (2.5 + (floor_number / 30))
         from services.portrait_cache import get_random_boss_portrait
         boss = CombatUnit(

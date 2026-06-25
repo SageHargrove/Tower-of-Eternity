@@ -191,6 +191,10 @@ HUMANOID_ENEMY_NAMES = {
     "The Ashen Colossus", "Stoneheart the Unbroken", "The Obsidian Tyrant",
     "The Drowned Naga Queen", "Knight-Captain Mordrek", "Pit Fiend Commander",
     "Goblin King",
+    "Kobold", "Skeleton", "Feral Ghoul", "Wraith", "Vampire Spawn",
+    "Demon Lord", "Archdemon", "Ancient Guardian",
+    "Gorrath the Bonebreaker", "The Rotcaller, Warlord of the Fester Host",
+    "Mordane, the Hollow King",
 }
 
 MONSTER_NEGATIVE = NEGATIVE_STYLE + (
@@ -686,6 +690,27 @@ ENEMY_PORTRAIT_HINTS = {
     "Dracolich": "an undead dragon, bleached bone-white scales and exposed ribs clearly visible over a skeletal serpentine frame, tattered leathery wing-remnants, a skull-like draconic head with glowing violet eyes, faint violet mist trailing from its jaws, crypt-cavern background",
     "The Hydra Sovereign": "a colossal multi-headed hydra beast towering upward, five serpentine necks rising from a massive scaled body, deep emerald-green scales clearly visible with darker ridged patterns, each head baring fangs and glowing yellow eyes, swampy lair-throne background",
     "The Dracolich Herald": "an imposing undead dragon herald, bleached bone-white scales and exposed ribs clearly visible over a skeletal serpentine frame, tattered leathery wing-remnants trailing violet mist, a crowned skull-like draconic head with glowing violet eyes, crypt-cavern-throne background",
+
+    # --- 13 checklist normals added to fill each decade out to its full
+    # 4-normal/2-elite roster (PLAN_floor_workshop_enemies.md's family
+    # table), plus 4 dedicated Raid Bosses for floors 20/40/60/80 ---
+    "Kobold": "a small scaly kobold skirmisher crouched low, rough reddish-brown scaled skin clearly lit, a doglike reptilian snout with small horns, wielding a crude rusty dagger, beady red eyes, torchlit dungeon tunnel background",
+    "Skeleton": "an animated skeleton warrior standing upright, bare bone clearly visible with no flesh, hollow dark eye sockets with faint blue glowing pinpricks, wielding a chipped rusty sword and a cracked wooden shield, tattered remnants of old armor, dim crypt corridor background",
+    "Giant Spider": "a massive spider crouched low on eight long spindly legs, glossy black-and-brown banded carapace clearly visible, rows of glinting red eyes, sharp dripping fangs, faint webbing strands trailing behind it, torchlit cave background",
+    "Feral Ghoul": "a feral ghoul hunched forward, sickly grey-green rotting skin clearly lit, sunken yellow eyes, ragged torn clothing, long blackened claws, jaw stretched in a silent snarl, dim graveyard background",
+    "Gargoyle": "a winged stone gargoyle perched low, rough grey granite hide clearly visible with cracked weathered texture, curling ram-like horns, leathery stone wings spread, clawed hands and feet, glowing faint green eyes, moonlit cathedral rooftop background",
+    "Wraith": "a tall wraith draped in tattered grey-blue spectral robes clearly visible, a pale gaunt translucent face with hollow glowing blue eyes, clawed semi-transparent hands reaching forward, faint wisps trailing from its form, misty graveyard background",
+    "Manticore": "a fearsome manticore beast with a lion's muscular tawny-furred body, large feathered wings, a spiked venomous scorpion tail curled over its back, a humanlike grimace with sharp fangs, glowing amber eyes, rocky desert background",
+    "Elemental": "a swirling stone-and-magma elemental, jagged grey rock fragments clearly visible orbiting a glowing molten-orange core, cracks of lava light seeping between the rock plates, a roughly humanoid mass with no distinct face, rocky volcanic background",
+    "Vampire Spawn": "a pale vampire spawn crouched predatorily, ashen grey-white skin clearly lit, sharp visible fangs bared, ragged dark formal clothing in tatters, clawed fingers, glowing red eyes, foggy moonlit graveyard background",
+    "Hydra": "a massive multi-headed hydra beast, four serpentine necks rising from a thick scaled body, deep teal-green scales clearly visible with darker ridged patterning, each head baring fangs, glowing yellow eyes, swampy lake background",
+    "Demon Lord": "an imposing horned demon lord standing tall, deep crimson-black skin clearly lit over a muscular humanoid frame, large curling black horns, tattered leathery wings, clawed hands wreathed in dark flame, glowing orange eyes, brimstone throne-cavern background",
+    "Archdemon": "a towering archdemon standing upright, charcoal-grey scaled skin clearly lit, massive ram-like horns, leathery wings folded behind its back, a clawed muscular frame wreathed in faint dark smoke, glowing deep-red eyes, hellish cavern background",
+    "Ancient Guardian": "an ancient stone guardian construct standing immobile, weathered pale-grey marble body clearly lit with faded golden runic engravings, a featureless carved face, massive folded arms, moss growing in its cracks, ancient ruined temple background",
+    "Gorrath the Bonebreaker": "a towering orc-skeleton warlord standing over a battlefield of bones, half-rotted green-grey flesh clinging to exposed bone clearly lit, a cracked tusked jaw, wearing scavenged spiked plate armor, gripping a massive bone-studded warhammer, glowing red eyes, bone-littered battlefield background",
+    "The Rotcaller, Warlord of the Fester Host": "a massive plague-ridden ghoul warlord standing tall, sickly mottled green-grey rotting flesh clearly lit, a swollen disease-bloated frame wrapped in tattered ceremonial robes, clutching a rusted plague-censer staff dripping dark vapor, glowing sickly yellow eyes, fetid swamp-battlefield background",
+    "The Earthshaker Titan": "a colossal elemental titan towering upward, jagged grey-brown rock plates clearly visible fused over a massive humanoid frame, glowing molten-orange fissures cracking across its chest and arms, boulder-sized fists, a craggy faceless head, crumbling mountain-ruin background",
+    "Mordane, the Hollow King": "an imposing vampire-knight king standing regally, pale ashen skin clearly lit beneath ornate tarnished black-and-crimson armor, a tattered royal cape, sharp fangs bared in a cold smile, clawed gauntlets, glowing crimson eyes, gothic throne-hall background",
 }
 
 def _generate_enemy_portrait(enemy_name: str, hint: str, tier_dir: str = "normal"):
@@ -750,10 +775,10 @@ def queue_missing_family_portraits():
     enemies/miniboss/ or enemies/boss/ to match make_boss's family_override
     lookup (_enemy_portrait_path(name, "miniboss"/"boss"))."""
     try:
-        from services.enemy_families import MINIBOSS_OVERRIDES, BOSS_OVERRIDES
+        from services.enemy_families import MINIBOSS_OVERRIDES, BOSS_OVERRIDES, RAID_BOSS_OVERRIDES
         os.makedirs(ENEMY_DIR, exist_ok=True)
         queued = 0
-        for tier_dir, overrides in (("miniboss", MINIBOSS_OVERRIDES), ("boss", BOSS_OVERRIDES)):
+        for tier_dir, overrides in (("miniboss", MINIBOSS_OVERRIDES), ("boss", BOSS_OVERRIDES), ("raid_boss", RAID_BOSS_OVERRIDES)):
             for entry in overrides.values():
                 families = entry if isinstance(entry, list) else [entry]
                 for family in families:

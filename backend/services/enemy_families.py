@@ -236,3 +236,53 @@ def get_boss_override(floor_number: int) -> dict | None:
         import random
         return random.choice(entry)
     return entry
+
+
+# ─── Raid Bosses (every 20th floor, multi-team merge) ──────────────────────
+#
+# The original roster-overhaul plan named four tiers — elite/miniboss/boss/
+# raid_boss — but raid_boss was never built; floor 20/40/60/80 just reused
+# that floor's regular %10 boss scaled up for the combined team size. These
+# give floors 20/40/60/80 their own unique, tougher-than-the-regular-boss
+# identity, themed as the culmination of the two decades feeding into them.
+# Floor 100 keeps its existing Lich King/Nightwing Devourer treatment —
+# already has dedicated raid-scale specialness, doesn't need a 5th entry.
+
+GORRATH_BONEBREAKER = {
+    "name": "Gorrath the Bonebreaker",
+    "abilities": ["cleave", "crushing_blow", "enrage", "last_stand"],
+    "spawn_template": "Skeleton",
+    "stat_mod": {"atk": 1.3, "def": 1.2, "spd": 0.9, "health": 1.5},
+}
+
+ROTCALLER_FESTER_HOST = {
+    "name": "The Rotcaller, Warlord of the Fester Host",
+    "abilities": ["self_regen", "summon_add", "crushing_blow", "last_stand"],
+    "spawn_template": "Rotting Ghoul",
+    "stat_mod": {"atk": 1.3, "def": 1.2, "spd": 0.9, "health": 1.6},
+}
+
+EARTHSHAKER_TITAN = {
+    "name": "The Earthshaker Titan",
+    "abilities": ["crushing_blow", "enrage", "last_stand"],
+    "spawn_template": "Elemental",
+    "stat_mod": {"atk": 1.4, "def": 1.4, "spd": 0.6, "health": 1.8},
+}
+
+MORDANE_HOLLOW_KING = {
+    "name": "Mordane, the Hollow King",
+    "abilities": ["self_regen", "cleave", "crushing_blow", "last_stand"],
+    "spawn_template": "Vampire Spawn",
+    "stat_mod": {"atk": 1.4, "def": 1.2, "spd": 1.0, "health": 1.6},
+}
+
+RAID_BOSS_OVERRIDES = {
+    20: GORRATH_BONEBREAKER,
+    40: ROTCALLER_FESTER_HOST,
+    60: EARTHSHAKER_TITAN,
+    80: MORDANE_HOLLOW_KING,
+}
+
+
+def get_raid_boss_override(floor_number: int) -> dict | None:
+    return RAID_BOSS_OVERRIDES.get(floor_number)

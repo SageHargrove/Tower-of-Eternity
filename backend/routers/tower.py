@@ -10,7 +10,7 @@ from services.floor_templates import (
     generate_rest_floor, resolve_rest_floor,
 )
 from services.combat_service import SWARM_SURVIVAL_CHANCE
-from services.enemy_families import get_miniboss_override, get_boss_override
+from services.enemy_families import get_miniboss_override, get_boss_override, get_raid_boss_override
 import json
 import random
 from pydantic import BaseModel
@@ -378,7 +378,13 @@ def enter_floor(req: EnterFloorRequest):
         elif is_miniboss:
             family_override = get_miniboss_override(req.floor_number)
         elif is_boss:
-            family_override = get_boss_override(req.floor_number)
+            # Every-20th-floor Raid Boss merge (see run_multi_combat) gets
+            # its own dedicated unique where one's been built, instead of
+            # just reusing that floor's regular %10 boss scaled up.
+            if req.floor_number % 20 == 0:
+                family_override = get_raid_boss_override(req.floor_number)
+            if family_override is None:
+                family_override = get_boss_override(req.floor_number)
 
         # Zone theme and boss naming are independent enough to run concurrently
         # instead of sequentially — boss naming uses a generic placeholder theme
