@@ -93,20 +93,55 @@ ENEMY_TYPES = [
     ("Harpy", 0.8, 0.6, 1.8, "pack", "intermediate"),
     ("Ogre", 1.6, 1.3, 0.6, "elite", "intermediate"),
     ("Troll", 1.7, 1.0, 0.6, "elite", "intermediate"),
-    # --- advanced (floor 40+) ---
+    # --- veteran (floor 21+) ---
+    ("Hobgoblin", 1.0, 0.9, 1.0, "normal", "veteran"),
+    ("Lizardman", 0.9, 0.8, 1.3, "normal", "veteran"),
+    ("Hobgoblin Berserker", 1.3, 1.0, 1.1, "elite", "veteran"),
+    ("Lizardman Stalker", 1.1, 0.9, 1.5, "elite", "veteran"),
+    # --- advanced (floor 31+) ---
     ("Grave Scarab", 1.0, 1.0, 1.6, "swarm", "advanced"),
     ("Rotting Ghoul", 1.1, 0.9, 1.2, "pack", "advanced"),
     ("Bone Warden", 1.0, 1.3, 0.8, "normal", "advanced"),
-    # --- legendary (floor 70+) ---
-    ("Stone Golem", 1.5, 1.8, 0.5, "elite", "legendary"),
-    ("Dread Brute", 1.8, 1.2, 0.7, "elite", "legendary"),
-    ("Abyssal Lurker", 1.3, 0.9, 1.8, "elite", "legendary"),
-    ("Frost Wight", 1.4, 1.1, 0.9, "elite", "legendary"),
-    ("Obsidian Behemoth", 2.0, 1.6, 0.4, "elite", "legendary"),
-    ("Shrouded Reaper", 1.3, 1.0, 1.3, "elite", "legendary"),
+    ("Scarab Swarmlord", 1.2, 1.1, 1.4, "elite", "advanced"),
+    ("Plague Harbinger", 1.3, 1.0, 1.0, "elite", "advanced"),
+    # --- mighty (floor 41+) ---
+    ("Minotaur", 1.4, 1.2, 0.7, "normal", "mighty"),
+    ("Wyvern", 1.1, 0.8, 1.6, "normal", "mighty"),
+    ("Minotaur Juggernaut", 1.7, 1.4, 0.6, "elite", "mighty"),
+    ("Wyvern Stormrider", 1.4, 1.0, 1.8, "elite", "mighty"),
+    # --- ascendant (floor 51+) ---
+    ("Stone Sentinel", 1.3, 1.6, 0.5, "normal", "ascendant"),
+    ("Lesser Golem", 1.1, 1.3, 0.5, "normal", "ascendant"),
+    ("Stone Golem", 1.5, 1.8, 0.5, "elite", "ascendant"),
+    ("Dread Brute", 1.8, 1.2, 0.7, "elite", "ascendant"),
+    ("Obsidian Behemoth", 2.0, 1.6, 0.4, "elite", "ascendant"),
+    # --- mythic (floor 61+) ---
+    ("Chimera", 1.2, 1.0, 1.1, "normal", "mythic"),
+    ("Naga", 1.1, 0.9, 1.2, "normal", "mythic"),
+    ("Abyssal Lurker", 1.3, 0.9, 1.8, "elite", "mythic"),
+    ("Frost Wight", 1.4, 1.1, 0.9, "elite", "mythic"),
+    ("Shrouded Reaper", 1.3, 1.0, 1.3, "elite", "mythic"),
+    # --- apex (floor 71+) ---
+    ("Death Knight", 1.3, 1.2, 0.9, "normal", "apex"),
+    ("Giant", 1.6, 1.1, 0.6, "normal", "apex"),
+    ("Hydra Spawn", 1.5, 1.0, 1.0, "elite", "apex"),
+    ("Black Knight Commander", 1.6, 1.4, 1.0, "elite", "apex"),
+    # --- dread (floor 81+) ---
+    ("Demon", 1.3, 1.0, 1.2, "normal", "dread"),
+    ("Imp", 0.8, 0.6, 1.8, "pack", "dread"),
+    ("Pit Fiend", 1.7, 1.3, 1.0, "elite", "dread"),
+    ("Wraith Sovereign", 1.4, 0.9, 1.5, "elite", "dread"),
+    # --- ancient (floor 91+) ---
+    ("Lich Acolyte", 1.2, 0.9, 1.0, "normal", "ancient"),
+    ("Young Dragon", 1.6, 1.2, 1.0, "normal", "ancient"),
+    ("Dracolich", 1.8, 1.3, 0.9, "elite", "ancient"),
+    ("Archdemon Enforcer", 1.8, 1.5, 1.0, "elite", "ancient"),
 ]
 
-ENEMY_TIER_UNLOCK_FLOOR = {"beginner": 1, "intermediate": 15, "advanced": 40, "legendary": 70}
+ENEMY_TIER_UNLOCK_FLOOR = {
+    "beginner": 1, "intermediate": 15, "veteran": 21, "advanced": 31,
+    "mighty": 41, "ascendant": 51, "mythic": 61, "apex": 71, "dread": 81, "ancient": 91,
+}
 
 # Purely organizational — which "waveN" review subfolder each named enemy's
 # portrait lives in under enemies/<tier>/waveN/ (see _enemy_portrait_path and
@@ -119,9 +154,14 @@ ENEMY_WAVE = {
     "Slime": 1, "Goblin": 1, "Giant Rat": 1, "Wolf": 1,
     "Acid Slime": 1, "Goblin Warrior": 1, "Goblin Shaman": 1, "Giant Rat Alpha": 1, "Wolf Alpha": 1,
     "Bandit": 2, "Dire Wolf": 2, "Harpy": 2, "Orc": 2, "Ogre": 2, "Troll": 2,
-    "Grave Scarab": 4, "Rotting Ghoul": 4, "Bone Warden": 4,
-    "Stone Golem": 6, "Obsidian Behemoth": 6, "Dread Brute": 6,
-    "Abyssal Lurker": 7, "Frost Wight": 7, "Shrouded Reaper": 7,
+    "Hobgoblin": 3, "Lizardman": 3, "Hobgoblin Berserker": 3, "Lizardman Stalker": 3,
+    "Grave Scarab": 4, "Rotting Ghoul": 4, "Bone Warden": 4, "Scarab Swarmlord": 4, "Plague Harbinger": 4,
+    "Minotaur": 5, "Wyvern": 5, "Minotaur Juggernaut": 5, "Wyvern Stormrider": 5,
+    "Stone Sentinel": 6, "Lesser Golem": 6, "Stone Golem": 6, "Obsidian Behemoth": 6, "Dread Brute": 6,
+    "Chimera": 7, "Naga": 7, "Abyssal Lurker": 7, "Frost Wight": 7, "Shrouded Reaper": 7,
+    "Death Knight": 8, "Giant": 8, "Hydra Spawn": 8, "Black Knight Commander": 8,
+    "Demon": 9, "Imp": 9, "Pit Fiend": 9, "Wraith Sovereign": 9,
+    "Lich Acolyte": 10, "Young Dragon": 10, "Dracolich": 10, "Archdemon Enforcer": 10,
 }
 
 # Per-name ability overrides — lets a specific elite/miniboss/boss entry use
@@ -137,11 +177,22 @@ ENEMY_ABILITY_OVERRIDES = {
     "Goblin Shaman": ["team_buff_aura"],
     "Giant Rat Alpha": ["summon_add"],
     "Wolf Alpha": ["enrage"],
+    "Hobgoblin Berserker": ["enrage"],
+    "Lizardman Stalker": ["self_regen"],
+    "Scarab Swarmlord": ["summon_add"],
+    "Plague Harbinger": ["team_buff_aura"],
+    "Minotaur Juggernaut": ["enrage"],
+    "Hydra Spawn": ["self_regen"],
+    "Pit Fiend": ["enrage"],
+    "Wraith Sovereign": ["team_buff_aura"],
+    "Dracolich": ["self_regen"],
+    "Archdemon Enforcer": ["crushing_blow"],
 }
 
 # Which weak swarm-type a "summon_add" user calls in as reinforcements.
 ENEMY_SPAWN_TEMPLATE = {
     "Giant Rat Alpha": "Giant Rat",
+    "Scarab Swarmlord": "Grave Scarab",
 }
 
 SELF_REGEN_PCT = 0.06  # per-round Health regen granted by the "self_regen" ability

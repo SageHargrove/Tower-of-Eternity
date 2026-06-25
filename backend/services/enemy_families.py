@@ -5,15 +5,12 @@ ENEMY_ABILITY_OVERRIDES), and a dedicated Mini-Boss (the range's %5 floor)
 and Boss (the range's %10 floor). Looked up by exact floor number from
 tower.py; floors with no entry here just fall back to make_boss()'s
 existing generic LLM-flavored naming — nothing breaks for ranges not yet
-built out. Building this out is intentionally staged one floor-range block
-at a time (see PLAN_floor_workshop_enemies.md) — floors 1-10 done so far.
-Floor 11-20 ("wave 2") was built and then deliberately pulled back out —
-not reviewed/cleared yet, going one wave at a time.
+built out.
 
-Floor 50 and 100 are flagged as wanting extra-special treatment (floor 50
-is the tower's halfway point, floor 100 the final floor) but are NOT yet
-content-complete — they're just a marker for later, once the families that
-actually occupy those ranges (41-50, 91-100) are built out.
+Floors 1-100 are now fully covered — a named miniboss at every %5 floor
+(except 35, see comment above MINIBOSS_OVERRIDES) and a named boss at
+every %10 floor. Floor 50 (the halfway point) and floor 100 (the final
+floor, also the every-20th-floor Raid Boss merge) both have content now.
 """
 
 # ─── Floors 1-10: Slime / Goblin / Rat / Wolf ──────────────────────────
@@ -30,6 +27,121 @@ WARREN_TYRANT = {
     "abilities": ["summon_add", "crushing_blow", "last_stand"],
     "spawn_template": "Giant Rat",
     "stat_mod": {"atk": 1.1, "def": 1.0, "spd": 0.9, "health": 1.2},
+}
+
+# ─── Floors 11-30: intermediate/veteran tiers' miniboss+boss ──────────────
+#
+# These two tiers (Dire Wolf/Orc/Harpy/Ogre/Troll at floor 15+, Hobgoblin/
+# Lizardman at floor 21+) never had a named miniboss/boss of their own —
+# floor 15/20/25/30 fell back to the old generic LLM-flavored naming.
+
+ORC_WARCHIEF = {
+    "name": "Orc Warchief",
+    "abilities": ["cleave", "enrage"],
+    "spawn_template": "Orc",
+    "stat_mod": {"atk": 1.1, "def": 1.0, "spd": 1.0, "health": 1.1},
+}
+
+TROLL_KING = {
+    "name": "The Troll King",
+    "abilities": ["crushing_blow", "last_stand", "enrage"],
+    "spawn_template": "Troll",
+    "stat_mod": {"atk": 1.2, "def": 1.1, "spd": 0.8, "health": 1.3},
+}
+
+SKARN_LIZARD_CHIEFTAIN = {
+    "name": "Skarn the Lizard Chieftain",
+    "abilities": ["self_regen", "crushing_blow"],
+    "spawn_template": "Lizardman",
+    "stat_mod": {"atk": 1.1, "def": 1.0, "spd": 1.1, "health": 1.1},
+}
+
+HOBGOBLIN_WARLORD = {
+    "name": "The Hobgoblin Warlord",
+    "abilities": ["cleave", "summon_add", "last_stand"],
+    "spawn_template": "Hobgoblin",
+    "stat_mod": {"atk": 1.2, "def": 1.1, "spd": 0.9, "health": 1.3},
+}
+
+# ─── Floors 31-50: advanced/mighty tiers' miniboss+boss ───────────────────
+
+GRAVE_SOVEREIGN = {
+    "name": "The Grave Sovereign",
+    "abilities": ["self_regen", "crushing_blow", "last_stand"],
+    "spawn_template": "Rotting Ghoul",
+    "stat_mod": {"atk": 1.2, "def": 1.1, "spd": 0.9, "health": 1.3},
+}
+
+BULLHORN_MINOTAUR_LORD = {
+    "name": "Bullhorn the Minotaur Lord",
+    "abilities": ["crushing_blow", "enrage"],
+    "spawn_template": "Minotaur",
+    "stat_mod": {"atk": 1.2, "def": 1.1, "spd": 0.9, "health": 1.2},
+}
+
+# Floor 50 — the tower's halfway point, flagged as wanting something
+# extra-special (see SPECIAL_BOSS_FLOORS) — no preserved art fit this range
+# so it never got a design until now.
+ASHEN_COLOSSUS = {
+    "name": "The Ashen Colossus",
+    "abilities": ["crushing_blow", "enrage", "last_stand"],
+    "spawn_template": "Minotaur",
+    "stat_mod": {"atk": 1.3, "def": 1.2, "spd": 0.8, "health": 1.5},
+}
+
+# ─── Floors 51-70: ascendant/mythic tiers' miniboss+boss ──────────────────
+
+STONEHEART_UNBROKEN = {
+    "name": "Stoneheart the Unbroken",
+    "abilities": ["crushing_blow", "last_stand"],
+    "spawn_template": "Stone Sentinel",
+    "stat_mod": {"atk": 1.1, "def": 1.3, "spd": 0.7, "health": 1.4},
+}
+
+OBSIDIAN_TYRANT = {
+    "name": "The Obsidian Tyrant",
+    "abilities": ["crushing_blow", "team_buff_aura", "last_stand"],
+    "spawn_template": "Lesser Golem",
+    "stat_mod": {"atk": 1.3, "def": 1.4, "spd": 0.6, "health": 1.5},
+}
+
+DROWNED_NAGA_QUEEN = {
+    "name": "The Drowned Naga Queen",
+    "abilities": ["team_buff_aura", "self_regen"],
+    "spawn_template": "Naga",
+    "stat_mod": {"atk": 1.2, "def": 1.0, "spd": 1.1, "health": 1.2},
+}
+
+# ─── Floors 71-90: apex/dread tiers' miniboss+boss ─────────────────────────
+
+KNIGHT_CAPTAIN_MORDREK = {
+    "name": "Knight-Captain Mordrek",
+    "abilities": ["cleave", "enrage"],
+    "spawn_template": "Death Knight",
+    "stat_mod": {"atk": 1.2, "def": 1.2, "spd": 0.9, "health": 1.2},
+}
+
+HYDRA_SOVEREIGN = {
+    "name": "The Hydra Sovereign",
+    "abilities": ["summon_add", "self_regen", "last_stand"],
+    "spawn_template": "Hydra Spawn",
+    "stat_mod": {"atk": 1.3, "def": 1.1, "spd": 0.9, "health": 1.5},
+}
+
+PIT_FIEND_COMMANDER = {
+    "name": "Pit Fiend Commander",
+    "abilities": ["summon_add", "crushing_blow"],
+    "spawn_template": "Imp",
+    "stat_mod": {"atk": 1.3, "def": 1.2, "spd": 1.0, "health": 1.3},
+}
+
+# ─── Floors 91-100: ancient tier's miniboss ────────────────────────────────
+
+DRACOLICH_HERALD = {
+    "name": "The Dracolich Herald",
+    "abilities": ["self_regen", "last_stand"],
+    "spawn_template": "Young Dragon",
+    "stat_mod": {"atk": 1.3, "def": 1.2, "spd": 0.9, "health": 1.4},
 }
 
 # ─── Floors 51-100: bosses built from preserved hand-picked art ───────────
@@ -79,18 +191,38 @@ NIGHTWING_DEVOURER = {
 # param in combat_service.py), or a list of dicts for a floor that should
 # randomly pick between more than one (floor 100). Keyed by exact floor
 # since each range only has one mini-boss floor and one boss floor right now.
+# Floor 35 has no miniboss entry — advanced tier's one named unique
+# (Grave Sovereign) is reserved for floor 40's boss, so 35 stays on the old
+# generic LLM-flavored naming rather than reusing the same unit twice.
 MINIBOSS_OVERRIDES = {
     5: GOBLIN_KING,
+    15: ORC_WARCHIEF,
+    25: SKARN_LIZARD_CHIEFTAIN,
+    45: BULLHORN_MINOTAUR_LORD,
+    55: STONEHEART_UNBROKEN,
+    65: DROWNED_NAGA_QUEEN,
+    75: KNIGHT_CAPTAIN_MORDREK,
+    85: PIT_FIEND_COMMANDER,
+    95: DRACOLICH_HERALD,
 }
+
 BOSS_OVERRIDES = {
     10: WARREN_TYRANT,
+    20: TROLL_KING,
+    30: HOBGOBLIN_WARLORD,
+    40: GRAVE_SOVEREIGN,
+    50: ASHEN_COLOSSUS,
+    60: OBSIDIAN_TYRANT,
     70: UNDEAD_MONARCH,
+    80: HYDRA_SOVEREIGN,
     90: MASKED_HORROR_BOSS,
     100: [LICH_KING, NIGHTWING_DEVOURER],
 }
 
-# Marker only — not yet content-complete for the ranges that don't have a
-# BOSS_OVERRIDES entry above. See module docstring.
+# Floor 50 (the tower's halfway point) now has its own boss (Ashen Colossus)
+# — content-complete. Floor 100 (final floor) already was. Marker kept for
+# any future "extra ceremony beyond a named boss" ideas (cutscene, unique
+# reward tier, etc.) — purely a flag other code can check, not consumed yet.
 SPECIAL_BOSS_FLOORS = {50, 100}
 
 
