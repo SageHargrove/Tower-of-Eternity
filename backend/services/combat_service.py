@@ -73,7 +73,6 @@ class CombatUnit:
 ENEMY_TYPES = [
     # --- beginner (floor 1+) ---
     ("Giant Rat", 0.8, 0.8, 1.6, "swarm", "beginner"),
-    ("Mangy Hyena", 1.0, 0.9, 1.3, "pack", "beginner"),
     ("Goblin", 0.8, 0.7, 1.1, "normal", "beginner"),
     ("Bandit", 0.9, 0.8, 1.2, "normal", "beginner"),
     ("Wolf", 0.9, 0.7, 1.5, "pack", "beginner"),
@@ -94,18 +93,9 @@ ENEMY_TYPES = [
     ("Ogre", 1.6, 1.3, 0.6, "elite", "intermediate"),
     ("Troll", 1.7, 1.0, 0.6, "elite", "intermediate"),
     # --- advanced (floor 40+) ---
-    ("Corpse Rat", 1.0, 1.0, 1.5, "swarm", "advanced"),
     ("Grave Scarab", 1.0, 1.0, 1.6, "swarm", "advanced"),
-    ("Carrion Bat", 0.9, 0.8, 1.9, "swarm", "advanced"),
-    ("Plague Crawler", 1.0, 1.0, 1.3, "pack", "advanced"),
-    ("Abyssal Spider", 1.0, 1.0, 1.4, "pack", "advanced"),
     ("Rotting Ghoul", 1.1, 0.9, 1.2, "pack", "advanced"),
-    ("Hollow Knight", 1.2, 1.1, 0.9, "normal", "advanced"),
     ("Bone Warden", 1.0, 1.3, 0.8, "normal", "advanced"),
-    ("Flame Wraith", 0.9, 0.6, 1.4, "normal", "advanced"),
-    ("Shriek Shade", 0.7, 0.5, 1.6, "normal", "advanced"),
-    ("Iron Revenant", 1.3, 1.4, 0.7, "normal", "advanced"),
-    ("Venom Stalker", 0.9, 0.8, 1.5, "normal", "advanced"),
     # --- legendary (floor 70+) ---
     ("Stone Golem", 1.5, 1.8, 0.5, "elite", "legendary"),
     ("Dread Brute", 1.8, 1.2, 0.7, "elite", "legendary"),
