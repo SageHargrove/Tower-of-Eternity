@@ -194,7 +194,7 @@ HUMANOID_ENEMY_NAMES = {
     "Kobold", "Skeleton", "Feral Ghoul", "Wraith", "Vampire Spawn",
     "Demon Lord", "Archdemon", "Ancient Guardian",
     "Gorrath the Bonebreaker", "The Rotcaller, Warlord of the Fester Host",
-    "Mordane, the Hollow King",
+    "Mordane, the Hollow King", "Aetherion, the End of All Things",
 }
 
 MONSTER_NEGATIVE = NEGATIVE_STYLE + (
@@ -711,6 +711,11 @@ ENEMY_PORTRAIT_HINTS = {
     "The Rotcaller, Warlord of the Fester Host": "a massive plague-ridden ghoul warlord standing tall, sickly mottled green-grey rotting flesh clearly lit, a swollen disease-bloated frame wrapped in tattered ceremonial robes, clutching a rusted plague-censer staff dripping dark vapor, glowing sickly yellow eyes, fetid swamp-battlefield background",
     "The Earthshaker Titan": "a colossal elemental titan towering upward, jagged grey-brown rock plates clearly visible fused over a massive humanoid frame, glowing molten-orange fissures cracking across its chest and arms, boulder-sized fists, a craggy faceless head, crumbling mountain-ruin background",
     "Mordane, the Hollow King": "an imposing vampire-knight king standing regally, pale ashen skin clearly lit beneath ornate tarnished black-and-crimson armor, a tattered royal cape, sharp fangs bared in a cold smile, clawed gauntlets, glowing crimson eyes, gothic throne-hall background",
+
+    # Floor 50 and 100 raid bosses (added after the user flagged both floors
+    # as "very important" and wanting dedicated raid encounters)
+    "The Stormcaller, Sky-Tyrant": "a colossal storm-wreathed manticore-wyvern hybrid beast, a tawny-furred lion body clearly visible merging into scaled dragon wings crackling with blue lightning, a venomous spiked tail arcing with electricity, a roaring fanged maw, glowing white eyes, swirling storm-cloud background with lightning strikes",
+    "Aetherion, the End of All Things": "an ancient cosmic being standing amidst shattering reality, radiant pale-gold skin clearly lit with cracks of void-black energy spreading across its body, an ornate celestial crown fused with corrupted dark metal, multiple glowing eyes arranged across its face, wings of pure light and shadow spread wide, clutching a blade made of fractured starlight, dark cosmic void background with shattering fragments",
 }
 
 def _generate_enemy_portrait(enemy_name: str, hint: str, tier_dir: str = "normal"):

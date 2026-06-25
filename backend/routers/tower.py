@@ -378,10 +378,12 @@ def enter_floor(req: EnterFloorRequest):
         elif is_miniboss:
             family_override = get_miniboss_override(req.floor_number)
         elif is_boss:
-            # Every-20th-floor Raid Boss merge (see run_multi_combat) gets
-            # its own dedicated unique where one's been built, instead of
-            # just reusing that floor's regular %10 boss scaled up.
-            if req.floor_number % 20 == 0:
+            # Raid Boss merge (see run_multi_combat's matching floor%20==0
+            # or ==50 check) gets its own dedicated unique where one's been
+            # built, instead of just reusing that floor's regular %10 boss
+            # scaled up. Floor 50 (the halfway point) is a raid floor too
+            # despite not being a multiple of 20.
+            if req.floor_number % 20 == 0 or req.floor_number == 50:
                 family_override = get_raid_boss_override(req.floor_number)
             if family_override is None:
                 family_override = get_boss_override(req.floor_number)
