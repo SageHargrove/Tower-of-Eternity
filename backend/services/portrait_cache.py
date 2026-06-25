@@ -617,7 +617,7 @@ def queue_missing_enemy_portraits():
 # unique name/flavor text rides on top of whichever face it draws.
 # ---------------------------------------------------------------------------
 
-BOSS_DIR = "static/portraits/bosses"
+BOSS_DIR = "static/portraits/enemies/boss"
 
 # Bosses get an extra "epic" flavor suffix on top of the hint — these should
 # read as 6-7★ tier, not just a bigger regular monster.

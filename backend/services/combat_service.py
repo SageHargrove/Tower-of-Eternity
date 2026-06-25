@@ -388,8 +388,10 @@ def make_boss(floor_number: int, zone_theme: str = "", is_miniboss: bool = False
         spawn_template = family_override.get("spawn_template", "")
         # A family can pin an exact existing portrait (e.g. a hand-picked
         # piece of preserved art) instead of relying on the name-based
-        # lookup, which only checks the new tiered enemies/<tier>/ folders —
-        # it wouldn't find art that already lives under static/portraits/bosses/.
+        # lookup — these boss archetype files live under enemies/boss/ but
+        # are named by archetype (boss_undead_monarch.png), not by the
+        # family's display name ("The Undead Monarch"), so the slug-based
+        # lookup wouldn't find them on its own.
         portrait_path = family_override.get("portrait_path") or _enemy_portrait_path(boss_title, "miniboss" if is_miniboss else "boss") or None
         power = (1.5 + (floor_number / 40)) if is_miniboss else (2.5 + (floor_number / 30))
         from services.portrait_cache import get_random_boss_portrait

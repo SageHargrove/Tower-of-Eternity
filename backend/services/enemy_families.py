@@ -68,14 +68,14 @@ GORRATH_THE_BONEBREAKER = {
 UNDEAD_MONARCH = {
     "name": "The Undead Monarch",
     "abilities": ["self_regen", "crushing_blow", "last_stand"],
-    "portrait_path": "static/portraits/bosses/boss_undead_monarch.png",
+    "portrait_path": "static/portraits/enemies/boss/boss_undead_monarch.png",
     "stat_mod": {"atk": 1.1, "def": 1.1, "spd": 0.9, "health": 1.3},
 }
 
 MASKED_HORROR_BOSS = {
     "name": "The Masked Horror",
     "abilities": ["cleave", "crushing_blow", "enrage"],
-    "portrait_path": "static/portraits/bosses/boss_masked_horror.png",
+    "portrait_path": "static/portraits/enemies/boss/boss_masked_horror.png",
     "stat_mod": {"atk": 1.2, "def": 1.15, "spd": 1.0, "health": 1.2},
 }
 
@@ -83,14 +83,14 @@ LICH_KING = {
     "name": "The Lich King",
     "abilities": ["summon_add", "team_buff_aura", "last_stand"],
     "spawn_template": "Corpse Rat",
-    "portrait_path": "static/portraits/bosses/boss_lich_king.png",
+    "portrait_path": "static/portraits/enemies/boss/boss_lich_king.png",
     "stat_mod": {"atk": 1.1, "def": 1.0, "spd": 0.9, "health": 1.4},
 }
 
 NIGHTWING_DEVOURER = {
     "name": "The Nightwing Devourer",
     "abilities": ["cleave", "enrage", "crushing_blow", "last_stand"],
-    "portrait_path": "static/portraits/bosses/boss_nightwing_devourer.png",
+    "portrait_path": "static/portraits/enemies/boss/boss_nightwing_devourer.png",
     "stat_mod": {"atk": 1.3, "def": 1.0, "spd": 1.2, "health": 1.3},
 }
 
