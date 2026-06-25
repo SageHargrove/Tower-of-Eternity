@@ -255,6 +255,18 @@ export default function SummonPage({ onGoldChange }) {
 
           {pityInfo && (
             <div className="card" style={{ marginTop: '1rem' }}>
+              <div className="section-header" style={{ marginBottom: '0.6rem', textAlign: 'center' }}>Pity</div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.9rem', padding: '0.5rem 0.8rem', background: 'rgba(0,0,0,0.2)', borderRadius: 6 }}>
+                <span className="text-dim">Guaranteed 3★+ in</span>
+                <span style={{ fontFamily: 'monospace' }}>
+                  {pityInfo.pulls_until_pity} pull{pityInfo.pulls_until_pity === 1 ? '' : 's'}
+                </span>
+              </div>
+            </div>
+          )}
+
+          {pityInfo && (
+            <div className="card" style={{ marginTop: '1rem' }}>
               <div className="section-header" style={{ marginBottom: '1rem', textAlign: 'center' }}>Sparks (Gem Summons Only)</div>
               <div style={{ background: 'rgba(0,0,0,0.2)', padding: '1.5rem', borderRadius: 6 }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', marginBottom: '0.8rem' }}>

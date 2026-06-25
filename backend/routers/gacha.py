@@ -12,6 +12,8 @@ import threading
 
 router = APIRouter()
 
+PITY_GUARANTEE_THRESHOLD = 10  # guaranteed 3★+ pull once pity_counter reaches this
+
 MALE_FALLBACK_NAMES = [
     "Valerius", "Kaelen", "Tavian", "Rykard", "Jerrick", "Darius", "Fenris", "Corvus", "Sylas", "Bram",
     "Thorne", "Lysander", "Rowan", "Orion", "Soren", "Caelum", "Silas", "Evander", "Theron", "Aelar",
@@ -304,8 +306,8 @@ def pull_heroes(req: PullRequest):
             if not use_gold:
                 sparks += 1
 
-            # Pity: guaranteed 3★+ after 10 pulls
-            if pity >= 10 and birth_star < 3:
+            # Pity: guaranteed 3★+ after PITY_GUARANTEE_THRESHOLD pulls
+            if pity >= PITY_GUARANTEE_THRESHOLD and birth_star < 3:
                 birth_star = 3
                 pity = 0  # Reset pity
 
@@ -521,8 +523,8 @@ def pity_info():
         equip_sparks = (base["equip_spark_points"] if base else 0) or 0
     return {
         "pity_counter": pity,
-        "pity_threshold": 50,
-        "pulls_until_pity": max(0, 50 - pity),
+        "pity_threshold": PITY_GUARANTEE_THRESHOLD,
+        "pulls_until_pity": max(0, PITY_GUARANTEE_THRESHOLD - pity),
         "spark_points": sparks,
         "spark_threshold": SPARK_THRESHOLD,
         "sparks_until_redeem": max(0, SPARK_THRESHOLD - sparks),
