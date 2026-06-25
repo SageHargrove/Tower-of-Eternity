@@ -347,13 +347,22 @@ def _enemy_portrait_path(name: str, subfolder: str = "") -> str:
     lives), then the flat enemies/<slug>.png used by the pre-reorg roster
     for anything not yet moved, then "" (frontend already renders a
     placeholder for that, same as any as-yet-unportraited enemy like
-    Goblin/Wolf today)."""
-    import os
+    Goblin/Wolf today).
+
+    Within each tier folder, files may also sit one level deeper in a
+    "waveN" subfolder (purely organizational, for reviewing a floor-range
+    family's art together — e.g. enemies/normal/wave1/slime.png) — checked
+    after the tier folder's own root so moving a file into a wave folder
+    for review never breaks the lookup."""
+    import os, glob
     slug = name.lower().replace(' ', '_')
     for sf in filter(None, [subfolder, "normal"]):
         tiered = f"static/portraits/enemies/{sf}/{slug}.png"
         if os.path.exists(tiered):
             return tiered
+        wave_matches = glob.glob(f"static/portraits/enemies/{sf}/wave*/{slug}.png")
+        if wave_matches:
+            return wave_matches[0].replace("\\", "/")
     flat = f"static/portraits/enemies/{slug}.png"
     return flat if os.path.exists(flat) else ""
 

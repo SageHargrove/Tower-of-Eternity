@@ -592,6 +592,7 @@ def queue_missing_enemy_portraits():
     enemies/<tier>/ (normal/elite) to match _enemy_portrait_path's lookup and
     keep the art library filterable by tier in the file browser."""
     try:
+        import glob
         from services.combat_service import ENEMY_TYPES
         os.makedirs(ENEMY_DIR, exist_ok=True)
         queued = 0
@@ -599,7 +600,10 @@ def queue_missing_enemy_portraits():
             tier_dir = "elite" if archetype == "elite" else "normal"
             slug = re.sub(r'[^a-z0-9]', '_', name.lower())
             path = f"{ENEMY_DIR}/{tier_dir}/{slug}.png"
-            if not os.path.exists(path) and not os.path.exists(f"{ENEMY_DIR}/{slug}.png"):
+            # Files may have been moved one level deeper into a "waveN"
+            # subfolder for organizational review — still counts as present.
+            in_wave_folder = glob.glob(f"{ENEMY_DIR}/{tier_dir}/wave*/{slug}.png")
+            if not os.path.exists(path) and not os.path.exists(f"{ENEMY_DIR}/{slug}.png") and not in_wave_folder:
                 hint = ENEMY_PORTRAIT_HINTS.get(name, f"{name}, dark fantasy monster")
                 _enqueue(PRIORITY_ENEMY, _generate_enemy_portrait, name, hint, tier_dir)
                 queued += 1
