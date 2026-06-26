@@ -55,7 +55,8 @@ def get_narrative(narrative_id: int):
 def _resolve_real_combat(conn, hero_teams, floor_number, is_boss, is_miniboss, zone_theme,
                           boss_data_override, base_row, pending_legacies,
                           enemy_count_override=None, flavor_intro=None, difficulty_mult=1.0,
-                          family_override=None, is_survival_swarm=False, available_consumables=None):
+                          family_override=None, is_survival_swarm=False, available_consumables=None,
+                          is_escort=False):
     """Run a real fight and apply every resulting effect."""
     from services.llm_service import generate_combat_narration, submit_flavor_text
     from services.combat_service import run_multi_combat
@@ -66,7 +67,7 @@ def _resolve_real_combat(conn, hero_teams, floor_number, is_boss, is_miniboss, z
             zone_theme=zone_theme, boss_data_override=boss_data_override,
             difficulty_mult=difficulty_mult, conn=conn,
             family_override=family_override, is_survival_swarm=is_survival_swarm,
-            available_consumables=available_consumables,
+            available_consumables=available_consumables, is_escort=is_escort,
         )
     except Exception as e:
         print(f"Combat error: {e}")
@@ -426,7 +427,7 @@ def enter_floor(req: EnterFloorRequest):
                 boss_data_override, base_row, pending_legacies,
                 enemy_count_override=enemy_count_override, flavor_intro=flavor_intro,
                 family_override=family_override, is_survival_swarm=is_survival_swarm,
-                available_consumables=available_consumables,
+                available_consumables=available_consumables, is_escort=(floor_type == "escort"),
             )
             result["floor_type"] = floor_type
 

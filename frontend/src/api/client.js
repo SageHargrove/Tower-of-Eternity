@@ -124,6 +124,7 @@ export const synthesizeHero = (targetId, sacrificeId) => request('/heroes/synthe
 export const ascendHero = (heroId) => request(`/heroes/${heroId}/ascend`, { method: 'POST' })
 export const getAscensionInfo = (heroId) => request(`/heroes/${heroId}/ascension-info`)
 export const promoteHero = (heroId) => request(`/heroes/${heroId}/promote`, { method: 'POST' })
+export const getEvolutionInfo = (heroId) => request(`/heroes/${heroId}/evolution-info`)
 export const regeneratePortraits = () => request('/heroes/regenerate-portraits', { method: 'POST' })
 export const craftMaterialEquipment = (material, targetClass) => request('/base/craft-equipment', { method: 'POST', body: JSON.stringify({ material, target_class: targetClass }) })
 export const craftBandages = (crafterId, quantity = 1) => request('/base/infirmary/craft-bandages', { method: 'POST', body: JSON.stringify({ crafter_id: crafterId, quantity }) })

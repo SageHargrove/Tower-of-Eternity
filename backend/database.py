@@ -285,6 +285,7 @@ CREATE TABLE IF NOT EXISTS equipment (
             armor_pen REAL DEFAULT 0.0,
             dmg_reduction_pct REAL DEFAULT 0.0,
             is_equipped_to INTEGER REFERENCES heroes(id),
+            set_family TEXT,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         );
 
@@ -576,5 +577,14 @@ WHERE NOT EXISTS (SELECT 1 FROM recipes WHERE name = 'Void Ring');
             if col not in existing:
                 conn.execute(sql)
                 print(f"[DB] Migrated: added column '{col}'")
+
+        existing_eq = [r[1] for r in conn.execute("PRAGMA table_info(equipment)").fetchall()]
+        eq_migrations = [
+            ("set_family", "ALTER TABLE equipment ADD COLUMN set_family TEXT"),
+        ]
+        for col, sql in eq_migrations:
+            if col not in existing_eq:
+                conn.execute(sql)
+                print(f"[DB] Migrated: added column 'equipment.{col}'")
 
     print("Database initialized.")

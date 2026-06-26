@@ -387,3 +387,27 @@ def apply_passive_skills(hero: dict, skills: list[dict]) -> dict:
             h["regen_pct"] = h.get("regen_pct", 0.0) + eff["regen_pct"]
 
     return h
+
+# ─── Active skill mana costs ───────────────────────────────────────
+#
+# mana_cost is a new optional key on an active skill's effect dict — no
+# existing SKILL_POOL entry has one yet, so this falls back to a flat
+# default rather than requiring every active skill to be hand-tuned before
+# Active Skills can ship at all. A balance pass can add per-skill costs later.
+DEFAULT_SKILL_MANA_COST = 25
+
+def get_skill_mana_cost(skill: dict) -> int:
+    return skill.get("effect", {}).get("mana_cost", DEFAULT_SKILL_MANA_COST)
+
+# Effect-key combos this version's combat dispatcher (combat_service.py
+# _execute_active_skill) does NOT know how to resolve yet — Time Warp's
+# extra-turn and Meteor's self-stun need a second action-queue concept, and
+# Suppressing Fire's speed debuff needs a temp-stat-with-restore mechanism,
+# none of which exist yet. Excluded from the castable pool rather than
+# silently no-oping a turn away when picked.
+UNHANDLED_ACTIVE_EFFECT_KEYS = {"team_double_turn", "self_stun", "enemy_spd_debuff"}
+
+def is_skill_executable(skill: dict) -> bool:
+    if skill.get("type") != "active":
+        return False
+    return not UNHANDLED_ACTIVE_EFFECT_KEYS.intersection(skill.get("effect", {}).keys())

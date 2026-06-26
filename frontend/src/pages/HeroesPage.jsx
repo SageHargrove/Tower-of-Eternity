@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react'
-import { listHeroes, setTeam, removeHeroFromTeam, reorderTeam, dismissHero, dismissHeroesBulk, synthesizeHero, ascendHero, getAscensionInfo, promoteHero, regeneratePortraits, evolveHero, listEquipment, equipItem, unequipItem, egoAutoTeam, getEgoRecommendation, assignTeamLeader, getBonds, equipConsumable, getInventory, getBase } from '../api/client'
+import { listHeroes, setTeam, removeHeroFromTeam, reorderTeam, dismissHero, dismissHeroesBulk, synthesizeHero, ascendHero, getAscensionInfo, promoteHero, getEvolutionInfo, regeneratePortraits, evolveHero, listEquipment, equipItem, unequipItem, egoAutoTeam, getEgoRecommendation, assignTeamLeader, getBonds, equipConsumable, getInventory, getBase } from '../api/client'
 import HeroCard from '../components/HeroCard'
 import ClassEvolutionModal from '../components/ClassEvolutionModal'
 
@@ -320,6 +320,29 @@ export default function HeroesPage() {
   }
 
 
+
+  // --- Promotion (Evolution) ---
+  async function handlePromote(heroId, e) {
+    e.stopPropagation()
+    try {
+      const info = await getEvolutionInfo(heroId)
+      const costStr = Object.entries(info.materials_required || {}).map(([m, q]) => `${q} ${m}`).join(', ')
+      if (!confirm(`Evolve this hero to ${info.current_star + 1}★? Costs ${info.gold_cost} gold + ${costStr}.`)) return
+    } catch (e) {
+      // If the info lookup fails, fall through to attempting the promote anyway — the
+      // endpoint itself validates floor gate/materials/level and will surface a clear error.
+    }
+    setPromoting(true)
+    try {
+      const result = await promoteHero(heroId)
+      setMsg(result.message || 'Evolution successful!')
+      await load()
+    } catch (e) {
+      setMsg(e.message)
+    } finally {
+      setPromoting(false)
+    }
+  }
 
   async function handleAssignLeader(heroId, e) {
     e.stopPropagation()

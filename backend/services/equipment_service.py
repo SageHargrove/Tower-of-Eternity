@@ -34,6 +34,35 @@ RARITY_MULTS = {
 
 TYPES = ["Weapon", "Armor", "Accessory"]
 
+# Equipment sets — 3 matching pieces (this game only has 3 slots total, so
+# "3+" really just means "all three") grants a passive bonus on top of the
+# gear's own flat/% stats. Lowest 3 rarity tiers never roll into a set —
+# keeps early-game gear simple and makes a set drop feel like it means
+# something. Only ~1 in 4 eligible drops gets a family at all, so most gear
+# stays familyless flavor even at higher rarities.
+EQUIPMENT_SET_FAMILIES = ["Ironclad", "Shadowveil", "Stormcaller", "Sanctum", "Wyrmguard"]
+SET_FAMILY_CHANCE = 0.25
+SET_FAMILY_MIN_RARITY_INDEX = 3  # RARITY_TIERS index — excludes D-, D, D+
+
+EQUIPMENT_SET_BONUSES = {
+    "Ironclad":    {"min_pieces": 3, "end_pct": 0.15, "dmg_reduction_pct": 0.05},
+    "Shadowveil":  {"min_pieces": 3, "crit_chance": 0.08, "dodge_chance": 0.05},
+    "Stormcaller": {"min_pieces": 3, "agi_pct": 0.15, "str_pct": 0.10},
+    "Sanctum":     {"min_pieces": 3, "hlt_pct": 0.20},
+    "Wyrmguard":   {"min_pieces": 3, "str_pct": 0.10, "end_pct": 0.10},
+}
+
+def roll_set_family(rarity: str) -> str | None:
+    try:
+        idx = RARITY_TIERS.index(rarity)
+    except ValueError:
+        return None  # "F" (starting weapon) and anything else unranked never rolls into a set
+    if idx < SET_FAMILY_MIN_RARITY_INDEX:
+        return None
+    if random.random() < SET_FAMILY_CHANCE:
+        return random.choice(EQUIPMENT_SET_FAMILIES)
+    return None
+
 EQUIPMENT_ADJECTIVES = {
     # "F" is intentionally not part of RARITY_TIERS/RARITY_MULTS — it's never
     # droppable, only ever auto-generated as a hero's guaranteed starting
@@ -155,13 +184,14 @@ def save_equipment(equip: dict, conn=None) -> int:
     Pass `conn` if the caller is already inside a `with db() as conn:` block —
     opening a second connection while the first is still uncommitted raises
     'database is locked' on SQLite."""
-    sql = "INSERT INTO equipment (name, type, rarity, level, base_str, base_int, base_hlt, base_agi, base_def, base_end, base_wil, base_luck, str_pct, int_pct, hlt_pct, agi_pct, crit_chance, dodge_chance, armor_pen, dmg_reduction_pct) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+    sql = "INSERT INTO equipment (name, type, rarity, level, base_str, base_int, base_hlt, base_agi, base_def, base_end, base_wil, base_luck, str_pct, int_pct, hlt_pct, agi_pct, crit_chance, dodge_chance, armor_pen, dmg_reduction_pct, set_family) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
     params = (
         equip["name"], equip["type"], equip["rarity"], equip.get("level", 1),
         equip.get("base_str", 0), equip.get("base_int", 0), equip.get("base_hlt", 0), equip.get("base_agi", 0), equip.get("base_def", 0),
         equip.get("base_end", 0), equip.get("base_wil", 0), equip.get("base_luck", 0),
         equip.get("str_pct", 0.0), equip.get("int_pct", 0.0), equip.get("hlt_pct", 0.0), equip.get("agi_pct", 0.0),
         equip.get("crit_chance", 0.0), equip.get("dodge_chance", 0.0), equip.get("armor_pen", 0.0), equip.get("dmg_reduction_pct", 0.0),
+        equip.get("set_family"),
     )
     if conn is not None:
         return conn.execute(sql, params).lastrowid
@@ -182,6 +212,7 @@ def craft_equipment_for_slot(slot: str, level: int, apt: int) -> dict:
 
     return {
         "name": name, "type": eq_type, "rarity": rarity, "level": max(1, level),
+        "set_family": roll_set_family(rarity),
         **stats,
     }
 
@@ -307,6 +338,38 @@ def apply_equipment_stats(hero: dict, equipment_list: list = None) -> dict:
     hero["equipment"] = hero_eq
     return hero
 
+def apply_set_bonuses(hero: dict, equipment_list: list = None) -> dict:
+    """Counts equipped pieces per set_family; any family with at least
+    min_pieces equipped grants its bonus once — there's only 3 equip slots
+    total, so "3+" effectively means "the whole set is on." Must run AFTER
+    apply_equipment_stats so its % bonuses stack on top of gear's own
+    already-resolved flat-then-% numbers, same ordering apply_equipment_stats
+    itself uses internally."""
+    hero_eq = equipment_list if equipment_list is not None else hero.get("equipment", [])
+    counts = {}
+    for eq in hero_eq:
+        fam = eq.get("set_family")
+        if fam:
+            counts[fam] = counts.get(fam, 0) + 1
+
+    for fam, count in counts.items():
+        bonus = EQUIPMENT_SET_BONUSES.get(fam)
+        if not bonus or count < bonus["min_pieces"]:
+            continue
+        if "str_pct" in bonus: hero["strength"] = int(hero["strength"] * (1 + bonus["str_pct"]))
+        if "agi_pct" in bonus: hero["agility"] = int(hero["agility"] * (1 + bonus["agi_pct"]))
+        if "end_pct" in bonus: hero["endurance"] = int(hero.get("endurance", hero.get("defense", 5)) * (1 + bonus["end_pct"]))
+        if "hlt_pct" in bonus:
+            old_max = hero["max_health"]
+            hero["max_health"] = int(hero["max_health"] * (1 + bonus["hlt_pct"]))
+            hero["health"] += hero["max_health"] - old_max
+        if "crit_chance" in bonus: hero["crit_chance"] = hero.get("crit_chance", 0.05) + bonus["crit_chance"]
+        if "dodge_chance" in bonus: hero["dodge_chance"] = hero.get("dodge_chance", 0.0) + bonus["dodge_chance"]
+        if "dmg_reduction_pct" in bonus:
+            hero["dmg_reduction_pct"] = min(0.6, hero.get("dmg_reduction_pct", 0.0) + bonus["dmg_reduction_pct"])
+
+    return hero
+
 def craft_equipment(crafter_id: int):
     with db() as conn:
         crafter = conn.execute("SELECT level, apt_tactical, hero_class FROM heroes WHERE id = ?", (crafter_id,)).fetchone()
@@ -344,13 +407,14 @@ def craft_equipment(crafter_id: int):
         adj = EQUIPMENT_ADJECTIVES.get(rarity, rarity)
         name = f"{adj} {eq_type}"
 
+        set_family = roll_set_family(rarity)
         cursor = conn.execute(
-            "INSERT INTO equipment (name, type, rarity, level, base_str, base_int, base_hlt, base_agi, str_pct, int_pct, hlt_pct, agi_pct, crit_chance, dodge_chance, armor_pen) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO equipment (name, type, rarity, level, base_str, base_int, base_hlt, base_agi, str_pct, int_pct, hlt_pct, agi_pct, crit_chance, dodge_chance, armor_pen, set_family) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (name, eq_type, rarity, level, stats["base_str"], stats["base_int"], stats["base_hlt"], stats["base_agi"],
              stats["str_pct"], stats["int_pct"], stats["hlt_pct"], stats["agi_pct"],
-             stats["crit_chance"], stats["dodge_chance"], stats["armor_pen"])
+             stats["crit_chance"], stats["dodge_chance"], stats["armor_pen"], set_family)
         )
-        return {"id": cursor.lastrowid, "name": name, "type": eq_type, "rarity": rarity}
+        return {"id": cursor.lastrowid, "name": name, "type": eq_type, "rarity": rarity, "set_family": set_family}
 
 def generate_equipment_drop(floor_number: int, is_boss: bool = False, drop_bonus: float = 0.0) -> dict | None:
     # Base chance: 10% on normal floors, 100% on bosses
@@ -376,7 +440,8 @@ def generate_equipment_drop(floor_number: int, is_boss: bool = False, drop_bonus
 
     result = {
         "name": name, "type": eq_type, "rarity": rarity,
-        "level": max(1, floor_number // 5)
+        "level": max(1, floor_number // 5),
+        "set_family": roll_set_family(rarity),
     }
     result.update(stats)
     return result

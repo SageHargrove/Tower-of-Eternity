@@ -1,15 +1,19 @@
 import random
 import math
 
-# Pull weights — strict percentages (out of 10000 total)
+# Pull weights — strict percentages (out of 100000 total). Steeply
+# exponential by design: the game should start heavily 1★/2★-focused, with
+# higher rarities reading as a genuine lottery rather than a routine pull.
+# Evolution (see routers/heroes.py promote_hero) is the intended way out of
+# low rarity, not re-rolling — this curve is what makes that path matter.
 RARITY_WEIGHTS = {
-    1: 6000, # 60.00%
-    2: 2000, # 20.00%
-    3: 1200, # 12.00%
-    4: 600,  # 6.00%
-    5: 175,  # 1.75%
-    6: 20,   # 0.20%
-    7: 5,    # 0.05%
+    1: 80000, # 80.000%
+    2: 15000, # 15.000%
+    3: 3900,  # 3.900%
+    4: 1000,  # 1.000%
+    5: 80,    # 0.080%
+    6: 15,    # 0.015%
+    7: 5,     # 0.005%
 }
 
 TOTAL_WEIGHT = sum(RARITY_WEIGHTS.values())
@@ -39,6 +43,15 @@ HP_PER_ENDURANCE = 12
 
 def health_from_endurance(endurance: int) -> int:
     return HP_FLOOR + int(endurance) * HP_PER_ENDURANCE
+
+# Mana is the same kind of derived stat as Health-from-Endurance — not its
+# own rolled value, computed at combat time from Intelligence/Willpower.
+MANA_FLOOR = 20
+MANA_PER_INT = 4
+MANA_PER_WIL = 2
+
+def mana_from_stats(intelligence: int, willpower: int) -> int:
+    return MANA_FLOOR + int(intelligence) * MANA_PER_INT + int(willpower) * MANA_PER_WIL
 
 def generate_base_stats(birth_star: int) -> dict:
     """

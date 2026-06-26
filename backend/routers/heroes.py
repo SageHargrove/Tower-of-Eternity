@@ -651,22 +651,48 @@ def ascend_hero(hero_id: int):
         "message": f"{hero['name']} ascended to {new_asc}★ ascension!"
     }
 
-# ─── Promotion endpoint (star rank upgrade) ────────────────────────
-
-PROMOTION_GOLD_COST = {
-    1: 300,    # 1★ → 2★
-    2: 800,    # 2★ → 3★
-    3: 2000,   # 3★ → 4★
-    4: 5000,   # 4★ → 5★
-    5: 12000,  # 5★ → 6★
-    6: 30000,  # 6★ → 7★ (transcendence cost, requires special item too)
+# ─── Promotion endpoint (star rank upgrade = "Evolution") ──────────
+#
+# This is also "Evolution" — evolving a low-rarity hero into a higher one.
+# It used to be pure gold; now it's a materials + reduced-gold hybrid,
+# gated by how deep into the Tower the player has gone (base.highest_floor)
+# rather than just having enough gold sitting in the bank. Deliberately
+# NOT a separate mechanic from promotion — current_star/ascension_star/
+# birth_star already overlap enough; a 4th star-adjacent system would only
+# add confusion. Evolution material costs were tuned against the
+# RARITY_WEIGHTS gacha curve overhaul (see gacha_service.py) — pulls now
+# start heavily 1★/2★-weighted, so evolving low rarities up is meant to be
+# the primary progression path, not a rare luxury.
+EVOLUTION_GOLD_COST = {
+    1: 100,    # 1★ → 2★
+    2: 250,    # 2★ → 3★
+    3: 600,    # 3★ → 4★
+    4: 1500,   # 4★ → 5★
+    5: 4000,   # 5★ → 6★
+    6: 10000,  # 6★ → 7★ (transcendence)
 }
+
+EVOLUTION_MATERIAL_COST = {
+    1: {"Iron Ore": 10, "Slime Core": 6},
+    2: {"Iron Ore": 15, "Monster Bone": 10, "Wolf Pelt": 5},
+    3: {"Monster Bone": 20, "Mystic Dust": 10, "Refined Iron": 10},
+    4: {"Mystic Dust": 20, "Goblin Ear": 25, "Hardened Bone": 15, "Wyvern Scale": 5},
+    5: {"Wyvern Scale": 15, "Enchanted Steel": 15, "Runed Crystal": 10, "Demon Ichor": 10},
+    6: {"Mithril": 10, "Adamantine": 10, "Dragon Scale": 5, "Phoenix Feather": 5},
+}
+
+# Must have cleared at least this floor (base.highest_floor) before
+# evolving a hero of this current_star — keeps evolution paced against
+# Tower progress instead of being purely a gold/material stockpile check.
+EVOLUTION_FLOOR_GATE = {1: 10, 2: 20, 3: 31, 4: 41, 5: 61, 6: 81}
 
 @router.post("/{hero_id}/promote")
 def promote_hero(hero_id: int):
     """
-    Promote a hero to the next star rank.
-    Requires hero to be at max level for their current star.
+    Promote (evolve) a hero to the next star rank.
+    Requires hero to be at max level for their current star, the Tower
+    progress to have reached EVOLUTION_FLOOR_GATE for this tier, and
+    enough materials + gold (hybrid cost, not pure gold).
     """
     from services.level_service import level_cap, get_hero_star, STAR_LEVEL_CAPS
 
@@ -689,19 +715,35 @@ def promote_hero(hero_id: int):
                 detail=f"Hero must be level {max_lvl} to promote. Currently level {hero_level}."
             )
 
-        # Check gold
-        gold_cost = PROMOTION_GOLD_COST.get(current_star, 50000)
-        base = conn.execute("SELECT gold FROM base WHERE id = 1").fetchone()
+        base = conn.execute("SELECT gold, materials, highest_floor FROM base WHERE id = 1").fetchone()
+
+        floor_gate = EVOLUTION_FLOOR_GATE.get(current_star, 0)
+        if (base["highest_floor"] or 0) < floor_gate:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Must reach floor {floor_gate} before evolving a {current_star}★ hero. Highest floor: {base['highest_floor'] or 0}."
+            )
+
+        required_materials = EVOLUTION_MATERIAL_COST.get(current_star, {})
+        materials = json.loads(base["materials"]) if base["materials"] else {}
+        missing = {m: qty for m, qty in required_materials.items() if get_material_total(materials, m) < qty}
+        if missing:
+            detail = ", ".join(f"{m} (need {q}, have {get_material_total(materials, m)})" for m, q in missing.items())
+            raise HTTPException(status_code=400, detail=f"Not enough materials: {detail}")
+
+        gold_cost = EVOLUTION_GOLD_COST.get(current_star, 50000)
         if base["gold"] < gold_cost:
             raise HTTPException(
                 status_code=400,
                 detail=f"Not enough gold. Need {gold_cost}, have {base['gold']}."
             )
 
-        # Deduct gold and promote
-        conn.execute("UPDATE base SET gold = gold - ? WHERE id = 1", (gold_cost,))
+        # Deduct materials + gold, then promote
+        for m, qty in required_materials.items():
+            consume_material(materials, m, qty)
+        conn.execute("UPDATE base SET gold = gold - ?, materials = ? WHERE id = 1", (gold_cost, json.dumps(materials)))
         new_star = current_star + 1
-        
+
         # Check for hidden class unlock (1/2★ to 3★ promotion)
         unlocked_class = None
         if new_star >= 3 and hero.get("hidden_class"):
@@ -726,24 +768,56 @@ def promote_hero(hero_id: int):
                 agility = agility + agility / 10
             WHERE id = ?
         """, (hero_id,))
-        
+
         current_class = unlocked_class if unlocked_class else hero["hero_class"]
         if new_star in [3, 5, 7]:
             from services.portrait_cache import queue_upgrade_portrait
             queue_upgrade_portrait(hero_id, new_star)
 
-    msg = f"{hero['name']} promoted from {current_star}★ to {new_star}★!"
+    msg = f"{hero['name']} evolved from {current_star}★ to {new_star}★!"
     if unlocked_class:
         msg += f" Hidden potential awakened: Class is now {unlocked_class}!"
-        
+
     return {
         "ok": True,
         "hero_id": hero_id,
         "new_star": new_star,
         "old_star": current_star,
         "gold_spent": gold_cost,
+        "materials_spent": required_materials,
         "unlocked_class": unlocked_class,
         "message": msg
+    }
+
+@router.get("/{hero_id}/evolution-info")
+def get_evolution_info(hero_id: int):
+    """Preview cost/floor-gate for a hero's next evolution (promote), so the
+    frontend doesn't have to duplicate the cost tables."""
+    from services.level_service import level_cap, get_hero_star
+
+    with db() as conn:
+        hero = conn.execute("SELECT * FROM heroes WHERE id = ? AND is_alive = 1", (hero_id,)).fetchone()
+        if not hero:
+            raise HTTPException(status_code=404, detail="Hero not found or dead.")
+        hero = dict(hero)
+        base = conn.execute("SELECT gold, materials, highest_floor FROM base WHERE id = 1").fetchone()
+        materials = json.loads(base["materials"]) if base["materials"] else {}
+
+    current_star = get_hero_star(hero)
+    if current_star >= 7:
+        return {"maxed": True}
+    required = EVOLUTION_MATERIAL_COST.get(current_star, {})
+    return {
+        "maxed": False,
+        "current_star": current_star,
+        "max_level": level_cap(current_star, hero.get("ascension_star", 0)),
+        "hero_level": hero.get("level", 1),
+        "floor_gate": EVOLUTION_FLOOR_GATE.get(current_star, 0),
+        "highest_floor": base["highest_floor"] or 0,
+        "gold_cost": EVOLUTION_GOLD_COST.get(current_star, 50000),
+        "gold_have": base["gold"],
+        "materials_required": required,
+        "materials_have": {m: get_material_total(materials, m) for m in required},
     }
 class EvolveRequest(BaseModel):
     target_class: str

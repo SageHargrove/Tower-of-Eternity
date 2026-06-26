@@ -56,6 +56,13 @@ class CombatUnit:
     summons_used: int = 0     # caps "summon_add" so a miniboss/boss can't stall a fight forever
     used_consumable: bool = False  # caps a hero to one sip per fight
     equipped_consumable: str = None  # item_name of the Potion/Scroll/Bandage this hero specifically carries, if any
+    status_effects: list = field(default_factory=list)  # [{"type": "bleed"|"poison"|"stun"|"freeze"|"burn"|"taunting"|"dmg_shield", "rounds": int, "magnitude": float, "source_id": int}]
+    max_mana: int = 0
+    mana: int = 0
+    mana_regen_per_turn: int = 0  # flat passive tick, applied every round regardless of whether this unit acts
+    skill_cooldowns: dict = field(default_factory=dict)  # {skill_id: rounds_remaining}
+    is_npc: bool = False  # escort-floor protect target — never acts, excluded from win/reward bookkeeping
+    poison_on_hit: dict = None  # {"pct": float, "duration": int} — derived from a passive skill like Poison Blade
 
     def __post_init__(self):
         self.log_name = self.name if self.is_hero else f"[{self.name}]"
@@ -422,6 +429,13 @@ def make_swarm_miniboss_encounter(floor_number: int) -> list[CombatUnit]:
 SURVIVAL_TURN_LIMIT = 10
 SWARM_SURVIVAL_CHANCE = 0.35
 
+# Escort floors: protect an NPC instead of (or alongside) clearing enemies.
+# Own turn-limit constant, separate from SURVIVAL_TURN_LIMIT, since the two
+# floor types have unrelated pacing — escort is "keep this specific unit
+# alive," not "survive an onslaught."
+ESCORT_TURN_LIMIT = 15
+ESCORT_NPC_AGGRO_CHANCE = 0.4  # without a taunt up, the NPC is at elevated but not certain risk
+
 _UNSET = object()
 
 def _enemy_portrait_path(name: str, subfolder: str = "") -> str:
@@ -746,6 +760,10 @@ def calc_damage(attacker: CombatUnit, defender: CombatUnit) -> tuple[int, bool]:
     if defender.dmg_reduction_pct > 0:
         damage = max(1, int(damage * (1 - defender.dmg_reduction_pct)))
 
+    shield = next((e for e in defender.status_effects if e["type"] == "dmg_shield" and e["rounds"] > 0), None)
+    if shield:
+        damage = max(1, int(damage * (1 - shield["magnitude"])))
+
     if defender.isolated_rounds > 0:
         damage = int(damage * 1.3)  # exposed and unsupported, out of formation
 
@@ -860,6 +878,182 @@ def _try_use_ability(attacker: CombatUnit, alive_heroes: list, log: list, morale
 
     return False
 
+# ─── Status effects (Bleed / Poison / Stun / Freeze / Burn / Taunt) ────────
+#
+# Mirrors the isolated_rounds/bracing_rounds pattern already on CombatUnit:
+# a duration that gets decremented every round, checked where relevant, and
+# expires on its own. Bleed/Burn/Stun/Freeze/Taunt refresh duration on
+# reapplication (no stacking — re-triggering just resets the clock, same as
+# isolated_rounds/bracing_rounds being reassigned rather than added to).
+# Poison is the one stacking type: each application is its own list entry,
+# ticked independently, which is why status_effects is a list of dicts
+# rather than a handful of flat counters.
+BLEED_PCT_PER_ROUND = 0.04
+BURN_PCT_PER_ROUND = 0.05
+BURN_HEAL_REDUCTION = 0.5  # halves any heal received (regen tick, consumable, skill heal) while burning
+ON_ATTACK_MANA_GAIN = 5
+ON_HIT_MANA_GAIN = 8  # taking a hit grants slightly more than landing one — keeps tanks/frontline relevant to the mana economy, not just attackers
+
+def apply_status_effect(unit: CombatUnit, eff_type: str, rounds: int, magnitude: float = 0.0, source_id: int = None):
+    if eff_type == "poison":
+        unit.status_effects.append({"type": "poison", "rounds": rounds, "magnitude": magnitude, "source_id": source_id})
+        return
+    existing = next((e for e in unit.status_effects if e["type"] == eff_type), None)
+    if existing:
+        existing["rounds"] = max(existing["rounds"], rounds)
+        existing["magnitude"] = magnitude
+    else:
+        unit.status_effects.append({"type": eff_type, "rounds": rounds, "magnitude": magnitude, "source_id": source_id})
+
+def has_status(unit: CombatUnit, eff_type: str) -> bool:
+    return any(e["type"] == eff_type and e["rounds"] > 0 for e in unit.status_effects)
+
+def tick_status_effects(unit: CombatUnit, log: list) -> int:
+    """Applies this round's DOT damage for every active effect, decrements
+    duration, prunes expired entries. Returns total damage dealt this tick
+    so the caller can check for death the same way the existing regen-tick
+    block already does. Bleed/Poison/Burn deliberately bypass calc_damage
+    entirely — gear's dmg_reduction_pct does NOT mitigate them, the same way
+    isolated_rounds' bonus-damage multiplier lives inside calc_damage while
+    these ticks live outside it. Not an oversight — DOTs ignoring armor is
+    the standard genre convention."""
+    total = 0
+    for eff in list(unit.status_effects):
+        if eff["rounds"] <= 0:
+            continue
+        if eff["type"] == "bleed":
+            dmg = max(1, int(unit.max_health * BLEED_PCT_PER_ROUND))
+            unit.health -= dmg
+            total += dmg
+            log.append(f"  🩸 {unit.log_name} bleeds for {dmg} [{max(0, unit.health)}/{unit.max_health}]")
+        elif eff["type"] == "poison":
+            dmg = max(1, int(eff["magnitude"]))
+            unit.health -= dmg
+            total += dmg
+            log.append(f"  ☠ {unit.log_name} takes {dmg} poison damage [{max(0, unit.health)}/{unit.max_health}]")
+        elif eff["type"] == "burn":
+            dmg = max(1, int(unit.max_health * BURN_PCT_PER_ROUND))
+            unit.health -= dmg
+            total += dmg
+            log.append(f"  🔥 {unit.log_name} burns for {dmg} [{max(0, unit.health)}/{unit.max_health}]")
+        eff["rounds"] -= 1
+    unit.status_effects = [e for e in unit.status_effects if e["rounds"] > 0]
+    return total
+
+def is_action_locked(unit: CombatUnit) -> bool:
+    """Stun and Freeze are kept as two distinct type strings (physical vs
+    magical lockout) rather than merged into one, so a future cleanse/resist
+    skill can target one without the other — but mechanically they do the
+    exact same thing: skip the unit's turn entirely."""
+    return has_status(unit, "stun") or has_status(unit, "freeze")
+
+def apply_heal(unit: CombatUnit, amount: int) -> int:
+    """Single chokepoint for every heal in combat (regen tick, consumables,
+    skill heals) so Burn's reduced-healing penalty can't be missed at one
+    of the sites. Returns the actual amount applied (post-Burn, post-cap)."""
+    if has_status(unit, "burn"):
+        amount = int(amount * BURN_HEAL_REDUCTION)
+    before = unit.health
+    unit.health = min(unit.max_health, unit.health + amount)
+    return unit.health - before
+
+# ─── Active skill casting (Mana-gated) ──────────────────────────────────
+#
+# Activates the SKILL_POOL "active" entries that previously had a cooldown
+# defined but were never actually invoked anywhere — combat was 100%
+# passive-stat-mod skills before this. A hero attempts a skill cast first
+# each turn; only if none is castable does the existing basic-attack code
+# below run.
+
+def _select_castable_skill(attacker: CombatUnit) -> dict | None:
+    """First skill (by list order) that's an active type this dispatcher
+    knows how to execute, has no cooldown remaining, and the attacker can
+    afford. List order is treated as meaningful priority, matching how
+    skill lists are already ordered elsewhere in this codebase."""
+    from services.skills_service import get_skill_mana_cost, is_skill_executable
+    for skill in attacker.skills:
+        if not is_skill_executable(skill):
+            continue
+        sid = skill["id"]
+        if attacker.skill_cooldowns.get(sid, 0) > 0:
+            continue
+        if attacker.mana < get_skill_mana_cost(skill):
+            continue
+        return skill
+    return None
+
+def _execute_active_skill(attacker: CombatUnit, skill: dict, targets: list, all_units: list,
+                           log: list, turns: list, round_num: int,
+                           morale_changes: dict, kill_counts: dict, damage_dealt_stats: dict) -> bool:
+    """Dispatches on effect keys already defined in SKILL_POOL. Deducts mana
+    and starts the cooldown only once we're committed to actually firing —
+    is_skill_executable already filtered out anything this function can't
+    handle, so every call here is expected to return True."""
+    from services.skills_service import get_skill_mana_cost
+    eff = skill.get("effect", {})
+    attacker.mana -= get_skill_mana_cost(skill)
+    attacker.skill_cooldowns[skill["id"]] = skill.get("cooldown", 3)
+
+    if "taunt_duration" in eff:
+        apply_status_effect(attacker, "taunting", eff["taunt_duration"])
+        log.append(f"  🛡 {attacker.log_name} uses {skill['name']} — taunting all enemies!")
+        return True
+
+    if "team_dmg_reduce" in eff:
+        for ally in [u for u in all_units if u.is_hero and u.alive and not u.is_npc]:
+            apply_status_effect(ally, "dmg_shield", eff.get("duration", 2), magnitude=eff["team_dmg_reduce"])
+        log.append(f"  🛡 {attacker.log_name} casts {skill['name']} — the team braces!")
+        return True
+
+    if "heal_pct" in eff:
+        candidates = [u for u in all_units if u.is_hero and u.alive]
+        lowest = min(candidates, key=lambda u: u.health / u.max_health, default=None) if candidates else None
+        if lowest:
+            heal = apply_heal(lowest, int(lowest.max_health * eff["heal_pct"]))
+            log.append(f"  ✚ {attacker.log_name} uses {skill['name']} on {lowest.log_name} for {heal} [{lowest.health}/{lowest.max_health}]")
+        else:
+            log.append(f"  {attacker.log_name} uses {skill['name']}, but no one needs healing.")
+        return True
+
+    if "enemy_stun" in eff:
+        for target in targets:
+            apply_status_effect(target, "stun", eff["enemy_stun"])
+        log.append(f"  ⚡ {attacker.log_name} uses {skill['name']} — enemies stunned!")
+        return True
+
+    if "dmg_pct" in eff:
+        if eff.get("aoe"):
+            chosen = list(targets)
+        else:
+            n_targets = eff.get("multi_target", 1)
+            chosen = random.sample(targets, min(n_targets, len(targets))) if targets else []
+        for target in chosen:
+            damage, is_crit = calc_damage(attacker, target)
+            damage = int(damage * eff["dmg_pct"])
+            if eff.get("ignore_def"):
+                power = attacker.intelligence if attacker.power_stat == "intelligence" else attacker.strength
+                damage = int(power * eff["dmg_pct"])
+            if eff.get("guaranteed_crit"):
+                damage = int(damage * 1.5)
+                is_crit = True
+            target.health -= damage
+            damage_dealt_stats[attacker.id] = damage_dealt_stats.get(attacker.id, 0) + damage
+            crit_text = " CRIT!" if is_crit else ""
+            log_msg = f"  ✦ {attacker.log_name} uses {skill['name']} on {target.log_name} for {damage}{crit_text} [{max(0, target.health)}/{target.max_health}]"
+            log.append(log_msg)
+            turns.append({"round": round_num, "attacker_id": attacker.id, "target_id": target.id, "damage": damage, "is_crit": is_crit, "target_hp": max(0, target.health), "log": log_msg})
+            if target.health <= 0:
+                target.alive = False
+                attacker.kills += 1
+                kill_counts[attacker.id] = kill_counts.get(attacker.id, 0) + 1
+                log.append(f"    ✦ {target.log_name} falls.")
+                for h in all_units:
+                    if h.is_hero and h.alive:
+                        morale_changes[h.id] = morale_changes.get(h.id, 0) + random.randint(2, 5)
+        return True
+
+    return False  # should be unreachable — is_skill_executable already filtered this out
+
 def resolve_hero_stats(heroes: list[dict]) -> list[dict]:
     """Applies level scaling → class modifiers → synergy → equipment →
     legacy bonuses → relics → base-floor LP → bonds → passive skills/traits,
@@ -939,6 +1133,14 @@ def resolve_hero_stats(heroes: list[dict]) -> list[dict]:
         except Exception:
             pass
 
+        # Equipment set bonuses — must run after apply_equipment_stats so its
+        # % bonuses stack on top of gear's own already-resolved numbers.
+        try:
+            from services.equipment_service import apply_set_bonuses
+            modified = apply_set_bonuses(modified)
+        except Exception:
+            pass
+
         # Apply legacy bonuses
         try:
             from services.legacy_service import apply_legacy_bonuses
@@ -1013,7 +1215,7 @@ def resolve_hero_stats(heroes: list[dict]) -> list[dict]:
     return processed
 
 
-def run_combat(heroes: list[dict], floor_number: int, is_boss: bool = False, is_miniboss: bool = False, zone_theme: str = "", boss_data_override=_UNSET, enemy_count_override: int = None, difficulty_mult: float = 1.0, preset_enemies: list = None, outer_conn=None, skip_stat_pipeline: bool = False, family_override: dict = None, is_survival_swarm: bool = False, turn_limit: int = None, available_consumables: list = None) -> dict:
+def run_combat(heroes: list[dict], floor_number: int, is_boss: bool = False, is_miniboss: bool = False, zone_theme: str = "", boss_data_override=_UNSET, enemy_count_override: int = None, difficulty_mult: float = 1.0, preset_enemies: list = None, outer_conn=None, skip_stat_pipeline: bool = False, family_override: dict = None, is_survival_swarm: bool = False, turn_limit: int = None, available_consumables: list = None, is_escort: bool = False) -> dict:
     log = []
     turns = []
     morale_changes = {h["id"]: 0 for h in heroes}
@@ -1033,7 +1235,8 @@ def run_combat(heroes: list[dict], floor_number: int, is_boss: bool = False, is_
                                                  boss_data_override, enemy_count_override, difficulty_mult,
                                                  preset_enemies, outer_conn, log, turns,
                                                  morale_changes, kill_counts, stress_changes,
-                                                 family_override, is_survival_swarm, turn_limit, available_consumables)
+                                                 family_override, is_survival_swarm, turn_limit, available_consumables,
+                                                 is_escort)
         result.pop("_avg_luck", None)
         return result
 
@@ -1043,7 +1246,8 @@ def run_combat(heroes: list[dict], floor_number: int, is_boss: bool = False, is_
                                              boss_data_override, enemy_count_override, difficulty_mult,
                                              preset_enemies, outer_conn, log, turns,
                                              morale_changes, kill_counts, stress_changes,
-                                             family_override, is_survival_swarm, turn_limit, available_consumables)
+                                             family_override, is_survival_swarm, turn_limit, available_consumables,
+                                             is_escort)
     _apply_combat_drops(result, floor_number, is_boss, is_miniboss, outer_conn)
     return result
 
@@ -1053,7 +1257,7 @@ def _resolve_combat_from_processed(processed, floor_number, is_boss, is_miniboss
                                     preset_enemies, outer_conn, log, turns,
                                     morale_changes, kill_counts, stress_changes,
                                     family_override=None, is_survival_swarm=False, turn_limit=None,
-                                    available_consumables=None):
+                                    available_consumables=None, is_escort=False):
     """The CombatUnit-construction-and-turn-loop core of run_combat, split out
     of the stat-resolution pipeline above it so a caller that already has
     fully-resolved hero dicts (no local DB to re-derive equipment/relic/bond/
@@ -1062,9 +1266,19 @@ def _resolve_combat_from_processed(processed, floor_number, is_boss, is_miniboss
     run_combat used to build inline; drop generation is applied by the caller
     afterward (_apply_combat_drops), not here, since Arena fights skip drops
     entirely."""
+    from services.gacha_service import mana_from_stats
+    from services.skills_service import get_skill_mana_cost
+
     combatants_heroes = []
     construct_id = -100
     for h in processed:
+        hero_max_mana = mana_from_stats(h["intelligence"], h.get("willpower", 6))
+        poison_on_hit = None
+        for s in h.get("_skills", []):
+            eff = s.get("effect", {})
+            if "poison_pct" in eff:
+                poison_on_hit = {"pct": eff["poison_pct"], "duration": eff.get("poison_duration", 3)}
+                break
         hero_unit = CombatUnit(
             id=h["id"], name=h["name"],
             level=h.get("level", 1),
@@ -1093,6 +1307,10 @@ def _resolve_combat_from_processed(processed, floor_number, is_boss, is_miniboss
             battle_tendency=h.get("battle_tendency") or "Stoic",
             is_team_leader=bool(h.get("is_team_leader")),
             equipped_consumable=h.get("equipped_consumable"),
+            max_mana=hero_max_mana,
+            mana=hero_max_mana // 2,  # start fights at 50%, not empty or full
+            mana_regen_per_turn=max(1, hero_max_mana // 10),
+            poison_on_hit=poison_on_hit,
         )
         combatants_heroes.append(hero_unit)
         
@@ -1156,12 +1374,30 @@ def _resolve_combat_from_processed(processed, floor_number, is_boss, is_miniboss
     class_summary = ", ".join([f"{h.name}({h.hero_class})" for h in combatants_heroes])
     log.append(f"  Party: {class_summary}")
 
+    npc_unit = None
+    if is_escort:
+        npc_hp = 80 + floor_number * 4
+        npc_unit = CombatUnit(
+            id=-9999, name="the escort", level=floor_number,
+            health=npc_hp, max_health=npc_hp,
+            strength=0, intelligence=0, agility=1,  # never acts, never attacks — agility=1 so it sorts last, harmless
+            morale=100, stress=0, is_hero=True, hero_class="Escort",
+            fear_immune=True, is_npc=True,
+        )
+        combatants_heroes.append(npc_unit)  # appended before the formation split below, so it naturally lands in backline
+        log.append("  The escort target joins the formation, relying on your protection.")
+
     # Explicit 2-Front, 3-Back Formation
     frontline = combatants_heroes[:2]
     backline  = combatants_heroes[2:]
 
     all_units = combatants_heroes + enemies
-    max_rounds = (turn_limit or SURVIVAL_TURN_LIMIT) if is_survival_swarm else 30
+    if is_escort:
+        max_rounds = ESCORT_TURN_LIMIT
+    elif is_survival_swarm:
+        max_rounds = turn_limit or SURVIVAL_TURN_LIMIT
+    else:
+        max_rounds = 30
 
     # Squad tactical doctrine: if the team has a manually-assigned Leader, their
     # battle_tendency nudges everyone's default targeting choice (a "the whole
@@ -1219,6 +1455,23 @@ def _resolve_combat_from_processed(processed, floor_number, is_boss, is_miniboss
                 hero.isolated_rounds -= 1
             if hero.bracing_rounds > 0:
                 hero.bracing_rounds -= 1
+            if hero.mana_regen_per_turn:
+                hero.mana = min(hero.max_mana, hero.mana + hero.mana_regen_per_turn)
+            for sid in list(hero.skill_cooldowns):
+                if hero.skill_cooldowns[sid] > 0:
+                    hero.skill_cooldowns[sid] -= 1
+
+        # ─── Status effect DOT ticks (Bleed/Poison/Burn) — heroes and
+        # enemies alike, right alongside the panic-state decrement above. ───
+        for unit in alive_heroes + alive_enemies:
+            dot_dmg = tick_status_effects(unit, log)
+            if dot_dmg and unit.health <= 0 and unit.alive:
+                unit.alive = False
+                log.append(f"  ✦ {unit.log_name} succumbs to their wounds.")
+        alive_heroes = [u for u in alive_heroes if u.alive]
+        alive_enemies = [u for u in alive_enemies if u.alive]
+        if not alive_heroes or not alive_enemies:
+            break
 
         # A steady Leader can pull a squadmate back together mid-fight —
         # personality-flavored, not guaranteed, and the Leader can't steady
@@ -1238,9 +1491,9 @@ def _resolve_combat_from_processed(processed, floor_number, is_boss, is_miniboss
         # ─── Relic/skill regen ticks ───
         for unit in alive_heroes + alive_enemies:
             if unit.regen_pct > 0 and unit.health < unit.max_health:
-                heal = int(unit.max_health * unit.regen_pct)
-                unit.health = min(unit.max_health, unit.health + heal)
-                log.append(f"  ✚ {unit.log_name} regenerates {heal} Health [{unit.health}/{unit.max_health}]")
+                heal = apply_heal(unit, int(unit.max_health * unit.regen_pct))
+                if heal:
+                    log.append(f"  ✚ {unit.log_name} regenerates {heal} Health [{unit.health}/{unit.max_health}]")
 
         # ─── Equipped Potion/Scroll auto-use ───
         # Each hero only drinks what THEY specifically have equipped (see
@@ -1258,8 +1511,7 @@ def _resolve_combat_from_processed(processed, floor_number, is_boss, is_miniboss
                 item = stock.get(hero.equipped_consumable)
                 if not item or item["quantity"] <= 0:
                     continue
-                heal = int(hero.max_health * item["heal_pct"])
-                hero.health = min(hero.max_health, hero.health + heal)
+                heal = apply_heal(hero, int(hero.max_health * item["heal_pct"]))
                 item["quantity"] -= 1
                 hero.used_consumable = True
                 consumables_used[item["item_name"]] = consumables_used.get(item["item_name"], 0) + 1
@@ -1268,12 +1520,17 @@ def _resolve_combat_from_processed(processed, floor_number, is_boss, is_miniboss
         alive_frontline = [h for h in frontline if h.alive]
 
         for attacker in all_units:
-            if not attacker.alive:
+            if not attacker.alive or attacker.is_npc:
                 continue
 
             # Fear-stunned heroes skip their turn
             if attacker.is_hero and attacker.fear_stunned:
                 stress_changes[attacker.id] = stress_changes.get(attacker.id, 0) + 5
+                continue
+
+            # Stun/Freeze lock out the turn for hero or enemy alike
+            if is_action_locked(attacker):
+                log.append(f"  {attacker.log_name} is unable to act!")
                 continue
 
             # Bracing heroes forgo their strength to hunker down defensively
@@ -1286,13 +1543,23 @@ def _resolve_combat_from_processed(processed, floor_number, is_boss, is_miniboss
                 if not targets:
                     break
 
+                skill = _select_castable_skill(attacker)
+                if skill and _execute_active_skill(attacker, skill, targets, all_units, log, turns, round_num,
+                                                    morale_changes, kill_counts, damage_dealt_stats):
+                    continue  # skill replaced the basic attack this turn
+
                 if attacker.is_aoe:
                     # Mage hits all enemies
                     log.append(f"  ✦ {attacker.name} ({attacker.hero_class}) casts — hits all enemies!")
+                    attacker.mana = min(attacker.max_mana, attacker.mana + ON_ATTACK_MANA_GAIN)
                     for target in targets:
                         damage, is_crit = calc_damage(attacker, target)
                         damage_dealt_stats[attacker.id] += damage
                         target.health -= damage
+                        target.mana = min(target.max_mana, target.mana + ON_HIT_MANA_GAIN)
+                        if attacker.poison_on_hit:
+                            apply_status_effect(target, "poison", attacker.poison_on_hit["duration"],
+                                                 magnitude=target.max_health * attacker.poison_on_hit["pct"], source_id=attacker.id)
                         crit_text = " CRIT!" if is_crit else ""
                         log_msg = f"    → {target.log_name} takes {damage}{crit_text} [{max(0,target.health)}/{target.max_health}]"
                         log.append(log_msg)
@@ -1340,6 +1607,11 @@ def _resolve_combat_from_processed(processed, floor_number, is_boss, is_miniboss
                         continue
 
                     target.health -= damage
+                    attacker.mana = min(attacker.max_mana, attacker.mana + ON_ATTACK_MANA_GAIN)
+                    target.mana = min(target.max_mana, target.mana + ON_HIT_MANA_GAIN)
+                    if attacker.poison_on_hit:
+                        apply_status_effect(target, "poison", attacker.poison_on_hit["duration"],
+                                             magnitude=target.max_health * attacker.poison_on_hit["pct"], source_id=attacker.id)
                     crit_text = " CRIT!" if is_crit else ""
                     log_msg = f"  {attacker.log_name} hits {target.log_name} for {damage}{crit_text} [{max(0,target.health)}/{target.max_health}]"
                     log.append(log_msg)
@@ -1362,7 +1634,23 @@ def _resolve_combat_from_processed(processed, floor_number, is_boss, is_miniboss
                 alive_frontline = [h for h in frontline if h.alive]
                 alive_backline = [h for h in backline if h.alive]
 
-                if alive_frontline:
+                # A taunting hero forces enemy targeting onto them — a
+                # deliberate tank action, so it outranks even the isolated-
+                # hero panic override below. Then, on an escort floor, the
+                # NPC draws extra (but not certain) enemy attention even
+                # without anyone taunting, which is exactly what makes
+                # taunting matter there.
+                taunting_heroes = [h for h in (alive_frontline + alive_backline) if has_status(h, "taunting")]
+                npc_targets = [h for h in (alive_frontline + alive_backline) if h.is_npc]
+                forced_target = False
+
+                if taunting_heroes:
+                    target = random.choice(taunting_heroes)
+                    forced_target = True
+                elif npc_targets and random.random() < ESCORT_NPC_AGGRO_CHANCE:
+                    target = random.choice(npc_targets)
+                    forced_target = True
+                elif alive_frontline:
                     idx = enemies.index(attacker) % len(alive_frontline)
                     target = alive_frontline[idx]
                 elif alive_backline:
@@ -1371,10 +1659,13 @@ def _resolve_combat_from_processed(processed, floor_number, is_boss, is_miniboss
                     continue
 
                 # An isolated hero is exposed and out of formation — enemies
-                # preferentially pick them off over the formation's intended target.
-                isolated_targets = [h for h in (alive_frontline + alive_backline) if h.isolated_rounds > 0]
-                if isolated_targets:
-                    target = random.choice(isolated_targets)
+                # preferentially pick them off over the formation's intended
+                # target. Taunt and the NPC-aggro roll above both outrank
+                # this (forced_target), same as Taunt outranking it always did.
+                if not forced_target:
+                    isolated_targets = [h for h in (alive_frontline + alive_backline) if h.isolated_rounds > 0]
+                    if isolated_targets:
+                        target = random.choice(isolated_targets)
 
                 # Dodge check for thief
                 if random.random() < target.dodge_chance:
@@ -1389,6 +1680,7 @@ def _resolve_combat_from_processed(processed, floor_number, is_boss, is_miniboss
 
                 damage, is_crit = calc_damage(attacker, target)
                 target.health -= damage
+                target.mana = min(target.max_mana, target.mana + ON_HIT_MANA_GAIN)
                 crit_text = " CRIT!" if is_crit else ""
                 log_msg = f"  {attacker.log_name} hits {target.log_name} for {damage}{crit_text} [{max(0,target.health)}/{target.max_health}]"
                 log.append(log_msg)
@@ -1403,28 +1695,42 @@ def _resolve_combat_from_processed(processed, floor_number, is_boss, is_miniboss
                         continue
 
                     target.alive = False
-                    log.append(f"  ✦ {target.log_name} has fallen.")
-                    # Witness death — morale crash + trauma spike + fear stress
-                    for h in combatants_heroes:
-                        if h.alive:
-                            morale_changes[h.id] = morale_changes.get(h.id, 0) - random.randint(8, 18)
-                            stress_changes[h.id] = stress_changes.get(h.id, 0) + random.randint(5, 12)
-                            log.append(f"    {h.name}'s morale wavers...")
-                            _panic_check(h, "witness_death", log, power_ratio, fear_resist_mult)
+                    if target is npc_unit:
+                        log.append(f"  ✦ The escort falls — you failed to protect them.")
+                    else:
+                        log.append(f"  ✦ {target.log_name} has fallen.")
+                        # Witness death — morale crash + trauma spike + fear stress
+                        for h in combatants_heroes:
+                            if h.alive and h is not npc_unit:
+                                morale_changes[h.id] = morale_changes.get(h.id, 0) - random.randint(8, 18)
+                                stress_changes[h.id] = stress_changes.get(h.id, 0) + random.randint(5, 12)
+                                log.append(f"    {h.name}'s morale wavers...")
+                                _panic_check(h, "witness_death", log, power_ratio, fear_resist_mult)
                 elif target.health > 0 and (target.health / target.max_health) < 0.25:
                     _panic_check(target, "hp_critical", log, power_ratio, fear_resist_mult)
 
-        alive_heroes  = [u for u in combatants_heroes if u.alive]
+            if npc_unit is not None and not npc_unit.alive:
+                break  # mid-round abort — protecting the NPC is the whole point of the floor
+
+        alive_heroes  = [u for u in combatants_heroes if u.alive and u is not npc_unit]
         alive_enemies = [u for u in enemies if u.alive]
-        if not alive_heroes or not alive_enemies:
+        if not alive_heroes or not alive_enemies or (npc_unit is not None and not npc_unit.alive):
             break
 
-    alive_heroes  = [u for u in combatants_heroes if u.alive]
-    dead_heroes   = [u for u in combatants_heroes if not u.alive]
+    alive_heroes  = [u for u in combatants_heroes if u.alive and u is not npc_unit]
+    dead_heroes   = [u for u in combatants_heroes if not u.alive and u is not npc_unit]
     # Survival Floor wins by outlasting the clock with anyone still standing
     # — wiping the swarm early still counts (just rare at these counts), but
     # killing every enemy is not required, unlike every other floor type.
-    if is_survival_swarm:
+    # Escort wins by keeping the NPC alive either to enemy-wipe or to the
+    # turn limit; the NPC itself is never counted among alive_heroes/
+    # dead_heroes so it never pollutes rewards, skill-upgrade rolls, or
+    # morale bookkeeping below.
+    if is_escort:
+        npc_alive = npc_unit.alive if npc_unit else False
+        enemies_wiped = len([u for u in enemies if u.alive]) == 0
+        heroes_won = npc_alive and (enemies_wiped or round_num >= max_rounds)
+    elif is_survival_swarm:
         heroes_won = len(alive_heroes) > 0
     else:
         heroes_won = len(alive_heroes) > 0 and len([u for u in enemies if u.alive]) == 0
@@ -1586,7 +1892,7 @@ def _apply_combat_drops(result: dict, floor_number: int, is_boss: bool, is_minib
     except Exception as e:
         print(f"Error generating drop: {e}")
 
-def run_multi_combat(hero_teams: list[list[dict]], floor_number: int, is_boss: bool = False, is_miniboss: bool = False, zone_theme: str = "", boss_data_override=_UNSET, difficulty_mult: float = 1.0, conn=None, family_override: dict = None, is_survival_swarm: bool = False, turn_limit: int = None, available_consumables: list = None) -> dict:
+def run_multi_combat(hero_teams: list[list[dict]], floor_number: int, is_boss: bool = False, is_miniboss: bool = False, zone_theme: str = "", boss_data_override=_UNSET, difficulty_mult: float = 1.0, conn=None, family_override: dict = None, is_survival_swarm: bool = False, turn_limit: int = None, available_consumables: list = None, is_escort: bool = False) -> dict:
     # Raid Boss (every 20th floor, plus floor 50 — the halfway point gets
     # the merge treatment too despite not being a multiple of 20) —
     # family_override was missing here before, so a floor-20/40/50/60/80/100
@@ -1666,7 +1972,7 @@ def run_multi_combat(hero_teams: list[list[dict]], floor_number: int, is_boss: b
         # same list object is passed (and mutated in place) into every team's
         # fight in this loop, so a multi-team floor can't double-dip the same
         # finite stock once one team's fight already spent it.
-        res = run_combat(team, floor_number, is_boss=is_boss, is_miniboss=is_miniboss, zone_theme=zone_theme, difficulty_mult=difficulty_mult, preset_enemies=current_enemies, outer_conn=conn, is_survival_swarm=is_survival_swarm, turn_limit=turn_limit, available_consumables=available_consumables)
+        res = run_combat(team, floor_number, is_boss=is_boss, is_miniboss=is_miniboss, zone_theme=zone_theme, difficulty_mult=difficulty_mult, preset_enemies=current_enemies, outer_conn=conn, is_survival_swarm=is_survival_swarm, turn_limit=turn_limit, available_consumables=available_consumables, is_escort=is_escort)
         logs.extend(res.get("log", []))
         final_result["team_results"].append(res)
 

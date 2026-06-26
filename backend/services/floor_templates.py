@@ -164,69 +164,13 @@ def _exploration_loot_table(floor_number: int) -> list[dict]:
     # (equipment drops would go here once equipment system exists)
 
 
-# ─── Escort Floor ──────────────────────────────────────────────────
-
-def generate_escort_floor(floor_number: int) -> dict:
-    """Generate an escort floor challenge."""
-    npc_names = ["a wounded traveler", "a lost child", "a captured merchant", "a dying scholar"]
-
-    return {
-        "floor_type": "escort",
-        "theme": f"You find {random.choice(npc_names)} who needs safe passage to the next floor.",
-        "npc_hp": 80 + floor_number * 2,
-        "ambush_count": min(5, 2 + floor_number // 15),
-        "ambush_power": 1 + (floor_number * 0.05),
-        "reward": {
-            "gold": (random.randint(100, 200) + floor_number * 6) * 3,
-            "morale": random.randint(5, 15),
-            "materials": random.randint(1, 3),
-        },
-    }
-
-
-def resolve_escort_floor(template: dict, heroes: list[dict]) -> dict:
-    """Resolve an escort floor. Team ATK/DEF determines if NPC survives."""
-    ambushes = template["ambush_count"]
-    npc_hp = template["npc_hp"]
-    log = []
-
-    total_atk = sum(h.get("strength", 5) for h in heroes)
-    total_def = sum(h.get("intelligence", 5) for h in heroes)
-
-    for i in range(ambushes):
-        # Heroes intercept damage based on their total ATK
-        intercept_pct = min(0.90, total_atk / (total_atk + 50 * template["ambush_power"]))
-        npc_damage = int(30 * template["ambush_power"] * (1 - intercept_pct))
-        npc_hp -= npc_damage
-
-        hero_damage_pct = random.uniform(0.03, 0.08)
-
-        if npc_hp > 0:
-            log.append(f"  Ambush {i+1}: Intercepted! NPC takes {npc_damage} damage. NPC Health: {npc_hp}")
-        else:
-            log.append(f"  Ambush {i+1}: The NPC fell. You failed to protect them.")
-            break
-
-    npc_survived = npc_hp > 0
-    hero_results = []
-    for hero in heroes:
-        dmg = int(hero["max_health"] * random.uniform(0.03, 0.08) * ambushes)
-        hero_results.append({
-            "id": hero["id"],
-            "health": max(1, hero["health"] - dmg),
-            "morale_delta": template["reward"]["morale"] if npc_survived else -10,
-        })
-
-    return {
-        "success": npc_survived,
-        "npc_survived": npc_survived,
-        "npc_hp": max(0, npc_hp),
-        "hero_results": hero_results,
-        "reward": template["reward"] if npc_survived else {"gold": template["reward"]["gold"] // 3},
-        "log": [f"Escort — {ambushes} ambushes ahead."] + log,
-        "summary": f"{'NPC delivered safely!' if npc_survived else 'The NPC was lost.'}",
-    }
-
+# Escort floors are real turn-based combat now (an NPC CombatUnit the team
+# protects — see combat_service.py's is_escort handling), not resolved
+# here. This used to hold a standalone interception-math resolver
+# (generate_escort_floor/resolve_escort_floor) that had zero callers —
+# tower.py already routed floor_type=="escort" through the same real-combat
+# path as every other combat floor type, just without an NPC or alternate
+# win condition. Removed rather than left to mislead the next reader.
 
 # ─── Rest Floor ────────────────────────────────────────────────────
 

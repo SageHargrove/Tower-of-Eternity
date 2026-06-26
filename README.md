@@ -89,24 +89,18 @@ arena_server/                 # Separate small FastAPI service for Arena match
 
 ## Known Gaps
 
-Most of the original rough-draft TODO list (events, ascension, synthesis,
-aptitude reveal, skills, legacy bonuses, escort/survival floors) is built.
-What's still genuinely incomplete:
+Most of the original rough-draft TODO list (events, evolution/ascension,
+synthesis, aptitude reveal, skills, legacy bonuses, escort/survival floors,
+status effects, mana/active skills, equipment sets, gacha pity, the floor
+11-100 enemy roster, and per-hero combat consumables) is now built. What's
+still genuinely incomplete:
 
-- **Gacha pity system** — pulls are pure weighted RNG, no guaranteed-rare-after-N-pulls floor yet.
-- **Base Upgrades' described effects** — Barracks/Watchtower/Archive/Chapel/etc.
-  can be purchased and leveled, but the effects their descriptions promise
-  (bigger team size, floor-type reveal, faster trauma recovery...) aren't
-  wired to any other system yet — it's a working currency sink, not yet a
-  working mechanic.
 - **Arena PvP** — the local backend only builds and submits a team snapshot;
   match resolution lives in the separate `arena_server/` and that loop isn't
   fully closed end-to-end yet (no live opponent matching/leaderboard in the main app).
 - **Leaderboards / achievements** — not started.
-- **Status effects** — fear/panic is fully simulated; burn/bleed/poison-style effects don't exist yet.
-- **Inventory item use** — Bandages auto-apply pre-fight; Potions/Scrolls have
-  no use path yet (no per-hero or shared item slot exists).
-- **Enemy roster overhaul** — floor 1-10 has a themed family (Elites, a
-  named miniboss, a named boss); floors 11-100 still use the older generic
-  enemy pool, staged to be filled in one floor-range block at a time (see
-  `PLAN_floor_workshop_enemies.md`).
+- **Base Upgrades' described effects** — most facilities (Restaurant, Infirmary,
+  Training Grounds, Forge, Workshop) are wired to real per-tick effects now,
+  but a full audit of every facility's promised description against what it
+  actually does hasn't happened yet.
+- **Enemy roster overhaul art** — waves of floors is implemented; art needs polish
