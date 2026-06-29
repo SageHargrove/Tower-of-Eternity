@@ -80,19 +80,24 @@ class CombatUnit:
 # raw stats were scaled down to match.
 ENEMY_TYPES = [
     # --- beginner (floor 1+) ---
-    ("Giant Rat", 0.8, 0.8, 1.6, "swarm", "beginner"),
+    # "Giant Rat" -> "Dungeon Imp" and "Slime" -> "Shadow Wisp": both
+    # renamed (openspec/specs/enemy-art-overhaul) since round/rodent shapes
+    # read as cute/cartoonish against this game's dark fantasy tone and
+    # render poorly through the AI art pipeline — humanoid/angular/shadowy
+    # forms hold up far better.
+    ("Dungeon Imp", 0.8, 0.8, 1.6, "swarm", "beginner"),
     ("Goblin", 0.8, 0.7, 1.1, "normal", "beginner"),
     ("Bandit", 0.9, 0.8, 1.2, "normal", "beginner"),
     ("Wolf", 0.9, 0.7, 1.5, "pack", "beginner"),
-    ("Slime", 0.6, 0.5, 0.7, "swarm", "beginner"),
-    # Elite variants of the floor 1-10 family (Slime/Goblin/Rat/Wolf) — same
-    # species, better stats, one extra ability via ENEMY_ABILITY_OVERRIDES
-    # below. See backend/services/enemy_families.py for the matching
-    # miniboss/boss tier for this floor range.
+    ("Shadow Wisp", 0.6, 0.5, 0.7, "swarm", "beginner"),
+    # Elite variants of the floor 1-10 family (Shadow Wisp/Goblin/Imp/Wolf) —
+    # same species, better stats, one extra ability via
+    # ENEMY_ABILITY_OVERRIDES below. See backend/services/enemy_families.py
+    # for the matching miniboss/boss tier for this floor range.
     ("Acid Slime", 1.1, 0.9, 0.7, "elite", "beginner"),
     ("Goblin Warrior", 1.2, 1.1, 1.0, "elite", "beginner"),
     ("Goblin Shaman", 1.0, 0.8, 1.0, "elite", "beginner"),
-    ("Giant Rat Alpha", 1.1, 0.8, 1.7, "elite", "beginner"),
+    ("Dungeon Imp Alpha", 1.1, 0.8, 1.7, "elite", "beginner"),
     ("Wolf Alpha", 1.2, 0.9, 1.6, "elite", "beginner"),
     # --- intermediate (floor 15+) — checklist family is "Kobolds, Skeletons,
     # Orcs, Giant Spiders" (PLAN_floor_workshop_enemies.md); Dire Wolf/Harpy
@@ -184,8 +189,8 @@ ENEMY_TIER_UNLOCK_FLOOR = {
 # — that's still ENEMY_TIER_UNLOCK_FLOOR — this just keeps the art library
 # reviewable in the same batches you're already going through it in.
 ENEMY_WAVE = {
-    "Slime": 1, "Goblin": 1, "Giant Rat": 1, "Wolf": 1,
-    "Acid Slime": 1, "Goblin Warrior": 1, "Goblin Shaman": 1, "Giant Rat Alpha": 1, "Wolf Alpha": 1,
+    "Shadow Wisp": 1, "Goblin": 1, "Dungeon Imp": 1, "Wolf": 1,
+    "Acid Slime": 1, "Goblin Warrior": 1, "Goblin Shaman": 1, "Dungeon Imp Alpha": 1, "Wolf Alpha": 1,
     "Bandit": 2, "Dire Wolf": 2, "Harpy": 2, "Orc": 2, "Ogre": 2, "Troll": 2,
     "Kobold": 2, "Skeleton": 2, "Giant Spider": 2,
     "Hobgoblin": 3, "Lizardman": 3, "Feral Ghoul": 3, "Hobgoblin Berserker": 3, "Lizardman Stalker": 3,
@@ -209,7 +214,7 @@ ENEMY_ABILITY_OVERRIDES = {
     "Acid Slime": ["self_regen"],
     "Goblin Warrior": ["cleave"],
     "Goblin Shaman": ["team_buff_aura"],
-    "Giant Rat Alpha": ["summon_add"],
+    "Dungeon Imp Alpha": ["summon_add"],
     "Wolf Alpha": ["enrage"],
     "Hobgoblin Berserker": ["enrage"],
     "Lizardman Stalker": ["self_regen"],
@@ -225,7 +230,7 @@ ENEMY_ABILITY_OVERRIDES = {
 
 # Which weak swarm-type a "summon_add" user calls in as reinforcements.
 ENEMY_SPAWN_TEMPLATE = {
-    "Giant Rat Alpha": "Giant Rat",
+    "Dungeon Imp Alpha": "Dungeon Imp",
     "Scarab Swarmlord": "Grave Scarab",
 }
 

@@ -615,7 +615,10 @@ ENEMY_PORTRAIT_HINTS = {
     # --- beginner/intermediate tier (added alongside the floor-gated monster
     # tiers in combat_service.py — these previously fell back to the thin
     # generic hint, which is why they looked inconsistent with the rest) ---
-    "Giant Rat": "a large brown-grey rat crouched low on all four legs in a brightly lit dungeon corridor, warm torchlight illuminating its whole body, a short blunt snout with twitching whiskers, small rounded ears, a plump compact body, a thin hairless tail, small dark eyes, sharp yellowed incisors bared",
+    # Renamed from "Giant Rat" — rodent shapes read as cute/cartoonish
+    # against this game's tone (openspec/specs/enemy-art-overhaul). Prompt
+    # text is the spec's own suggested phrasing.
+    "Dungeon Imp": "dark fantasy dungeon imp creature, small wiry demon with leathery skin, small horns, hunched posture, glowing red eyes, black background, concept art style, no text",
     "Mangy Hyena": "a feral hyena, tawny fur covered in dark brown spots and patches, a powerful jaw with bared yellowed teeth, glowing amber eyes, a hunched sloped back with powerful front shoulders, low aggressive stalking stance on all fours, dusty wasteland background",
     "Goblin": "a small wiry goblin humanoid, (sickly green mottled skin, green clearly visible as the skin color:1.3), oversized pointed ears, a hooked nose, sharp yellowed teeth bared in a snarl, ragged dark leather scraps for clothing, gripping a crude rusted blade, standing alert lunging stance mid-attack with weapon raised high, beady yellow eyes, gritty dungeon background",
     "Bandit": "a rough human bandit, weathered tan skin, a worn leather jerkin and a loose hood pushed back enough to show his face, narrowed eyes, scarred forearms, gripping a plain worn dagger, alert lean stance, dim alley background",
@@ -629,11 +632,15 @@ ENEMY_PORTRAIT_HINTS = {
     # --- floor 1-10 family elites — previously fell back to the thin generic
     # hint with no color/shape anchor, which is exactly why these rendered
     # as near-black blobs with nothing recognizable in them ---
-    "Slime": "(a translucent gelatinous blob creature, clearly visible glossy teal-blue jelly body you can partly see into, NOT solid black, NOT a silhouette:1.4), (NO face, NO eyes, NO mouth, NOT cute, NOT chibi, NOT a cartoon mascot, an unsettling featureless mass of jelly, simple and unremarkable, not adorable:1.4), a simple round wobbling blob shape sitting on the ground, (rippled uneven surface with visible dents, bumps, and sagging folds in the jelly, glossy wet specular highlights catching the light at multiple points, faint internal striations and cloudy swirls visible through the translucent body, dripping wet texture along the bottom edge:1.3), faint bubbles suspended inside its jelly body, well-lit dungeon floor background",
+    # Renamed from "Slime" — round/amorphous blobs render poorly through
+    # this pipeline and read as cute rather than threatening
+    # (openspec/specs/enemy-art-overhaul). Prompt text is the spec's own
+    # suggested phrasing.
+    "Shadow Wisp": "dark fantasy shadowy wisp creature, hovering ball of dark energy with wispy tendrils, faint purple glow, black background, concept art style, no text",
     "Acid Slime": "(a translucent gelatinous blob creature, clearly visible glowing acid-green corrosive jelly body you can partly see into, NOT solid black, NOT humanoid, NOT a person, NOT wearing clothes:1.4), (NO face, NO eyes, NO mouth, NOT cute, NOT chibi, NOT a cartoon mascot, an unsettling featureless mass of corrosive jelly, not adorable:1.4), a simple round wobbling blob shape sitting on the ground, (rippled uneven surface with visible dents and bumps, glossy wet specular highlights, faint internal cloudy swirls visible through the translucent acid-green body:1.3), faint caustic green vapor rising off its surface, acid droplets dripping from its body leaving small smoking scorch marks on the floor, well-lit dungeon floor background",
     "Goblin Warrior": "a goblin warrior standing in torchlight in a dungeon, green skin clearly lit on his face and arms, oversized pointed ears, a hooked nose, yellowed teeth bared in a snarl, scavenged leather and scrap-metal armor over his chest, gripping a short iron sword, beady yellow eyes",
     "Goblin Shaman": "a goblin shaman standing in torchlight in a dungeon, green skin clearly lit on his face and hands, oversized pointed ears, a hooked nose, ragged brown cloth robes with bone trinkets tied on with twine, gripping a wooden staff topped with a glowing skull, green magic swirling around his raised hand, beady yellow eyes",
-    "Giant Rat Alpha": "a large muscular rat crouched aggressively on all four legs in a brightly lit dungeon corridor, warm torchlight illuminating its whole body, bigger and bulkier than an ordinary rat, scarred brown-grey fur, a long pointed rodent snout with twitching whiskers, small rounded rat ears, a long thin hairless tail, small dark eyes, sharp yellowed incisors bared",
+    "Dungeon Imp Alpha": "dark fantasy dungeon imp creature, larger and more muscular than an ordinary imp, scarred leathery skin, larger curved horns, hunched aggressive posture, glowing red eyes, black background, concept art style, no text",
     "Wolf Alpha": "(a real four-legged quadruped wolf, larger and more muscular than an ordinary wolf, an animal on all four legs, NOT a werewolf, NOT bipedal, NOT humanoid:1.4), dense clearly visible dark grey and black fur, scarred muzzle, bared fangs in a snarl, glowing pale yellow eyes, thick powerful shoulders, low predatory stance on all fours like a real wolf, bushy tail held low, well-lit snowy forest background, evenly lit fur with visible texture",
 
     # Goblin King / Warren Tyrant (floor 5/10) never actually got dedicated
