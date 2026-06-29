@@ -29,15 +29,20 @@ def list_equipment(show_all: bool = False):
         unequipped = [dict(r) for r in rows]
 
     # "F" rarity is never droppable/craftable — it only exists as a hero's
-    # guaranteed starting weapon (generate_starting_weapon). Once a hero
-    # equips something better, the old F-grade item lands back here with
-    # no slot, no artwork, and nothing a player would ever want — pure
-    # clutter. Hidden by default; ?show_all=true reveals it.
+    # guaranteed starting weapon (generate_starting_weapon), a placeholder
+    # so nobody fights bare-handed. No slot, no artwork, nothing a player
+    # would ever want to see — hidden everywhere by default (both while
+    # still equipped on a hero who hasn't replaced it yet, and once
+    # unequipped and sitting unused), regardless of show_all, which only
+    # ever applied to the unequipped list before and missed the equipped
+    # case. ?show_all=true reveals both.
     hidden_count = 0
     if not show_all:
-        visible = [e for e in unequipped if e.get("rarity") != "F"]
-        hidden_count = len(unequipped) - len(visible)
-        unequipped = visible
+        visible_equipped = [e for e in equipped if e.get("rarity") != "F"]
+        visible_unequipped = [e for e in unequipped if e.get("rarity") != "F"]
+        hidden_count = (len(equipped) - len(visible_equipped)) + (len(unequipped) - len(visible_unequipped))
+        equipped = visible_equipped
+        unequipped = visible_unequipped
 
     return {"equipped": equipped, "unequipped": unequipped, "hidden_count": hidden_count}
 

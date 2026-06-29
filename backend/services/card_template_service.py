@@ -38,31 +38,33 @@ def _name_font(size: int) -> ImageFont.FreeTypeFont:
 def _emoji_font(size: int) -> ImageFont.FreeTypeFont:
     return ImageFont.truetype(_EMOJI_FONT_PATH, size)
 
-# One tier per star (was bucketed 1-2/3-4/5-6/7, which made 1*/2* and 5*/6*
-# cards indistinguishable — directly against the "5*+ should look
-# dramatically different, the 4*->5* gap should feel like a qualitative
-# leap" requirement). "obsidian" (6*) gets its own _build_template branch
-# below rather than just another flat color, since a color swap alone
-# isn't a "visually distinct... not just a color swap" design.
+# One tier per star, colors matching the SAME --star1..--star7 palette
+# already used everywhere else in the app (frontend/src/index.css) — a
+# hero's card border, stat-sheet star color, and ascension stars all need
+# to read as the same rarity language. "star6" gets its own _build_template
+# branch below rather than just another flat color, since a color swap
+# alone isn't a "visually distinct... not just a color swap" design.
 TIER_COLORS = {
-    "iron":      (138, 138, 138),  # 1* — brushed steel grey, thin/understated
-    "bronze":    (140, 78, 38),    # 2* — deep copper-brown
-    "silver":    (196, 200, 212),  # 3*
-    "gold":      (224, 170, 30),   # 4* — vivid yellow-gold
-    "amethyst":  (155, 48, 255),   # 5* — deep purple, glow added in _build_template
-    "obsidian":  (201, 36, 36),    # 6* — crimson accent against a near-black base; ornate, not just a color
-    "prismatic": None,  # 7* — rainbow gradient, handled specially
+    "star1": (255, 255, 255),  # white
+    "star2": (77, 255, 77),    # bright green
+    "star3": (30, 144, 255),   # deep/dodger blue
+    "star4": (184, 77, 255),   # neon purple
+    "star5": (255, 179, 0),    # radiant gold/orange
+    "star6": (255, 51, 51),    # crimson red
+    "star7": None,  # cyan base, but rendered as a cycling rainbow — handled specially
 }
 
-# Tiers from here up get glow/shimmer treatment 1-4* deliberately don't —
-# "no glow or shimmer effects SHALL be applied to 1-4* cards".
-GLOW_TIERS = {"amethyst", "obsidian", "prismatic"}
+PRISMATIC_BASE = (0, 255, 255)  # cyan anchor for star7's hue cycle
 
-PRISMATIC_HUES = [(255, 60, 60), (255, 200, 60), (80, 220, 120), (60, 180, 255), (180, 90, 255)]
+# Tiers from here up get glow/shimmer treatment; 1-4* deliberately don't —
+# "no glow or shimmer effects SHALL be applied to 1-4* cards".
+GLOW_TIERS = {"star5", "star6", "star7"}
+
+PRISMATIC_HUES = [(255, 60, 60), (255, 200, 60), (80, 220, 120), (60, 180, 255), (180, 90, 255), (0, 255, 255)]
 
 
 def tier_for_star(birth_star: int) -> str:
-    return {1: "iron", 2: "bronze", 3: "silver", 4: "gold", 5: "amethyst", 6: "obsidian"}.get(birth_star, "prismatic" if birth_star >= 7 else "iron")
+    return f"star{max(1, min(7, birth_star))}"
 
 
 def _tier_color_at(tier: str, t: float) -> tuple:
@@ -109,10 +111,11 @@ def _build_template(tier: str) -> Image.Image:
         diamond_color = _tier_color_at(tier, 0.25)
         draw.polygon([(dx, dy - diamond_r), (dx + diamond_r, dy), (dx, dy + diamond_r), (dx - diamond_r, dy)], fill=(*diamond_color, 255))
 
-    # Obsidian (6*) gets rune-like tick marks along the border on top of the
-    # crimson color — a structural difference, not just another color swap,
-    # per "visually distinct from all other tiers (not just a color swap)".
-    if tier == "obsidian":
+    # star6 (crimson) gets rune-like tick marks along the border on top of
+    # the flat color — a structural difference, not just another color
+    # swap, per "visually distinct from all other tiers (not just a color
+    # swap)".
+    if tier == "star6":
         tick_color = (40, 10, 10, 255)
         n_ticks = 18
         for i in range(n_ticks):
@@ -121,9 +124,9 @@ def _build_template(tier: str) -> Image.Image:
             draw.line([(x, margin + 3), (x, margin + 11)], fill=tick_color, width=2)
             draw.line([(x, h - margin - 3), (x, h - margin - 11)], fill=tick_color, width=2)
 
-    # Prismatic (7*) gets a corner glyph label, per spec — the rainbow
-    # border alone might not be enough at a glance to read as the top tier.
-    if tier == "prismatic":
+    # star7 (prismatic/cyan) gets a corner glyph label — the rainbow border
+    # alone might not be enough at a glance to read as the top tier.
+    if tier == "star7":
         glyph_font = _name_font(16)
         draw.text((margin + 22, margin + 6), "✦ PRISMATIC", font=glyph_font, fill=(255, 255, 255, 235))
 
@@ -239,35 +242,36 @@ def composite_card(hero_id: int, portrait_path: str, birth_star: int, hero_name:
     draw = ImageDraw.Draw(canvas, "RGBA")
     margin = 18
 
-    # Star row — exactly birth_star icons, positioned above the class
-    # medallion so neither overlaps the portrait face below. Uses the emoji
-    # font since Georgia Bold's "*" glyph reads as a tiny asterisk, not a
-    # filled star.
     cx = w // 2
-    star_y = margin + 18
-    star_spacing = 24
+
+    # Class icon medallion at the top — the class's actual emoji icon
+    # (services.class_service.CLASS_ICONS, already used elsewhere in the
+    # app for this exact purpose) instead of a 2-letter abbreviation, which
+    # read as flat/placeholder-ish next to everything else on the card.
+    from services.class_service import get_class_icon
+    icon_y = margin + 38
+    icon_color = _tier_color_at(tier, 0.6)
+    draw.ellipse([cx - 32, icon_y - 32, cx + 32, icon_y + 32], fill=(20, 20, 24, 255), outline=(*icon_color, 255), width=4)
+    icon_glyph = get_class_icon(hero_class)
+    icon_font = _emoji_font(34)
+    # anchor="mm" rather than manual textbbox-centered math — color/bitmap
+    # emoji glyphs report bbox dimensions that don't match where the glyph
+    # actually paints, which left the icon visibly off-center.
+    draw.text((cx, icon_y), icon_glyph, font=icon_font, anchor="mm", embedded_color=True)
+
+    band_top = int(h * 0.86)
+    band_bot = int(h * 0.94)
+
+    # Star row — exactly birth_star icons, positioned directly above the
+    # nameplate band (was at the top of the portrait, where it competed
+    # with the class medallion and read too small to register at a glance).
+    star_y = band_top - 22
+    star_spacing = 34
     total_w = star_spacing * max(0, birth_star - 1)
     start_x = cx - total_w / 2
     for i in range(birth_star):
         sx = start_x + i * star_spacing
-        _draw_star(draw, sx, star_y, 9, _tier_color_at(tier, 0.5))
-
-    # Class icon medallion at the top — 2-letter abbreviation in Georgia Bold,
-    # guaranteed crisp on all classes including Classless.
-    from services.class_service import get_class_abbrev
-    icon_y = margin + 56
-    icon_color = _tier_color_at(tier, 0.6)
-    draw.ellipse([cx - 28, icon_y - 28, cx + 28, icon_y + 28], fill=(20, 20, 24, 255), outline=(*icon_color, 255), width=4)
-    abbrev = get_class_abbrev(hero_class)
-    abbrev_font = _name_font(17)
-    bbox = draw.textbbox((0, 0), abbrev, font=abbrev_font)
-    glyph_cx = (bbox[0] + bbox[2]) / 2
-    glyph_cy = (bbox[1] + bbox[3]) / 2
-    draw.text((cx - glyph_cx, icon_y - glyph_cy), abbrev, font=abbrev_font, fill=(*icon_color, 255))
-
-
-    band_top = int(h * 0.86)
-    band_bot = int(h * 0.94)
+        _draw_star(draw, sx, star_y, 13, _tier_color_at(tier, 0.5))
     if hero_name:
         name_text = hero_name.upper()
         band_inner_w = (w - margin - 30) - (margin + 30) - 24
