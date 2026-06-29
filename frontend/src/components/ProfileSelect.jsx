@@ -8,19 +8,14 @@ export default function ProfileSelect({ onSelect }) {
   const [selectedProfile, setSelectedProfile] = useState(null)
   const [msg, setMsg] = useState(null)
 
-  useEffect(() => {
-    load()
-  }, [])
+  useEffect(() => { load() }, [])
 
   async function load() {
     setLoading(true)
     try {
       const data = await listProfiles()
       setProfiles(data.profiles)
-      // Clear selection if it no longer exists
-      if (selectedProfile && !data.profiles.includes(selectedProfile)) {
-        setSelectedProfile(null)
-      }
+      if (selectedProfile && !data.profiles.includes(selectedProfile)) setSelectedProfile(null)
     } catch (e) {
       setMsg(e.message)
     } finally {
@@ -34,10 +29,7 @@ export default function ProfileSelect({ onSelect }) {
       setLoading(true)
       await switchProfile(selectedProfile)
       onSelect(selectedProfile)
-    } catch (e) {
-      setMsg(e.message)
-      setLoading(false)
-    }
+    } catch (e) { setMsg(e.message); setLoading(false) }
   }
 
   async function handleCreate(e) {
@@ -48,131 +40,178 @@ export default function ProfileSelect({ onSelect }) {
       setLoading(true)
       await switchProfile(name)
       onSelect(name)
-    } catch (e) {
-      setMsg(e.message)
-      setLoading(false)
-    }
+    } catch (e) { setMsg(e.message); setLoading(false) }
   }
 
   async function handleRename() {
     if (!selectedProfile) return
-    const newName = prompt(`Enter new name for profile "${selectedProfile}":`, selectedProfile)
+    const newName = prompt(`Rename "${selectedProfile}" to:`, selectedProfile)
     if (!newName || newName === selectedProfile) return
-    
     try {
       setLoading(true)
       await renameProfile(selectedProfile, newName)
       setSelectedProfile(newName)
       await load()
-      setMsg(`Profile renamed to ${newName}`)
-    } catch(e) {
-      setMsg(e.message)
-      setLoading(false)
-    }
+      setMsg(`Renamed to ${newName}`)
+    } catch(e) { setMsg(e.message); setLoading(false) }
   }
 
   async function handleDelete() {
     if (!selectedProfile) return
-    const confirmed = window.confirm(`Are you sure you want to permanently delete the profile "${selectedProfile}"?`)
-    if (!confirmed) return
-    
+    if (!window.confirm(`Permanently delete "${selectedProfile}"?`)) return
     try {
       setLoading(true)
       await deleteProfile(selectedProfile)
       setSelectedProfile(null)
       await load()
-      setMsg(`Profile deleted.`)
-    } catch(e) {
-      setMsg(e.message)
-      setLoading(false)
-    }
+      setMsg('Profile deleted.')
+    } catch(e) { setMsg(e.message); setLoading(false) }
   }
 
-  if (loading && profiles.length === 0) return <div className="page" style={{display: 'flex', justifyContent: 'center', alignItems: 'center'}}>Loading saves...</div>
+  if (loading && profiles.length === 0) return (
+    <div style={{ width: '100vw', height: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#000', color: '#fff', fontFamily: 'Cinzel, serif' }}>
+      Loading...
+    </div>
+  )
 
   return (
-    <div className="page" style={{
-      display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', minHeight: '100vh',
-      position: 'relative', overflow: 'hidden', background: '#000',
-    }}>
-      {/* Full-bleed tower art behind everything — the same logo image, just
-          given room to actually read as "insanely huge" on the splash
-          screen instead of being squeezed into a small header icon.
-          "contain" (not "cover") so the whole spire — tip to base forest —
-          stays visible instead of being cropped down to just the middle. */}
+    <div style={{ width: '100vw', height: '100vh', position: 'relative', overflow: 'hidden', background: '#000' }}>
+
+      {/* Tower art is a tall portrait image (341x1024) — `cover` on a wide
+          landscape window forces it to scale by its WORST-matching
+          dimension (width), blowing it up ~6x and showing only a tight
+          sliver of it. `contain` shows the whole image at its natural
+          scale instead, anchored to the right where the panel isn't. */}
       <div style={{
         position: 'absolute', inset: 0,
-        backgroundImage: 'url(/tower_logo.png)',
-        backgroundSize: 'cover', backgroundPosition: 'center 42%', backgroundRepeat: 'no-repeat',
+        backgroundImage: 'url(/tower_bg_v2.png)',
+        backgroundSize: '100% 100%',
+        backgroundPosition: 'center',
+        backgroundRepeat: 'no-repeat',
       }} />
+
+      {/* Left vignette — makes panel readable, right half stays fully visible */}
       <div style={{
         position: 'absolute', inset: 0,
-        background: 'linear-gradient(to bottom, rgba(10,10,14,0.1) 0%, rgba(10,10,14,0.2) 50%, rgba(10,10,14,0.7) 78%, rgba(10,10,14,0.95) 100%)',
+        background: 'linear-gradient(to right, rgba(5,5,10,0.95) 0%, rgba(5,5,10,0.82) 28%, rgba(5,5,10,0.2) 55%, transparent 75%)',
+      }} />
+      {/* Bottom depth vignette */}
+      <div style={{
+        position: 'absolute', inset: 0,
+        background: 'linear-gradient(to top, rgba(5,5,10,0.65) 0%, transparent 45%)',
       }} />
 
-      <div style={{ textAlign: 'center', marginBottom: '2rem', position: 'relative', zIndex: 1 }}>
-        <h1 style={{ fontFamily: 'Cinzel, serif', fontSize: '2.6rem', color: 'var(--text)', margin: '0.5rem 0', textShadow: '0 2px 12px rgba(0,0,0,0.8)' }}>Tower of Eternity</h1>
-        <div className="text-dim" style={{ fontSize: '0.9rem', letterSpacing: '2px' }}>SELECT SAVE PROFILE</div>
-      </div>
+      {/* ── Left panel ── */}
+      <div style={{
+        position: 'absolute', left: 0, top: 0, bottom: 0,
+        width: '360px',
+        display: 'flex', flexDirection: 'column', justifyContent: 'center',
+        padding: '3rem 2.5rem',
+        zIndex: 1,
+      }}>
 
-      <div className="card" style={{ width: '450px', maxWidth: '90vw', padding: '2rem', position: 'relative', zIndex: 1 }}>
-        {msg && <div className="text-red text-sm" style={{ marginBottom: '1rem', textAlign: 'center' }}>{msg}</div>}
-        
-        {/* Create Bar at the top */}
-        <form onSubmit={handleCreate} style={{ display: 'flex', gap: '0.5rem', marginBottom: '1.5rem', borderBottom: '1px solid rgba(255,255,255,0.1)', paddingBottom: '1.5rem' }}>
-          <input 
-            type="text" 
-            placeholder="New Profile Name..." 
-            value={newProfile}
-            onChange={e => setNewProfile(e.target.value)}
-            style={{ flex: 1, background: 'rgba(0,0,0,0.3)', border: '1px solid var(--border)', padding: '0.5rem 1rem', color: '#fff', borderRadius: 4 }}
-          />
-          <button type="submit" className="btn btn-gold" disabled={!newProfile.trim()}>
-            Create
-          </button>
-        </form>
-
-        {/* Save List */}
-        <div className="text-dim text-sm" style={{ marginBottom: '0.5rem', fontFamily: 'Cinzel, serif' }}>Existing Profiles</div>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', marginBottom: '1.5rem', maxHeight: '30vh', overflowY: 'auto', paddingRight: '0.5rem' }}>
-          {profiles.length === 0 && <div className="text-dim text-sm" style={{ fontStyle: 'italic' }}>No profiles found. Create one above!</div>}
-          {profiles.map(p => {
-            const isSelected = selectedProfile === p;
-            return (
-              <button 
-                key={p} 
-                className="btn" 
-                onClick={() => setSelectedProfile(p)}
-                style={{ 
-                  padding: '1rem', 
-                  fontSize: '1.1rem', 
-                  background: isSelected ? 'rgba(201,168,76,0.2)' : 'rgba(255,255,255,0.05)', 
-                  border: isSelected ? '1px solid var(--gold)' : '1px solid rgba(255,255,255,0.1)', 
-                  textAlign: 'left', 
-                  display: 'flex', 
-                  justifyContent: 'space-between', 
-                  alignItems: 'center',
-                  transition: 'all 0.2s'
-                }}
-              >
-                <span style={{ fontFamily: 'Cinzel, serif', fontWeight: 'bold', color: isSelected ? 'var(--gold)' : 'inherit' }}>{p}</span>
-                {isSelected && <span style={{ fontSize: '0.8rem', color: 'var(--gold)' }}>Selected ✓</span>}
-              </button>
-            );
-          })}
+        {/* Title */}
+        <div style={{ marginBottom: '2.5rem' }}>
+          <div style={{
+            fontSize: '0.65rem', letterSpacing: '5px',
+            color: 'rgba(201,168,76,0.75)', marginBottom: '0.6rem',
+            fontFamily: 'Cinzel, serif',
+          }}>ENTER THE</div>
+          <h1 style={{
+            fontFamily: 'Cinzel, serif', fontSize: '2.5rem', fontWeight: 'bold',
+            color: '#fff', margin: 0, lineHeight: 1.15,
+            textShadow: '0 0 40px rgba(120,140,255,0.5), 0 2px 10px rgba(0,0,0,1)',
+          }}>
+            Tower of<br />Eternity
+          </h1>
         </div>
 
-        {/* Action Buttons for Selected Profile */}
-        <div style={{ display: 'flex', gap: '0.5rem', opacity: selectedProfile ? 1 : 0.3, pointerEvents: selectedProfile ? 'auto' : 'none', transition: 'opacity 0.2s' }}>
-          <button className="btn btn-gold" style={{ flex: 2, padding: '0.75rem', fontWeight: 'bold' }} onClick={handleLoadSelected}>
-            Load Profile
-          </button>
-          <button className="btn" style={{ flex: 1, padding: '0.75rem' }} onClick={handleRename}>
-            Rename
-          </button>
-          <button className="btn text-red" style={{ flex: 1, padding: '0.75rem', background: 'rgba(150,0,0,0.15)', border: '1px solid rgba(255,0,0,0.3)' }} onClick={handleDelete}>
-            Delete
-          </button>
+        {/* Glassmorphism card */}
+        <div style={{
+          background: 'rgba(8,8,18,0.65)',
+          backdropFilter: 'blur(16px)',
+          WebkitBackdropFilter: 'blur(16px)',
+          border: '1px solid rgba(201,168,76,0.18)',
+          borderRadius: '14px',
+          padding: '1.5rem',
+          boxShadow: '0 8px 40px rgba(0,0,0,0.5)',
+        }}>
+          {msg && <div style={{ color: '#f87', fontSize: '0.8rem', marginBottom: '0.75rem', textAlign: 'center' }}>{msg}</div>}
+
+          {/* New profile */}
+          <form onSubmit={handleCreate} style={{ display: 'flex', gap: '0.5rem', marginBottom: '1.2rem', paddingBottom: '1.2rem', borderBottom: '1px solid rgba(255,255,255,0.07)' }}>
+            <input
+              type="text"
+              placeholder="New profile name..."
+              value={newProfile}
+              onChange={e => setNewProfile(e.target.value)}
+              style={{
+                flex: 1, minWidth: 0, background: 'rgba(0,0,0,0.45)',
+                border: '1px solid rgba(255,255,255,0.12)',
+                padding: '0.5rem 0.75rem', color: '#fff',
+                borderRadius: 7, fontSize: '0.88rem', outline: 'none',
+              }}
+            />
+            <button type="submit" className="btn btn-gold" disabled={!newProfile.trim()} style={{ padding: '0.5rem 0.9rem', fontSize: '0.82rem' }}>
+              Create
+            </button>
+          </form>
+
+          {/* Save list */}
+          <div style={{ fontSize: '0.62rem', letterSpacing: '3px', color: 'rgba(255,255,255,0.35)', marginBottom: '0.5rem', fontFamily: 'Cinzel, serif' }}>
+            SAVE FILES
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem', marginBottom: '1.2rem', maxHeight: '26vh', overflowY: 'auto' }}>
+            {profiles.length === 0 && (
+              <div style={{ color: 'rgba(255,255,255,0.35)', fontSize: '0.85rem', fontStyle: 'italic' }}>No profiles yet.</div>
+            )}
+            {profiles.map(p => {
+              const sel = selectedProfile === p
+              return (
+                <button
+                  key={p}
+                  onClick={() => setSelectedProfile(p)}
+                  style={{
+                    padding: '0.6rem 0.9rem',
+                    background: sel ? 'rgba(201,168,76,0.12)' : 'rgba(255,255,255,0.03)',
+                    border: sel ? '1px solid rgba(201,168,76,0.55)' : '1px solid rgba(255,255,255,0.07)',
+                    borderRadius: 7, cursor: 'pointer', transition: 'all 0.15s',
+                    display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                    color: sel ? 'var(--gold)' : '#ccc',
+                  }}
+                >
+                  <span style={{ fontFamily: 'Cinzel, serif', fontWeight: 'bold', fontSize: '0.92rem' }}>{p}</span>
+                  {sel && <span style={{ fontSize: '0.65rem', opacity: 0.8 }}>✓</span>}
+                </button>
+              )
+            })}
+          </div>
+
+          {/* Actions */}
+          <div style={{
+            display: 'flex', gap: '0.4rem',
+            opacity: selectedProfile ? 1 : 0.25,
+            pointerEvents: selectedProfile ? 'auto' : 'none',
+            transition: 'opacity 0.2s',
+          }}>
+            <button
+              className="btn btn-gold"
+              style={{ flex: 2, padding: '0.6rem', fontWeight: 'bold', fontSize: '0.88rem', letterSpacing: '1px' }}
+              onClick={handleLoadSelected}
+            >
+              Enter Tower
+            </button>
+            <button className="btn" style={{ flex: 1, padding: '0.6rem', fontSize: '0.78rem' }} onClick={handleRename}>
+              Rename
+            </button>
+            <button
+              className="btn"
+              style={{ flex: 1, padding: '0.6rem', fontSize: '0.78rem', background: 'rgba(150,0,0,0.15)', border: '1px solid rgba(255,60,60,0.2)', color: '#f88' }}
+              onClick={handleDelete}
+            >
+              Delete
+            </button>
+          </div>
         </div>
       </div>
     </div>
