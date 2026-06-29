@@ -816,8 +816,14 @@ class AssignFacilityReq(BaseModel):
 @router.post("/facilities/assign")
 def assign_hero_facility(req: AssignFacilityReq):
     from services.facility_service import assign_hero_to_facility
+    from services.dialogue_service import get_hero_line
     try:
-        return assign_hero_to_facility(req.facility_id, req.hero_id, req.role, req.target_hero_id, req.target_skill_id)
+        result = assign_hero_to_facility(req.facility_id, req.hero_id, req.role, req.target_hero_id, req.target_skill_id)
+        with db() as conn:
+            hero = conn.execute("SELECT hero_class, birth_star FROM heroes WHERE id = ?", (req.hero_id,)).fetchone()
+        if hero and isinstance(result, dict):
+            result["chatter_line"] = get_hero_line(hero["hero_class"], hero["birth_star"], "facility_assign")
+        return result
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 

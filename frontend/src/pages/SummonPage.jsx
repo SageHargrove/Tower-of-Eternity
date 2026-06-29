@@ -427,7 +427,16 @@ export default function SummonPage({ onGoldChange }) {
                   </div>
                 )
               }
-              return <HeroCard key={item.id} hero={item} onClick={() => setExpandedId(item.id)} />
+              return (
+                <div key={item.id}>
+                  <HeroCard hero={item} onClick={() => setExpandedId(item.id)} />
+                  {item.chatter_line && (
+                    <div style={{ marginTop: '0.4rem', textAlign: 'center', fontStyle: 'italic', fontSize: '0.85rem', color: 'var(--gold)' }}>
+                      "{item.chatter_line}"
+                    </div>
+                  )}
+                </div>
+              )
             })}
           </div>
         </div>

@@ -423,7 +423,10 @@ def pull_heroes(req: PullRequest):
                     print(f"Failed to rename cached portrait: {e}")
 
             hero = conn.execute("SELECT * FROM heroes WHERE id = ?", (hero_id,)).fetchone()
-            results.append(dict(hero))
+            hero_dict = dict(hero)
+            from services.dialogue_service import get_hero_line
+            hero_dict["chatter_line"] = get_hero_line(hero_dict["hero_class"], hero_dict["birth_star"], "summon")
+            results.append(hero_dict)
 
         # Enrich name/lore via the LLM in the background, and queue a custom
         # portrait too if we never had a cached one to claim.

@@ -228,7 +228,8 @@ const handleRenameBase = async () => {
   async function handleAssignFacility(facId, heroId) {
     setFacilityLoading(true)
     try {
-      await assignFacility(facId, heroId)
+      const res = await assignFacility(facId, heroId)
+      if (res?.chatter_line) setMsg(res.chatter_line)
       loadAll()
     } catch (e) {
       alert(e.message)

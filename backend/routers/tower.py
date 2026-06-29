@@ -92,11 +92,23 @@ def _resolve_real_combat(conn, hero_teams, floor_number, is_boss, is_miniboss, z
 
     result = {"combat": combat_result}
 
+    flat_heroes = [h for team in hero_teams for h in team]
+    surviving_ids_for_chatter = {s["id"] for s in combat_result.get("surviving_heroes", [])}
+
     if combat_result["winner"] == "heroes":
         result["message"] = f"Floor {floor_number} Cleared!"
+        survivors = [h for h in flat_heroes if h["id"] in surviving_ids_for_chatter]
+        if survivors:
+            from services.dialogue_service import get_hero_line
+            best = max(survivors, key=lambda h: h.get("birth_star", 1))
+            result["chatter_line"] = {"name": best["name"], "line": get_hero_line(best["hero_class"], best.get("birth_star", 1), "victory")}
     else:
         result["message"] = f"Team defeated on Floor {floor_number}."
         result["run_over"] = True
+        if flat_heroes:
+            from services.dialogue_service import get_hero_line
+            speaker = random.choice(flat_heroes)
+            result["chatter_line"] = {"name": speaker["name"], "line": get_hero_line(speaker["hero_class"], speaker.get("birth_star", 1), "defeat")}
 
     flat_hero_names = [h["name"] for team in hero_teams for h in team]
     narrative_future = submit_flavor_text(generate_combat_narration, combat_result.get("log", []), flat_hero_names)
@@ -547,6 +559,9 @@ def enter_floor(req: EnterFloorRequest):
                     conn.execute("UPDATE heroes SET level = ? WHERE id = ?", (new_level, hid))
                     level_msgs = level_up_summary(old_level, new_level, hero_dict["name"])
                     result.setdefault("level_ups", []).extend(level_msgs)
+                    from services.dialogue_service import get_hero_line
+                    line = get_hero_line(hero_dict["hero_class"], hero_dict.get("birth_star", 1), "level_up")
+                    result.setdefault("level_up_chatter", []).append({"hero_id": hid, "name": hero_dict["name"], "line": line})
 
         if len(surviving_ids) >= 2:
             for i in range(len(surviving_ids)):

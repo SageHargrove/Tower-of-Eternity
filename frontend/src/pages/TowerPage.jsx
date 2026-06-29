@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react'
 import { getAllTeams, getBase, enterFloor, resolveEvent, resolveExplore, previewFloor, getNarrative } from '../api/client'
+import { arenaUpdateFloor, getArenaToken } from '../api/arenaServerClient'
 import { emitToast } from '../toastBus'
 import CombatArena from '../components/CombatArena'
 import FairyGuide from '../components/FairyGuide'
@@ -109,6 +110,21 @@ function PostCombatScreen({ lastResult, combatEntities, onReturn, onRerun, busy 
           {lastResult.narrative}
         </div>
       )}
+
+      {lastResult.chatter_line && (
+        <div className="card" style={{ textAlign: 'center', borderColor: wasVictory ? 'var(--green)' : 'var(--red)' }}>
+          <div style={{ fontStyle: 'italic', fontSize: '1.05rem' }}>"{lastResult.chatter_line.line}"</div>
+          <div className="text-dim" style={{ fontSize: '0.8rem', marginTop: '0.3rem' }}>— {lastResult.chatter_line.name}</div>
+        </div>
+      )}
+
+      {lastResult.level_up_chatter?.map((c, i) => (
+        <div key={i} className="card" style={{ textAlign: 'center', borderColor: 'var(--gold)' }}>
+          <div className="text-gold" style={{ fontSize: '0.8rem', textTransform: 'uppercase', letterSpacing: 1, marginBottom: '0.3rem' }}>Level Up</div>
+          <div style={{ fontStyle: 'italic', fontSize: '1.05rem' }}>"{c.line}"</div>
+          <div className="text-dim" style={{ fontSize: '0.8rem', marginTop: '0.3rem' }}>— {c.name}</div>
+        </div>
+      ))}
 
       {/* Team Status */}
       <div className="card">
@@ -326,6 +342,13 @@ export default function TowerPage({ onGoldChange }) {
     previewFloor(selectedFloor).then(p => { if (!cancelled) setFloorPreview(p) }).catch(() => {})
     return () => { cancelled = true }
   }, [selectedFloor, highestFloor, lastResult])
+
+  useEffect(() => {
+    // Silently sync highest_floor to the Arena server if logged in
+    if (highestFloor > 0 && getArenaToken()) {
+      arenaUpdateFloor(highestFloor).catch(() => {})
+    }
+  }, [highestFloor])
 
   async function refresh() {
     setLoading(true)
