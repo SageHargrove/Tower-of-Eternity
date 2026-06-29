@@ -485,12 +485,12 @@ def make_boss(floor_number: int, zone_theme: str = "", is_miniboss: bool = False
         # are named by archetype (boss_undead_monarch.png), not by the
         # family's display name ("The Undead Monarch"), so the slug-based
         # lookup wouldn't find them on its own.
-        # Raid Bosses (every-20th-floor merge, plus floor 50) get their own
-        # tier folder — enemies/raid_boss/ — distinct from a regular boss
-        # floor's enemies/boss/, even though both are is_miniboss=False.
-        # Floor 100 stays on enemies/boss/ since its raid pick (Aetherion)
-        # lives in BOSS_OVERRIDES, not RAID_BOSS_OVERRIDES (see enemy_families.py).
-        is_raid = (not is_miniboss) and (floor_number % 20 == 0 or floor_number == 50) and floor_number != 100
+        # Raid Bosses — reduced to exactly 2 (Floor 50 and 100), down from
+        # every 20th floor, so the merge-fight raid mechanic stays a real
+        # milestone instead of a recurring "every 20 floors" pattern. Floor
+        # 100 stays on enemies/boss/ since its raid pick (Aetherion) lives
+        # in BOSS_OVERRIDES, not RAID_BOSS_OVERRIDES (see enemy_families.py).
+        is_raid = (not is_miniboss) and floor_number == 50
         portrait_tier_dir = "raid_boss" if is_raid else ("miniboss" if is_miniboss else "boss")
         portrait_path = family_override.get("portrait_path") or _enemy_portrait_path(boss_title, portrait_tier_dir) or None
         power = (1.5 + (floor_number / 40)) if is_miniboss else (2.5 + (floor_number / 30))
@@ -1955,15 +1955,12 @@ def _apply_combat_drops(result: dict, floor_number: int, is_boss: bool, is_minib
         print(f"Error generating drop: {e}")
 
 def run_multi_combat(hero_teams: list[list[dict]], floor_number: int, is_boss: bool = False, is_miniboss: bool = False, zone_theme: str = "", boss_data_override=_UNSET, difficulty_mult: float = 1.0, conn=None, family_override: dict = None, is_survival_swarm: bool = False, turn_limit: int = None, available_consumables: list = None, is_escort: bool = False) -> dict:
-    # Raid Boss (every 20th floor, plus floor 50 — the halfway point gets
-    # the merge treatment too despite not being a multiple of 20) —
-    # family_override was missing here before, so a floor-20/40/50/60/80/100
-    # family boss could never actually appear; every raid floor fell through
-    # to the generic LLM-flavored naming regardless of whether that range
-    # had a built-out family. Floor 100 still gets its own random pick
-    # (Lich King/Nightwing Devourer/Aetherion) via family_override exactly
-    # like any other boss floor now.
-    if is_boss and (floor_number % 20 == 0 or floor_number == 50):
+    # Raid Boss — reduced to exactly Floor 50 and Floor 100 (was every 20th
+    # floor), so the multi-team merge fight stays a genuine milestone
+    # instead of a recurring pattern. Floor 100 still gets its own random
+    # pick (Lich King/Nightwing Devourer/Aetherion) via family_override
+    # exactly like any other boss floor.
+    if is_boss and (floor_number == 50 or floor_number == 100):
         combined_heroes = []
         for team in hero_teams:
             combined_heroes.extend(team)

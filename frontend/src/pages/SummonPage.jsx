@@ -253,17 +253,12 @@ export default function SummonPage({ onGoldChange }) {
             </div>
           )}
 
-          {pityInfo && (
-            <div className="card" style={{ marginTop: '1rem' }}>
-              <div className="section-header" style={{ marginBottom: '0.6rem', textAlign: 'center' }}>Pity</div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.9rem', padding: '0.5rem 0.8rem', background: 'rgba(0,0,0,0.2)', borderRadius: 6 }}>
-                <span className="text-dim">Guaranteed 3★+ in</span>
-                <span style={{ fontFamily: 'monospace' }}>
-                  {pityInfo.pulls_until_pity} pull{pityInfo.pulls_until_pity === 1 ? '' : 's'}
-                </span>
-              </div>
-            </div>
-          )}
+          {/* Pity counter is intentionally hidden from the player — showing
+              an exact "guaranteed in N pulls" countdown makes the gacha
+              feel mechanical/goofy rather than exciting. It still runs
+              server-side (routers/gacha.py), just not surfaced here.
+              Sparks stay visible below since that's a player-facing
+              strategic currency, not a hidden-RNG safety net. */}
 
           {pityInfo && (
             <div className="card" style={{ marginTop: '1rem' }}>
