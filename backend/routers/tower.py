@@ -380,7 +380,12 @@ def enter_floor(req: EnterFloorRequest):
         # miniboss, never a replacement for all of them, and never on a Boss
         # floor. Rolled before the family-override lookup below since a
         # swarm fight doesn't use one (it's a horde, not a named unit).
-        is_survival_swarm = is_miniboss and random.random() < SWARM_SURVIVAL_CHANCE
+        # Seeded by floor_number — whether floor N is secretly a Survival
+        # Swarm is composition, not combat tactics, so it must be the same
+        # answer on every attempt (a scout team's "floor 15 is a swarm"
+        # report needs to stay true), same reasoning as make_enemies'
+        # seeded composition rolls in combat_service.py.
+        is_survival_swarm = is_miniboss and random.Random(req.floor_number * 7919 + 4).random() < SWARM_SURVIVAL_CHANCE
 
         # Built-out floor families (currently just floor 1-10's Slime/Goblin/
         # Rat/Wolf range) supply a deterministic named miniboss/boss instead

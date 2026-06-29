@@ -258,7 +258,15 @@ export default function CombatArena({ combatData, onComplete, turnNarrations }) 
   // rendered bigger than a regular swarm/pack unit. A true boss is sized to
   // dominate its entire side of the field. Swarms (6+) drop to a smaller,
   // grid-laid-out size instead — see getGridPosition/ENEMY_SIZE_TIERS.swarm*.
-  const enemyTier = isBoss ? 'boss' : isMiniboss ? 'miniboss'
+  // isSurvivalSwarm must be checked BEFORE isMiniboss — a Survival Swarm
+  // floor is still mechanically flagged is_miniboss at the floor-type
+  // level (it's a random alternative rolled *within* a miniboss floor,
+  // see SWARM_SURVIVAL_CHANCE), but with 30-50 enemies on screen it must
+  // never use the giant 320px miniboss circle size. Confirmed via a
+  // direct DOM measurement that this was the actual cause of the dense
+  // overlapping mass reported — not just "too many enemies", the count
+  // tiers were never being reached at all.
+  const enemyTier = isBoss ? 'boss' : isSurvivalSwarm ? (enemies.length > 12 ? 'swarmTiny' : 'swarm') : isMiniboss ? 'miniboss'
     : enemies.length === 1 ? 'elite'
     : enemies.length > 12 ? 'swarmTiny'
     : enemies.length > 5 ? 'swarm'

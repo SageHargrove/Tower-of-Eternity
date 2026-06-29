@@ -249,7 +249,7 @@ def _enemy_pool_for_floor(floor_number: int) -> list[tuple]:
     Goblins. Mirrors services/materials_service.py's tiered drop gating."""
     return [e for e in ENEMY_TYPES if floor_number >= ENEMY_TIER_UNLOCK_FLOOR[e[5]]]
 
-def _build_enemy_group(etype, floor_number: int, difficulty_mult: float, id_start: int, count_override: int = None, max_count_override: int = None) -> list[CombatUnit]:
+def _build_enemy_group(etype, floor_number: int, difficulty_mult: float, id_start: int, count_override: int = None, max_count_override: int = None, rng: random.Random = None) -> list[CombatUnit]:
     """Build one monster type's portion of an encounter. Pulled out of
     make_enemies so a mixed encounter (two archetypes sharing one fight) can
     call this twice with a split difficulty_mult budget instead of duplicating
@@ -288,10 +288,11 @@ def _build_enemy_group(etype, floor_number: int, difficulty_mult: float, id_star
     # next to the regular swarm's 20-unit ceiling.
     max_count = max_count_override or {"swarm": 20, "pack": 10, "elite": 3}.get(archetype, 8)
 
+    _r = rng or random
     if count_override is not None:
         count = max(1, min(max_count, count_override))
     elif difficulty_mult == 1.0:
-        count = max(1, min(max_count, round(random.uniform(base_count - 0.5, base_count + 0.5))))
+        count = max(1, min(max_count, round(_r.uniform(base_count - 0.5, base_count + 0.5))))
     else:
         unit_power = hp_m * (atk_m + def_m)
         target_total_power = base_count * unit_power * difficulty_mult
@@ -373,23 +374,31 @@ def make_enemies(floor_number: int, count: int = None, difficulty_mult: float = 
     rather than just meaning "fewer enemies" (5 weak swarmers can be an
     easier fight than 1 elite — raw count alone doesn't capture that).
     """
+    # Which enemy type(s) appear on this floor is composition, not combat
+    # tactics — fixed per floor_number via a seeded RNG local to this call,
+    # never the shared global `random`, so floor N always rolls the exact
+    # same composition decision on every attempt (a "scout" team's intel
+    # about what's on a floor is then actually trustworthy). In-fight
+    # randomness (damage variance, crit rolls, AI targeting) is untouched
+    # and still uses the global random — only "what shows up" is seeded.
+    rng = random.Random(floor_number * 7919 + 1)
     pool = _enemy_pool_for_floor(floor_number)
-    etype = random.choice(pool)
+    etype = rng.choice(pool)
 
     # Mixed encounters (two different monster types in one fight) are now
     # the default flavor for common floors — splits the same difficulty
     # budget across two archetypes instead of always rolling one. Skipped
     # when the caller passed an explicit count (survival-floor overrides
     # etc. want one clean group, not a fractional split of a fixed number).
-    if count is None and random.random() < 0.45:
+    if count is None and rng.random() < 0.45:
         other_types = [e for e in pool if e[0] != etype[0]]
-        etype2 = random.choice(other_types)
-        split = random.uniform(0.35, 0.65)
-        group1 = _build_enemy_group(etype, floor_number, difficulty_mult * split, id_start=0)
-        group2 = _build_enemy_group(etype2, floor_number, difficulty_mult * (1 - split), id_start=len(group1))
+        etype2 = rng.choice(other_types)
+        split = rng.uniform(0.35, 0.65)
+        group1 = _build_enemy_group(etype, floor_number, difficulty_mult * split, id_start=0, rng=rng)
+        group2 = _build_enemy_group(etype2, floor_number, difficulty_mult * (1 - split), id_start=len(group1), rng=rng)
         return group1 + group2
 
-    return _build_enemy_group(etype, floor_number, difficulty_mult, id_start=0, count_override=count)
+    return _build_enemy_group(etype, floor_number, difficulty_mult, id_start=0, count_override=count, rng=rng)
 
 
 # Survival Floor (Boss Swarm) — an alternative to the typical single strong
@@ -404,21 +413,24 @@ SURVIVAL_SWARM_COUNT_RANGE = (30, 50)
 SURVIVAL_SWARM_ELITE_COUNT_RANGE = (1, 2)
 
 def make_swarm_miniboss_encounter(floor_number: int) -> list[CombatUnit]:
-    """Builds the enemy roster for a Survival Floor miniboss encounter."""
+    """Builds the enemy roster for a Survival Floor miniboss encounter.
+    Seeded the same way as make_enemies — a scout's "this floor is a
+    Survival Swarm of Goblins" report stays true on the real attempt."""
+    rng = random.Random(floor_number * 7919 + 2)
     pool = _enemy_pool_for_floor(floor_number)
     swarm_types = [e for e in pool if e[4] in ("swarm", "pack")] or pool
     elite_types = [e for e in pool if e[4] == "elite"]
 
-    swarm_etype = random.choice(swarm_types)
-    swarm_count = random.randint(*SURVIVAL_SWARM_COUNT_RANGE)
+    swarm_etype = rng.choice(swarm_types)
+    swarm_count = rng.randint(*SURVIVAL_SWARM_COUNT_RANGE)
     enemies = _build_enemy_group(swarm_etype, floor_number, difficulty_mult=1.0, id_start=0,
-                                  count_override=swarm_count, max_count_override=swarm_count)
+                                  count_override=swarm_count, max_count_override=swarm_count, rng=rng)
 
     if elite_types:
-        elite_count = random.randint(*SURVIVAL_SWARM_ELITE_COUNT_RANGE)
-        elite_etype = random.choice(elite_types)
+        elite_count = rng.randint(*SURVIVAL_SWARM_ELITE_COUNT_RANGE)
+        elite_etype = rng.choice(elite_types)
         elites = _build_enemy_group(elite_etype, floor_number, difficulty_mult=1.0, id_start=len(enemies),
-                                     count_override=elite_count, max_count_override=elite_count)
+                                     count_override=elite_count, max_count_override=elite_count, rng=rng)
         enemies += elites
 
     return enemies
@@ -551,7 +563,16 @@ def make_boss(floor_number: int, zone_theme: str = "", is_miniboss: bool = False
             {"name": "Vampiric", "atk": 1.1, "def": 1.1, "spd": 1.1, "health": 1.1},
             {"name": "Cursed", "atk": 1.3, "def": 0.8, "spd": 1.2, "health": 0.9},
         ]
-        mod = random.choice(boss_modifiers)
+        # Seeded so a floor without a built-out family (most floors past
+        # the first 10) still rolls the same fallback modifier every visit
+        # when the LLM boss-naming call times out — matches make_enemies'
+        # composition-determinism. The LLM-sourced name/modifier path above
+        # (when the call succeeds) is intentionally NOT made deterministic
+        # here — boss naming is explicitly "pure flavor" sourced fresh each
+        # time, a deliberate existing design choice, not an oversight; doing
+        # so would mean caching LLM output per floor, a bigger change than
+        # this pass covers.
+        mod = random.Random(floor_number * 7919 + 3).choice(boss_modifiers)
 
     if is_miniboss and not boss_data:
         name = f"Lieutenant of {name}"
