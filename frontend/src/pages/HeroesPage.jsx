@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react'
 import { listHeroes, setTeam, removeHeroFromTeam, reorderTeam, dismissHero, dismissHeroesBulk, synthesizeHero, ascendHero, getAscensionInfo, promoteHero, getEvolutionInfo, regeneratePortraits, evolveHero, listEquipment, equipItem, unequipItem, egoAutoTeam, getEgoRecommendation, assignTeamLeader, getBonds, equipConsumable, getInventory, getBase } from '../api/client'
 import HeroCard from '../components/HeroCard'
 import ClassEvolutionModal from '../components/ClassEvolutionModal'
+import { HeroCompareModal, TeamCompareModal } from '../components/CompareModal'
 
 function formatEquipmentStats(eq) {
   const parts = []
@@ -55,6 +56,16 @@ export default function HeroesPage() {
   const [ascending, setAscending] = useState(false)
   const [promoting, setPromoting] = useState(false)
   const [evolving, setEvolving] = useState(false)
+
+  // Comparison — reuses the existing `selected` checkbox set for Hero vs
+  // Hero (no separate selection mode to learn); Team vs Team is a
+  // standalone picker since it compares whole rosters, not individual
+  // hero checkboxes.
+  const [compareHeroesOpen, setCompareHeroesOpen] = useState(false)
+  const [compareTeamsOpen, setCompareTeamsOpen] = useState(false)
+  const [compareTeamsResultOpen, setCompareTeamsResultOpen] = useState(false)
+  const [compareTeamA, setCompareTeamA] = useState(1)
+  const [compareTeamB, setCompareTeamB] = useState(2)
 
   useEffect(() => { load() }, [])
 
@@ -694,6 +705,9 @@ export default function HeroesPage() {
                 Team {t}
               </button>
             ))}
+            <button className="btn" style={{ marginLeft: 'auto' }} onClick={() => setCompareTeamsOpen(true)}>
+              ⚖ Compare Teams
+            </button>
           </div>
 
           {/* Filters & Actions */}
@@ -737,12 +751,18 @@ export default function HeroesPage() {
                 <button className="btn btn-danger" onClick={removeFromTeamFromAll} disabled={saving || selected.size === 0}>
                   {saving ? 'Removing...' : 'Remove from Team'}
                 </button>
+                <button className="btn" onClick={() => setCompareHeroesOpen(true)} disabled={selected.size < 2 || selected.size > 4} title="Select 2-4 heroes to compare.">
+                  ⚖ Compare Selected ({selected.size})
+                </button>
               </div>
             ) : (
               <div style={{ marginLeft: 'auto', display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
                 <span className="text-dim text-sm">Team {activeTab} Members ({displayHeroes.length}/5)</span>
                 <button className="btn btn-danger" onClick={removeFromTeam} disabled={saving || selected.size === 0}>
                   {saving ? 'Removing...' : `Remove Selected (${selected.size})`}
+                </button>
+                <button className="btn" onClick={() => setCompareHeroesOpen(true)} disabled={selected.size < 2 || selected.size > 4} title="Select 2-4 heroes to compare.">
+                  ⚖ Compare Selected ({selected.size})
                 </button>
               </div>
             )}
@@ -981,13 +1001,52 @@ export default function HeroesPage() {
 
       {/* Evolution Modal */}
       {evoModal && (
-        <ClassEvolutionModal 
-          hero={evoModal.hero} 
+        <ClassEvolutionModal
+          hero={evoModal.hero}
           onClose={() => setEvoModal(null)}
           onEvolve={(newClass) => {
             setMsg(`Hero evolved to ${newClass}!`)
             load()
           }}
+        />
+      )}
+
+      {compareHeroesOpen && (
+        <HeroCompareModal
+          heroes={heroes.filter(h => selected.has(h.id))}
+          onClose={() => setCompareHeroesOpen(false)}
+        />
+      )}
+
+      {compareTeamsOpen && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.75)', zIndex: 100, display: 'flex', alignItems: 'center', justifyContent: 'center' }} onClick={() => setCompareTeamsOpen(false)}>
+          <div onClick={e => e.stopPropagation()} style={{ background: 'var(--bg-panel)', border: '1px solid var(--border)', borderRadius: 8, padding: '1.5rem', minWidth: '380px' }}>
+            <div style={{ fontFamily: 'Cinzel, serif', fontSize: '1.1rem', color: 'var(--gold)', marginBottom: '1rem' }}>Compare Teams</div>
+            <div style={{ display: 'flex', gap: '1rem', alignItems: 'center', marginBottom: '1.2rem' }}>
+              <select value={compareTeamA} onChange={e => setCompareTeamA(Number(e.target.value))} style={{ background: 'var(--bg)', color: '#fff', border: '1px solid var(--border)', padding: '0.4rem 0.8rem', borderRadius: 4, flex: 1 }}>
+                {[1, 2, 3, 4, 5].map(t => <option key={t} value={t}>Team {t}</option>)}
+              </select>
+              <span className="text-dim">vs</span>
+              <select value={compareTeamB} onChange={e => setCompareTeamB(Number(e.target.value))} style={{ background: 'var(--bg)', color: '#fff', border: '1px solid var(--border)', padding: '0.4rem 0.8rem', borderRadius: 4, flex: 1 }}>
+                {[1, 2, 3, 4, 5].map(t => <option key={t} value={t}>Team {t}</option>)}
+              </select>
+            </div>
+            <div style={{ display: 'flex', gap: '0.5rem' }}>
+              <button className="btn btn-primary" style={{ flex: 1 }} onClick={() => { setCompareTeamsOpen(false); setCompareTeamsResultOpen(true) }} disabled={compareTeamA === compareTeamB}>
+                Compare
+              </button>
+              <button className="btn" onClick={() => setCompareTeamsOpen(false)}>Cancel</button>
+            </div>
+            {compareTeamA === compareTeamB && <div className="text-red text-sm" style={{ marginTop: '0.5rem' }}>Pick two different teams.</div>}
+          </div>
+        </div>
+      )}
+
+      {compareTeamsResultOpen && (
+        <TeamCompareModal
+          teamA={{ label: compareTeamA, heroes: heroes.filter(h => h.is_on_team === compareTeamA) }}
+          teamB={{ label: compareTeamB, heroes: heroes.filter(h => h.is_on_team === compareTeamB) }}
+          onClose={() => setCompareTeamsResultOpen(false)}
         />
       )}
     </div>
