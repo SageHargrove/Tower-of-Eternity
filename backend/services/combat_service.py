@@ -743,6 +743,31 @@ def _panic_check(unit: CombatUnit, trigger: str, log: list, power_ratio: float =
     return True
 
 
+# Unimber — a lone hero facing a pack takes escalating damage (40% per
+# enemy past the first), but it's recomputed live off the current alive
+# counts rather than stored as a status effect, so it scales down the
+# instant allies die or extra enemies fall — no separate "lift" logic
+# needed for the "reinforcement arrived" / "enemies thinned out" cases.
+UNIMBER_DAMAGE_PER_EXTRA_ENEMY = 0.40
+UNIMBER_MAX_ENEMIES = 5
+
+# Mirrored from the enemy side: a boss facing a full 5-hero team gets padded
+# rather than a lone hero just being squashed by a stat-static boss.
+UNIMBER_BOSS_HP_PAD_PER_HERO = 0.20
+UNIMBER_BOSS_DEF_PAD_PER_HERO = 0.10
+UNIMBER_BOSS_PAD_MAX_HEROES = 4  # caps at the standard 5-hero team (4 "extra" heroes)
+
+def unimber_stacks(defender: CombatUnit, ally_count: int, enemy_count: int) -> int:
+    if not defender.is_hero or ally_count != 1 or enemy_count <= 1:
+        return 0
+    return min(enemy_count, UNIMBER_MAX_ENEMIES) - 1
+
+def apply_unimber(damage: int, stacks: int) -> int:
+    if stacks <= 0:
+        return damage
+    return int(damage * (1.0 + UNIMBER_DAMAGE_PER_EXTRA_ENEMY * stacks))
+
+
 def calc_damage(attacker: CombatUnit, defender: CombatUnit) -> tuple[int, bool]:
     effective_def = defender.endurance * (1 - attacker.armor_pen)
     if defender.bracing_rounds > 0:
@@ -836,12 +861,16 @@ def _try_use_ability(attacker: CombatUnit, alive_heroes: list, log: list, morale
 
     if "cleave" in attacker.abilities and random.random() < 0.20:
         log.append(f"  ⚔ {attacker.log_name} cleaves at the whole party!")
+        live_enemy_count = len([e for e in (enemies or []) if e.alive])
         for target in alive_heroes:
             damage, is_crit = calc_damage(attacker, target)
             damage = int(damage * 0.5)
+            stacks = unimber_stacks(target, len(alive_heroes), live_enemy_count)
+            damage = apply_unimber(damage, stacks)
             target.health -= damage
             crit_text = " CRIT!" if is_crit else ""
-            log.append(f"    → {target.log_name} takes {damage}{crit_text} [{max(0,target.health)}/{target.max_health}]")
+            unimber_tag = f"[Unimber ×{stacks}] " if stacks > 0 else ""
+            log.append(f"    → {unimber_tag}{target.log_name} takes {damage}{crit_text} [{max(0,target.health)}/{target.max_health}]")
             if target.health <= 0:
                 target.alive = False
                 log.append(f"    ✦ {target.log_name} has fallen.")
@@ -862,8 +891,11 @@ def _try_use_ability(attacker: CombatUnit, alive_heroes: list, log: list, morale
         target = max(alive_heroes, key=lambda h: h.health)
         damage, is_crit = calc_damage(attacker, target)
         damage = int(damage * 2.2)
+        stacks = unimber_stacks(target, len(alive_heroes), len([e for e in (enemies or []) if e.alive]))
+        damage = apply_unimber(damage, stacks)
+        unimber_tag = f"[Unimber ×{stacks}] " if stacks > 0 else ""
         target.health -= damage
-        log.append(f"  ☠ {attacker.log_name} unleashes a CRUSHING BLOW on {target.log_name} for {damage} damage! [{max(0,target.health)}/{target.max_health}]")
+        log.append(f"  ☠ {unimber_tag}{attacker.log_name} unleashes a CRUSHING BLOW on {target.log_name} for {damage} damage! [{max(0,target.health)}/{target.max_health}]")
         if target.health <= 0:
             target.alive = False
             log.append(f"    ✦ {target.log_name} has fallen.")
@@ -1343,6 +1375,21 @@ def _resolve_combat_from_processed(processed, floor_number, is_boss, is_miniboss
             enemies = preset_enemies
         else:
             enemies = make_boss(floor_number, zone_theme, is_miniboss, boss_data_override=boss_data_override, family_override=family_override)
+        # Boss stat padding — mirrors Unimber from the enemy side: a boss
+        # facing a full 5-hero team is up against far more sustained
+        # pressure than facing 1, so it gets padded HP/defense rather than
+        # staying stat-static while the player side scales with team size.
+        real_hero_count = len([h for h in combatants_heroes if h.hero_class != "Construct"])
+        if is_boss and real_hero_count > 1:
+            pad_n = min(real_hero_count - 1, UNIMBER_BOSS_PAD_MAX_HEROES)
+            hp_mult = 1.0 + UNIMBER_BOSS_HP_PAD_PER_HERO * pad_n
+            def_mult = 1.0 + UNIMBER_BOSS_DEF_PAD_PER_HERO * pad_n
+            for boss_unit in enemies:
+                boss_unit.max_health = int(boss_unit.max_health * hp_mult)
+                boss_unit.health = boss_unit.max_health
+                boss_unit.endurance = int(boss_unit.endurance * def_mult)
+                boss_unit.defense = int(boss_unit.defense * def_mult)
+            log.append(f"  💪 Boss Empowered: full party detected (+{int((hp_mult - 1) * 100)}% HP, +{int((def_mult - 1) * 100)}% DEF).")
         log.append(f"🔥💀🔥 {'MINIBOSS' if is_miniboss else 'BOSS'} FLOOR {floor_number} 🔥💀🔥")
         log.append(f"  {enemies[0].name} emerges from the darkness.")
     else:
@@ -1680,12 +1727,15 @@ def _resolve_combat_from_processed(processed, floor_number, is_boss, is_miniboss
                     continue
 
                 damage, is_crit = calc_damage(attacker, target)
+                stacks = unimber_stacks(target, len(alive_frontline) + len(alive_backline), len([e for e in enemies if e.alive]))
+                damage = apply_unimber(damage, stacks)
                 target.health -= damage
                 target.mana = min(target.max_mana, target.mana + ON_HIT_MANA_GAIN)
                 crit_text = " CRIT!" if is_crit else ""
-                log_msg = f"  {attacker.log_name} hits {target.log_name} for {damage}{crit_text} [{max(0,target.health)}/{target.max_health}]"
+                unimber_tag = f"[Unimber ×{stacks}] " if stacks > 0 else ""
+                log_msg = f"  {unimber_tag}{attacker.log_name} hits {target.log_name} for {damage}{crit_text} [{max(0,target.health)}/{target.max_health}]"
                 log.append(log_msg)
-                turns.append({"round": round_num, "attacker_id": attacker.id, "target_id": target.id, "damage": damage, "is_crit": is_crit, "target_hp": max(0, target.health), "log": log_msg, "attacker_mana": attacker.mana, "target_mana": target.mana})
+                turns.append({"round": round_num, "attacker_id": attacker.id, "target_id": target.id, "damage": damage, "is_crit": is_crit, "target_hp": max(0, target.health), "log": log_msg, "attacker_mana": attacker.mana, "target_mana": target.mana, "unimber_stacks": stacks})
 
                 if target.health <= 0:
                     # Death save check
