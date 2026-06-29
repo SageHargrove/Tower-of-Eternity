@@ -25,7 +25,7 @@ const FACILITY_TOOLTIPS = {
   "Workshop": "Builds base upgrades and gadgets. Magic Engineers are the best fit.",
   "The Market": "Generates passive gold over time and stocks a small shop for supplies, materials, and bandages. Merchants and Quartermasters excel here.",
   "The Farm": "Generates passive supplies over time. Merchants and Druids excel here.",
-  "Training Grounds": "Allows heroes to spar for EXP. Warriors, Spearmen, and Tacticians thrive here.",
+  "Training Grounds": "Allows heroes to spar for EXP. Any combat class thrives here.",
   "Mage Tower": "Conducts magical research. Magic Engineers are the most effective, with Mages and Spellswords close behind."
 }
 
@@ -525,8 +525,8 @@ const getGenRate = (fac) => {
           <div style={{ flex: '2 1 500px', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
             {facilitiesData.built.sort((a,b) => a.cost - b.cost).map(fac => (
               <div key={fac.id} className="card" style={{ overflow: 'hidden', padding: 0 }}>
-                <div style={{ width: '100%', height: '160px', overflow: 'hidden', position: 'relative' }}>
-                  <img src={`http://localhost:8000/static/facilities/${fac.type}.png`} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover', objectPosition: 'center 40%', display: 'block' }} onError={(e) => { e.target.style.display = 'none'; e.target.nextSibling.style.display = 'none'; }} />
+                <div style={{ width: '100%', aspectRatio: '3/1', overflow: 'hidden', position: 'relative' }}>
+                  <img src={`http://localhost:8000/static/facilities/${fac.type}.png`} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover', objectPosition: 'center', display: 'block' }} onError={(e) => { e.target.style.display = 'none'; e.target.nextSibling.style.display = 'none'; }} />
                   <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(to bottom, rgba(0,0,0,0) 50%, rgba(10,10,14,0.95) 100%)' }} />
                 </div>
                 <div style={{ padding: '1rem' }}>
@@ -631,6 +631,21 @@ const getGenRate = (fac) => {
                 </div>
               </div>
             ))}
+
+            {(() => {
+                const obs = baseUpgrades.find(u => u.id === 'talent_observatory')
+                if (obs && obs.level > 0) {
+                    return (
+                        <TalentObservatory
+                            upgrade={obs}
+                            gold={base.gold}
+                            onGoldChange={() => { loadAll(); if (onGoldChange) onGoldChange() }}
+                            onUpgrade={() => handleBuyBaseUpgrade('talent_observatory')}
+                        />
+                    )
+                }
+                return null;
+            })()}
           </div>
 
           {/* Right Column: Available Facilities */}
@@ -638,38 +653,45 @@ const getGenRate = (fac) => {
             <h3 style={{ fontFamily: 'Cinzel, serif', color: 'var(--gold)', marginBottom: '1rem' }}>Available Facilities</h3>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
               {facilitiesData.available.sort((a,b) => a.cost - b.cost).map(fac => (
-                <div key={fac.type} className="card" style={{ display: 'flex', flexDirection: 'column', overflow: 'hidden', padding: 0 }}>
-                  <div style={{ width: '100%', height: '110px', overflow: 'hidden', position: 'relative' }}>
-                    <img src={`http://localhost:8000/static/facilities/${fac.type}.png`} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover', objectPosition: 'center 40%', display: 'block' }} onError={(e) => { e.target.style.display = 'none'; e.target.nextSibling.style.background = 'transparent'; }} />
-                    <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(to right, rgba(10,10,14,0.9) 0%, rgba(10,10,14,0.4) 50%, rgba(10,10,14,0.1) 100%)' }} />
-                    <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', padding: '0 1rem', justifyContent: 'space-between' }}>
+                <div key={fac.type} className="card" style={{ display: 'flex', flexDirection: 'column', padding: '1rem' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.5rem' }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                        <span style={{ fontFamily: 'Cinzel, serif', fontSize: '1.1rem', color: 'var(--gold)', textShadow: '0 2px 4px rgba(0,0,0,0.8)' }}>{fac.type}</span>
+                        <span style={{ fontFamily: 'Cinzel, serif', fontSize: '1.1rem', color: 'var(--gold)' }}>{fac.type}</span>
                         <span title={FACILITY_TOOLTIPS[fac.type] || "Base facility."} style={{ fontSize: '0.8rem', color: 'var(--gold)', cursor: 'help' }}>[?]</span>
                       </div>
-                      <button className="btn btn-gold" onClick={() => handleBuildFacility(fac.type)} disabled={facilityLoading || base.gold < fac.cost} style={{ padding: '0.3rem 0.6rem', fontSize: '0.8rem', zIndex: 2 }}>
+                      <button className="btn btn-gold" onClick={() => handleBuildFacility(fac.type)} disabled={facilityLoading || base.gold < fac.cost} style={{ padding: '0.3rem 0.6rem', fontSize: '0.8rem' }}>
                         Build ({fac.cost}g)
                       </button>
                     </div>
-                  </div>
                   {fac.floor_restricted && (
-                    <div style={{ padding: '0.5rem 1rem', color: 'var(--text-dim)', fontSize: '0.8rem', fontStyle: 'italic', background: 'var(--bg-dark)' }}>Unlocked at Floor {fac.unlock_floor}</div>
+                    <div style={{ color: 'var(--text-dim)', fontSize: '0.8rem', fontStyle: 'italic' }}>Unlocked at Floor {fac.unlock_floor}</div>
                   )}
                 </div>
               ))}
+              
+              {(() => {
+                const obs = baseUpgrades.find(u => u.id === 'talent_observatory')
+                if (obs && obs.level === 0) {
+                  return (
+                    <div className="card" style={{ display: 'flex', flexDirection: 'column', padding: '1rem' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.5rem' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                            <span style={{ fontFamily: 'Cinzel, serif', fontSize: '1.1rem', color: 'var(--gold)' }}>Talent Observatory</span>
+                          </div>
+                          <button className="btn btn-gold" onClick={() => handleBuyBaseUpgrade('talent_observatory')} disabled={base.gold < obs.next_cost} style={{ padding: '0.3rem 0.6rem', fontSize: '0.8rem' }}>
+                            Build ({obs.next_cost}g)
+                          </button>
+                        </div>
+                        <div style={{ color: 'var(--text-dim)', fontSize: '0.85rem' }}>{obs.description}</div>
+                    </div>
+                  )
+                }
+                return null;
+              })()}
             </div>
           </div>
         </div>
 
-        {/* Base Upgrades section removed as requested — Talent Observatory
-            gets its own self-contained card instead of resurrecting that
-            generic list, since it needs a hero picker the others didn't. */}
-        <TalentObservatory
-          upgrade={baseUpgrades.find(u => u.id === 'talent_observatory')}
-          gold={base.gold}
-          onGoldChange={() => { loadAll(); if (onGoldChange) onGoldChange() }}
-          onUpgrade={() => handleBuyBaseUpgrade('talent_observatory')}
-        />
         </>
       )}
 
