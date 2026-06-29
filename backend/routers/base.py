@@ -492,6 +492,7 @@ DEFAULT_UPGRADES = [
     {"id": "forge", "name": "Forge", "description": "Improves the quality of crafted equipment.", "max_level": 5},
     {"id": "archive", "name": "Archive", "description": "Reveal hero aptitudes faster.", "max_level": 3},
     {"id": "chapel", "name": "Chapel", "description": "Reduce trauma buildup.", "max_level": 5},
+    {"id": "talent_observatory", "name": "Talent Observatory", "description": "Pay gold to reveal a hero's Talent immediately, instead of waiting on Archive's passive per-level reveal.", "max_level": 3},
 ]
 
 UPGRADE_GOLD_COST = {
@@ -578,6 +579,39 @@ def buy_upgrade(data: UpgradeRequest):
         "gold_spent": cost,
         "message": f"{upgrade['name']} upgraded to level {next_level}!"
     }
+
+
+class TalentRevealRequest(BaseModel):
+    hero_id: int
+
+@router.post("/talent-observatory/reveal")
+def reveal_hero_talent(data: TalentRevealRequest):
+    """Pay gold to immediately reveal a hero's Talent — see
+    services/level_service.py's reveal_talent_observatory for how this
+    differs from Archive's free, passive, per-level aptitude reveal."""
+    from services.base_service import get_base_upgrade_level
+    from services.level_service import get_talent_observatory_cost, reveal_talent_observatory
+
+    with db() as conn:
+        hero = conn.execute("SELECT * FROM heroes WHERE id = ?", (data.hero_id,)).fetchone()
+        if not hero:
+            raise HTTPException(status_code=404, detail="Hero not found.")
+        hero = dict(hero)
+        if hero.get("talent_reveal"):
+            raise HTTPException(status_code=400, detail="This hero's Talent has already been revealed.")
+
+        cost = get_talent_observatory_cost(hero)
+        base = conn.execute("SELECT gold FROM base WHERE id = 1").fetchone()
+        if base["gold"] < cost:
+            raise HTTPException(status_code=400, detail=f"Not enough gold. Need {cost}, have {base['gold']}.")
+
+        observatory_level = get_base_upgrade_level(conn, "talent_observatory")
+        revealed = reveal_talent_observatory(hero, observatory_level)
+
+        conn.execute("UPDATE base SET gold = gold - ? WHERE id = 1", (cost,))
+        conn.execute("UPDATE heroes SET talent_reveal = ? WHERE id = ?", (revealed, data.hero_id))
+
+    return {"ok": True, "hero_id": data.hero_id, "gold_spent": cost, "talent_reveal": revealed}
 
 
 # ─── Equipment endpoints ────────────────────────────────────────────

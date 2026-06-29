@@ -97,6 +97,7 @@ export const buyResearchUpgrade = (upgradeId) => request('/base/facilities/mage-
 
 export const getBaseUpgrades = () => request('/base/upgrades')
 export const buyBaseUpgrade = (upgradeId) => request('/base/upgrades/purchase', { method: 'POST', body: JSON.stringify({ upgrade_id: upgradeId }) })
+export const revealHeroTalent = (heroId) => request('/base/talent-observatory/reveal', { method: 'POST', body: JSON.stringify({ hero_id: heroId }) })
 
 export const grantResources = (gold = 0, gems = 0, supplies = 0) => request('/base/dev/grant', { method: 'POST', body: JSON.stringify({ gold, gems, supplies }) })
 export const clearDevInventory = () => request('/base/dev/clear-inventory', { method: 'POST' })

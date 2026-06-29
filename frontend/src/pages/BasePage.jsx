@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react'
 import { getBase, getFacilities, buildFacility, upgradeFacility, assignFacility, removeFacility, restHeroes, listHeroes, configTraining, getMageTowerUpgrades, buyResearchUpgrade, craftMaterialEquipment, craftBandages, getBaseFloors, assignBaseFloor, getLegacies, getChatLogs, renameBase, upgradeBase, getMarketCatalog, purchaseMarketItem, getBaseUpgrades, buyBaseUpgrade, getMailList, claimMail } from '../api/client'
+import TalentObservatory from '../components/TalentObservatory'
 
 // Hand-painted banner art for the base-wide upgrade tree — keyed by the
 // upgrade's id (see DEFAULT_UPGRADES in routers/base.py) so a rename there
@@ -659,7 +660,15 @@ const getGenRate = (fac) => {
           </div>
         </div>
 
-        {/* Base Upgrades section removed as requested */}
+        {/* Base Upgrades section removed as requested — Talent Observatory
+            gets its own self-contained card instead of resurrecting that
+            generic list, since it needs a hero picker the others didn't. */}
+        <TalentObservatory
+          upgrade={baseUpgrades.find(u => u.id === 'talent_observatory')}
+          gold={base.gold}
+          onGoldChange={() => { loadAll(); if (onGoldChange) onGoldChange() }}
+          onUpgrade={() => handleBuyBaseUpgrade('talent_observatory')}
+        />
         </>
       )}
 

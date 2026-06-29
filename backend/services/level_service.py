@@ -220,6 +220,49 @@ def estimate_talent_rarity(hero: dict, archive_level: int = 0) -> float | None:
     avg = sum(known) / len(known)
     return max(1.0, math.exp(avg / TALENT_TAIL_SCALE))
 
+
+# Talent Observatory — a SEPARATE, paid reveal path from Archive's passive
+# per-level aptitude drip above. Archive gradually exposes the 5 individual
+# aptitudes as a hero levels (free, automatic); the Observatory instead lets
+# a player pay gold to immediately reveal the single overall talent_score
+# (scaled to a friendlier 0-100 display range) for ANY hero regardless of
+# level, with the level of detail (tier/range/exact) gated by the
+# Observatory's own building level. The two systems don't share state.
+TALENT_OBSERVATORY_GOLD_PER_STAR = 500
+
+TALENT_OBSERVATORY_TIERS = [
+    (25, "Poor"),
+    (50, "Average"),
+    (75, "Good"),
+    (101, "Exceptional"),
+]
+
+def talent_display_value(hero: dict) -> int:
+    """talent_score() is a 0.0-2.0 normalized float; scaled to 0-100 for a
+    player-facing number that doesn't require explaining the raw formula."""
+    return round(talent_score(hero) * 50)
+
+def get_talent_observatory_cost(hero: dict) -> int:
+    return get_hero_star(hero) * TALENT_OBSERVATORY_GOLD_PER_STAR
+
+def reveal_talent_observatory(hero: dict, observatory_level: int) -> str:
+    """Returns the display string for the Observatory's current level —
+    this is what gets persisted to heroes.talent_reveal, frozen at
+    whatever detail the building offered at the moment of reveal."""
+    value = talent_display_value(hero)
+    if observatory_level >= 3:
+        return f"Talent is {value}"
+    if observatory_level >= 2:
+        # ~15-wide window, gated to stay within [0, 100].
+        low = max(0, (value // 15) * 15)
+        high = min(100, low + 15)
+        return f"Talent is between {low}-{high}"
+    for threshold, label in TALENT_OBSERVATORY_TIERS:
+        if value < threshold:
+            return label
+    return TALENT_OBSERVATORY_TIERS[-1][1]
+
+
 def get_talent_title(hero: dict, archive_level: int = 0) -> str | None:
     """None below the 'Adequate' (1-in-10) threshold — most heroes simply
     don't have a talent title yet, which is the point; this is meant to

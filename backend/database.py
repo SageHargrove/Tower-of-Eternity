@@ -597,6 +597,7 @@ WHERE NOT EXISTS (SELECT 1 FROM recipes WHERE name = 'Void Ring');
             ("unique_floors_cleared", "ALTER TABLE heroes ADD COLUMN unique_floors_cleared INTEGER DEFAULT 0"),
             ("defense", "ALTER TABLE heroes ADD COLUMN defense INTEGER DEFAULT 5"),
             ("equipped_consumable", "ALTER TABLE heroes ADD COLUMN equipped_consumable TEXT"),
+            ("talent_reveal", "ALTER TABLE heroes ADD COLUMN talent_reveal TEXT"),
         ]
         for col, sql in migrations:
             if col not in existing:
