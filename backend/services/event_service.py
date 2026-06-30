@@ -114,6 +114,15 @@ def select_event(floor_number: int, zone_theme: str = None) -> dict:
     }
 
 
+def get_event_theme(template_id: str) -> str:
+    """The actual scenario text for this template — used for the resolution
+    narrative instead of the request body's stale zone-level theme, which
+    was the original 'the narration and choices describe two different
+    encounters' bug (zone theme vs. the specific event rolled)."""
+    template = next((t for t in EVENT_TEMPLATES if t["id"] == template_id), None)
+    return template["theme"] if template else "An event occurred."
+
+
 def resolve_event_choice(template_id: str, choice_id: str, heroes: list[dict]) -> dict:
     template = next((t for t in EVENT_TEMPLATES if t["id"] == template_id), None)
     if not template:

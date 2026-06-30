@@ -1,20 +1,24 @@
 import React, { useState, useEffect, useRef } from 'react'
 import { playHitSound } from '../audio'
 
+// Front/back column gap widened from 34%/14% (20% apart) — at the old 1.3x
+// hero scale that gap was only a few px wider than the circles themselves
+// (confirmed by measuring actual render size), so Front-Top and Back-Top
+// visibly overlapped. Now 24% apart, paired with the scale-down below.
 const TEAM_POSITIONS = {
   hero: [
-    { x: '34%', y: '30%' }, // Front Top
-    { x: '34%', y: '70%' }, // Front Bottom
-    { x: '14%', y: '15%' }, // Back Top
-    { x: '14%', y: '50%' }, // Back Mid
-    { x: '14%', y: '85%' }, // Back Bottom
+    { x: '36%', y: '30%' }, // Front Top
+    { x: '36%', y: '70%' }, // Front Bottom
+    { x: '12%', y: '15%' }, // Back Top
+    { x: '12%', y: '50%' }, // Back Mid
+    { x: '12%', y: '85%' }, // Back Bottom
   ],
   enemy: [
-    { x: '66%', y: '30%' }, // Front Top
-    { x: '66%', y: '70%' }, // Front Bottom
-    { x: '86%', y: '15%' }, // Back Top
-    { x: '86%', y: '50%' }, // Back Mid
-    { x: '86%', y: '85%' }, // Back Bottom
+    { x: '64%', y: '30%' }, // Front Top
+    { x: '64%', y: '70%' }, // Front Bottom
+    { x: '88%', y: '15%' }, // Back Top
+    { x: '88%', y: '50%' }, // Back Mid
+    { x: '88%', y: '85%' }, // Back Bottom
   ]
 }
 
@@ -125,13 +129,16 @@ function CombatUnitSprite({ unit, team, position, teamCount = 1, pos: posOverrid
   const manaPercent = maxMana > 0 ? Math.max(0, (mana / maxMana) * 100) : 0
 
   const pos = posOverride || (teamCount > 5 ? getGridPosition(position, teamCount, team) : TEAM_POSITIONS[team][position]) || TEAM_POSITIONS[team][0]
-  // Heroes render ~30% larger than the shared enemy-tier sizing so faces
+  // Heroes render somewhat larger than the shared enemy-tier sizing so faces
   // and HP/mana bars stay legible — was previously sharing ENEMY_SIZE_TIERS
   // 1:1 with enemies, which is tuned for "boss should look huge," not for
-  // a hero player actually needs to read at a glance.
+  // a hero player actually needs to read at a glance. Was 1.3x, which (with
+  // the border width added on top) was only a few px narrower than the
+  // Front/Back column gap at a 5-hero team — visibly overlapped. 1.15x
+  // plus the widened columns above gives real clearance.
   const baseSize = ENEMY_SIZE_TIERS[tier] || ENEMY_SIZE_TIERS.normal
   const size = team === 'hero'
-    ? { ...baseSize, circle: Math.round(baseSize.circle * 1.3), container: Math.round(baseSize.container * 1.3) }
+    ? { ...baseSize, circle: Math.round(baseSize.circle * 1.15), container: Math.round(baseSize.container * 1.15) }
     : baseSize
 
   return (

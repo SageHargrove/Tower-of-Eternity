@@ -1,12 +1,25 @@
 """
 Level System
 ============
-Level is earned through combat experience — floors survived and kills.
-It is NOT a separate grind resource, it emerges from play.
+Level is earned through a real, accumulated XP economy now — kills, floor
+clears, and Training Grounds all deposit into hero.xp, and level is derived
+by walking an XP-cost-per-level curve up from there. This replaced an
+earlier "level = 1 + floors_survived + kills//5" proxy that never actually
+used the (previously dead, never-written-to) `xp` column at all —
+confirmed real complaint that the old system was "weird" and didn't make
+use of XP like a normal leveling system should.
 
-Formula:
-  level = 1 + (floors_survived // 3) + (kills // 5)
+XP curve (see xp_to_next_level/cumulative_xp_for_level):
+  cost to go from level L to L+1 = 30 + 12*L (grows linearly each level)
+  level is whatever level's cumulative threshold the hero's total xp clears,
   capped by STAR level cap (birth_star or current_star)
+
+XP sources (see routers/tower.py combat resolution and
+services/training_service.py's per-minute tick):
+  - per enemy kill: scales with floor depth and boss/miniboss weight
+  - per floor cleared: a flat bonus on top of kill XP, also floor-scaled
+  - Training Grounds: a slow passive trickle for any hero assigned there,
+    independent of (and much slower than) actually fighting
 
 Star-gated level caps (from Pick Me Up):
   1★ → max level 10
@@ -53,10 +66,36 @@ def get_hero_star(hero: dict) -> int:
     return hero.get("current_star") or hero.get("birth_star", 1)
 
 
-def calculate_level(floors_survived: int, kills: int, hero_star: int, ascension_star: int = 0, xp: int = 0) -> int:
-    raw = 1 + (floors_survived // 3) + (kills // 5) + (xp // 100)
+def xp_to_next_level(current_level: int) -> int:
+    """XP needed to go from current_level to current_level+1. Grows by 12
+    per level so the climb gets meaningfully steeper at high level without
+    exploding — level 1->2 costs 42, level 50->51 costs 630."""
+    return 30 + 12 * current_level
+
+
+def cumulative_xp_for_level(level: int) -> int:
+    """Total XP a hero needs to have ever earned to currently be at `level`
+    (i.e. the threshold that was just cleared to reach it)."""
+    if level <= 1:
+        return 0
+    n = level - 1
+    return 30 * n + 6 * n * (n + 1)  # closed form of sum(30+12*i for i in 1..n)
+
+
+def xp_progress(xp: int, level: int) -> tuple[int, int]:
+    """(xp earned since hitting `level`, xp needed to reach `level`+1) — for
+    a frontend progress bar."""
+    floor_xp = cumulative_xp_for_level(level)
+    next_xp = cumulative_xp_for_level(level + 1)
+    return (max(0, xp - floor_xp), next_xp - floor_xp)
+
+
+def calculate_level(xp: int, hero_star: int, ascension_star: int = 0) -> int:
     cap = level_cap(hero_star, ascension_star)
-    return min(raw, cap)
+    level = 1
+    while level < cap and xp >= cumulative_xp_for_level(level + 1):
+        level += 1
+    return level
 
 APTITUDE_KEYS = ["apt_combat", "apt_tactical", "apt_survival", "apt_mental", "apt_leadership"]
 
@@ -150,12 +189,36 @@ def recalculate_hero_level(hero: dict) -> int:
     """Given a hero dict, return their current level."""
     hero_star = get_hero_star(hero)
     return calculate_level(
-        hero.get("floors_survived", 0),
-        hero.get("kills", 0),
+        hero.get("xp", 0),
         hero_star,
         hero.get("ascension_star", 0),
-        hero.get("xp", 0)
     )
+
+def kill_xp_reward(floor_number: int, is_boss: bool = False, is_miniboss: bool = False) -> int:
+    """XP for one enemy kill, scaled by how deep the floor is. Bosses count
+    as a much bigger single kill (they're usually the only kill on that
+    floor); minibosses are a smaller step up over a regular enemy."""
+    base = 8 + floor_number
+    if is_boss:
+        return base * 4
+    if is_miniboss:
+        return int(base * 1.8)
+    return base
+
+
+def floor_clear_xp_reward(floor_number: int, is_boss: bool = False, is_miniboss: bool = False) -> int:
+    """Flat bonus on top of kill XP for finishing the floor at all.
+    Calibrated so floor 1's clear bonus ALONE (42 xp) already clears the
+    level 1->2 threshold (also 42) — a level-1 hero clearing floor 1 always
+    levels up even in a worst-case 0-kill clear, with actual kill XP
+    stacking on top in the normal case."""
+    base = 40 + floor_number * 2
+    if is_boss:
+        return base * 3
+    if is_miniboss:
+        return int(base * 1.5)
+    return base
+
 
 def get_aptitude_reveals(level: int, archive_level: int = 0) -> int:
     """How many aptitudes should be revealed at this level. Base rate is one

@@ -76,10 +76,12 @@ EQUIPMENT_ADJECTIVES = {
 def generate_starting_weapon() -> dict:
     """Every hero starts with a guaranteed basic weapon instead of fighting
     unarmed — deliberately not part of the droppable rarity pool, and not
-    worth being picky about (always a plain Sword)."""
+    worth being picky about (always a plain Sword). +1-2 STR is the floor
+    the real D-S equipment scale (see _roll_equipment_stats) is calibrated
+    against — D should be a real step up from this, not a multiple of it."""
     return {
         "name": "Worn Sword", "type": "Weapon", "rarity": "F", "level": 1,
-        "base_str": 4, "base_int": 0, "base_hlt": 0, "base_agi": 0, "base_def": 0,
+        "base_str": random.randint(1, 2), "base_int": 0, "base_hlt": 0, "base_agi": 0, "base_def": 0,
         "str_pct": 0.0, "int_pct": 0.0, "hlt_pct": 0.0, "agi_pct": 0.0,
         "crit_chance": 0.0, "dodge_chance": 0.0, "armor_pen": 0.0, "dmg_reduction_pct": 0.0,
     }
@@ -117,24 +119,42 @@ def _roll_equipment_stats(eq_type: str, mult: float) -> dict:
     armor pen, % stats) keep their wider existing randomness since they're
     itemization flavor, not the stat that defines the tier.
     """
-    scale = int(10 * mult)
+    # Was `scale = int(10 * mult)` then base_str ~= scale*2 ~= mult*20 — with
+    # mult ranging 1.8 (D-) to 100 (Z), that put a D- weapon at +36 Strength
+    # and a Z weapon at +2000, against hero base stats typically in the
+    # single-to-low-double digits early on. A "D" item giving +50 STR (5x a
+    # fresh hero's whole stat) was a confirmed real complaint. Rescaled
+    # against the F-tier starter weapon (+4 STR, generate_starting_weapon)
+    # as the floor: D lands around +3-5 (a real step up from the starter,
+    # not a multiple of it), scaling up to ~+150-200 at Z so top-tier gear
+    # still feels like a "huge impact" purchase late-game, not a footnote.
     base_str = base_int = base_hlt = base_agi = base_def = base_end = base_wil = base_luck = 0
     crit = dodge = armor_pen = dmg_reduction_pct = 0.0
     str_pct = int_pct = hlt_pct = agi_pct = 0.0
 
+    # The % stats below (crit/dodge/armor_pen/dmg_reduction_pct/*_pct) used
+    # to multiply their roll range directly by `mult` (1.8 to 100) with no
+    # cap — same root issue as the flat stats above, just expressed as a
+    # percentage instead of a flat number. A Z-tier accessory could roll
+    # 500%+ bonus Strength or 470% crit chance (confirmed via direct test).
+    # `pct_mult` rescales that same 1.8-100 range down to a sane ~0.07-4
+    # range so the top tier lands around 10-30% instead of multiple
+    # hundred percent.
+    pct_mult = mult / 25
+
     if eq_type == "Weapon":
-        base_str = int(scale * random.uniform(1.92, 2.08))
-        base_agi = int(scale * random.uniform(0, 0.5))
-        if random.random() < 0.3: crit = random.uniform(0.01, 0.05) * mult
-        if random.random() < 0.2: armor_pen = random.uniform(0.01, 0.05) * mult
+        base_str = max(1, round(mult * random.uniform(1.6, 2.0)))
+        base_agi = round(mult * random.uniform(0, 0.45))
+        if random.random() < 0.3: crit = random.uniform(0.01, 0.05) * pct_mult
+        if random.random() < 0.2: armor_pen = random.uniform(0.01, 0.05) * pct_mult
     elif eq_type == "Armor":
         # Armor's primary stat is Endurance (was flat Defense, then base_int
         # before that — Defense/Endurance has always been the real combat
         # stat behind this slot, base_def kept in sync for legacy reads).
-        base_end = int(scale * random.uniform(1.92, 2.08))
+        base_end = max(1, round(mult * random.uniform(1.6, 2.0)))
         base_def = base_end
-        base_hlt = int(scale * random.uniform(5.28, 5.72))
-        if random.random() < 0.4: dmg_reduction_pct = random.uniform(0.01, 0.04) * mult
+        base_hlt = max(1, round(mult * random.uniform(6.0, 7.5)))
+        if random.random() < 0.4: dmg_reduction_pct = random.uniform(0.01, 0.04) * pct_mult
     else:
         # Every stat below used to roll independently — rare bad luck across
         # all chances could leave an accessory with nothing useful on
@@ -143,16 +163,16 @@ def _roll_equipment_stats(eq_type: str, mult: float) -> dict:
         # matter what, then let the rest stay probabilistic for variety on
         # top of that floor.
         rolls = {
-            "dodge": (0.7, lambda: random.uniform(0.02, 0.08) * mult),
-            "crit": (0.7, lambda: random.uniform(0.02, 0.08) * mult),
-            "armor_pen": (0.7, lambda: random.uniform(0.02, 0.08) * mult),
-            "str_pct": (0.5, lambda: random.uniform(0.02, 0.06) * mult),
-            "int_pct": (0.5, lambda: random.uniform(0.02, 0.06) * mult),
-            "hlt_pct": (0.5, lambda: random.uniform(0.02, 0.06) * mult),
-            "agi_pct": (0.5, lambda: random.uniform(0.02, 0.06) * mult),
-            "dmg_reduction_pct": (0.3, lambda: random.uniform(0.01, 0.03) * mult),
-            "base_wil": (0.5, lambda: max(1, int(scale * random.uniform(0.5, 1.0)))),
-            "base_luck": (0.5, lambda: max(1, int(scale * random.uniform(0.3, 0.7)))),
+            "dodge": (0.7, lambda: random.uniform(0.02, 0.08) * pct_mult),
+            "crit": (0.7, lambda: random.uniform(0.02, 0.08) * pct_mult),
+            "armor_pen": (0.7, lambda: random.uniform(0.02, 0.08) * pct_mult),
+            "str_pct": (0.5, lambda: random.uniform(0.02, 0.06) * pct_mult),
+            "int_pct": (0.5, lambda: random.uniform(0.02, 0.06) * pct_mult),
+            "hlt_pct": (0.5, lambda: random.uniform(0.02, 0.06) * pct_mult),
+            "agi_pct": (0.5, lambda: random.uniform(0.02, 0.06) * pct_mult),
+            "dmg_reduction_pct": (0.3, lambda: random.uniform(0.01, 0.03) * pct_mult),
+            "base_wil": (0.5, lambda: max(1, round(mult * random.uniform(0.36, 0.5)))),
+            "base_luck": (0.5, lambda: max(1, round(mult * random.uniform(0.22, 0.36)))),
         }
         guaranteed = set(random.sample(list(rolls.keys()), 2))
         # The guaranteed-2 floor above only fixed the "rolled nothing" case —
@@ -183,11 +203,17 @@ def _roll_equipment_stats(eq_type: str, mult: float) -> dict:
         base_wil = results.get("base_wil", 0)
         base_luck = results.get("base_luck", 0)
 
+    weapon_type = None
+    if eq_type == "Weapon":
+        from services.class_service import WEAPON_TYPES
+        weapon_type = random.choice(WEAPON_TYPES)
+
     return {
         "base_str": base_str, "base_int": base_int, "base_hlt": base_hlt, "base_agi": base_agi, "base_def": base_def,
         "base_end": base_end, "base_wil": base_wil, "base_luck": base_luck,
         "str_pct": str_pct, "int_pct": int_pct, "hlt_pct": hlt_pct, "agi_pct": agi_pct,
         "crit_chance": crit, "dodge_chance": dodge, "armor_pen": armor_pen, "dmg_reduction_pct": dmg_reduction_pct,
+        "weapon_type": weapon_type,
     }
 
 def save_equipment(equip: dict, conn=None) -> int:
@@ -197,14 +223,14 @@ def save_equipment(equip: dict, conn=None) -> int:
     Pass `conn` if the caller is already inside a `with db() as conn:` block —
     opening a second connection while the first is still uncommitted raises
     'database is locked' on SQLite."""
-    sql = "INSERT INTO equipment (name, type, rarity, level, base_str, base_int, base_hlt, base_agi, base_def, base_end, base_wil, base_luck, str_pct, int_pct, hlt_pct, agi_pct, crit_chance, dodge_chance, armor_pen, dmg_reduction_pct, set_family) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+    sql = "INSERT INTO equipment (name, type, rarity, level, base_str, base_int, base_hlt, base_agi, base_def, base_end, base_wil, base_luck, str_pct, int_pct, hlt_pct, agi_pct, crit_chance, dodge_chance, armor_pen, dmg_reduction_pct, set_family, weapon_type) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
     params = (
         equip["name"], equip["type"], equip["rarity"], equip.get("level", 1),
         equip.get("base_str", 0), equip.get("base_int", 0), equip.get("base_hlt", 0), equip.get("base_agi", 0), equip.get("base_def", 0),
         equip.get("base_end", 0), equip.get("base_wil", 0), equip.get("base_luck", 0),
         equip.get("str_pct", 0.0), equip.get("int_pct", 0.0), equip.get("hlt_pct", 0.0), equip.get("agi_pct", 0.0),
         equip.get("crit_chance", 0.0), equip.get("dodge_chance", 0.0), equip.get("armor_pen", 0.0), equip.get("dmg_reduction_pct", 0.0),
-        equip.get("set_family"),
+        equip.get("set_family"), equip.get("weapon_type"),
     )
     if conn is not None:
         return conn.execute(sql, params).lastrowid
@@ -249,10 +275,23 @@ def equip_item(hero_id: int, equipment_id: int):
         item = conn.execute("SELECT * FROM equipment WHERE id = ?", (equipment_id,)).fetchone()
         if not item:
             raise ValueError("Equipment not found")
-        
+
+        # Weapon Art hard restriction — a typed weapon (weapon_type set)
+        # can only go on a class whose affinity list includes that type.
+        # Untyped legacy weapons (weapon_type is None) are grandfathered
+        # in and stay equippable by anyone. A class with no defined
+        # affinity at all (empty list) also has no restriction.
+        if item["type"] == "Weapon" and item["weapon_type"]:
+            from services.class_service import get_weapon_affinity
+            hero = conn.execute("SELECT hero_class FROM heroes WHERE id = ?", (hero_id,)).fetchone()
+            if hero:
+                affinity = get_weapon_affinity(hero["hero_class"])
+                if affinity and item["weapon_type"] not in affinity:
+                    raise ValueError(f"{hero['hero_class']} can't wield a {item['weapon_type']} (affinity: {', '.join(affinity)}).")
+
         # Un-equip whatever is in that slot for the hero
         conn.execute("UPDATE equipment SET is_equipped_to = NULL WHERE is_equipped_to = ? AND type = ?", (hero_id, item["type"]))
-        
+
         # Equip the new item
         conn.execute("UPDATE equipment SET is_equipped_to = ? WHERE id = ?", (hero_id, equipment_id))
         return {"success": True}
@@ -445,12 +484,12 @@ def craft_equipment(crafter_id: int):
 
         set_family = roll_set_family(rarity)
         cursor = conn.execute(
-            "INSERT INTO equipment (name, type, rarity, level, base_str, base_int, base_hlt, base_agi, str_pct, int_pct, hlt_pct, agi_pct, crit_chance, dodge_chance, armor_pen, set_family) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO equipment (name, type, rarity, level, base_str, base_int, base_hlt, base_agi, str_pct, int_pct, hlt_pct, agi_pct, crit_chance, dodge_chance, armor_pen, set_family, weapon_type) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (name, eq_type, rarity, level, stats["base_str"], stats["base_int"], stats["base_hlt"], stats["base_agi"],
              stats["str_pct"], stats["int_pct"], stats["hlt_pct"], stats["agi_pct"],
-             stats["crit_chance"], stats["dodge_chance"], stats["armor_pen"], set_family)
+             stats["crit_chance"], stats["dodge_chance"], stats["armor_pen"], set_family, stats.get("weapon_type"))
         )
-        return {"id": cursor.lastrowid, "name": name, "type": eq_type, "rarity": rarity, "set_family": set_family}
+        return {"id": cursor.lastrowid, "name": name, "type": eq_type, "rarity": rarity, "set_family": set_family, "weapon_type": stats.get("weapon_type")}
 
 def generate_equipment_drop(floor_number: int, is_boss: bool = False, drop_bonus: float = 0.0, rarity_boost: float = 0.0) -> dict | None:
     # Base chance: 10% on normal floors, 100% on bosses

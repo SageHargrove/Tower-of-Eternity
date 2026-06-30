@@ -294,6 +294,7 @@ CREATE TABLE IF NOT EXISTS equipment (
             dmg_reduction_pct REAL DEFAULT 0.0,
             is_equipped_to INTEGER REFERENCES heroes(id),
             set_family TEXT,
+            weapon_type TEXT,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         );
 
@@ -578,7 +579,35 @@ WHERE NOT EXISTS (SELECT 1 FROM recipes WHERE name = 'Void Ring');
         conn.execute("""
             CREATE TABLE IF NOT EXISTS floor_cache (
                 floor_number INTEGER PRIMARY KEY,
-                floor_type TEXT NOT NULL
+                floor_type TEXT NOT NULL,
+                visited INTEGER DEFAULT 0
+            )
+        """)
+
+        # Lore Journal — one entry generated and cached per 10-floor milestone
+        # cleared (10, 20, 30...). Generated once, then frozen forever, same
+        # caching shape as floor_cache above — a milestone's lore text must
+        # never change after the player has already read it.
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS lore_entries (
+                milestone INTEGER PRIMARY KEY,
+                title TEXT NOT NULL,
+                text TEXT NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+
+        # One row per floor actually resolved — what was fought / what choice
+        # was made. This is the raw material the Lore Journal draws from so
+        # each save's pages reflect ITS OWN run (different mobs, different
+        # event choices) rather than identical generic text for everyone.
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS floor_history (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                floor_number INTEGER NOT NULL,
+                floor_type TEXT NOT NULL,
+                summary TEXT NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         """)
 
@@ -607,7 +636,19 @@ WHERE NOT EXISTS (SELECT 1 FROM recipes WHERE name = 'Void Ring');
         existing_eq = [r[1] for r in conn.execute("PRAGMA table_info(equipment)").fetchall()]
         eq_migrations = [
             ("set_family", "ALTER TABLE equipment ADD COLUMN set_family TEXT"),
+            ("weapon_type", "ALTER TABLE equipment ADD COLUMN weapon_type TEXT"),
         ]
+
+        # floor_cache.visited: mark previously-cleared floors as visited so
+        # existing saves don't lose all their visible floor history on upgrade.
+        existing_fc = [r[1] for r in conn.execute("PRAGMA table_info(floor_cache)").fetchall()]
+        if "visited" not in existing_fc:
+            conn.execute("ALTER TABLE floor_cache ADD COLUMN visited INTEGER DEFAULT 0")
+            conn.execute(
+                "UPDATE floor_cache SET visited = 1 WHERE floor_number <= "
+                "(SELECT COALESCE(highest_floor, 0) FROM base WHERE id = 1)"
+            )
+            print("[DB] Migrated: floor_cache.visited (marked cleared floors as visited)")
         for col, sql in eq_migrations:
             if col not in existing_eq:
                 conn.execute(sql)

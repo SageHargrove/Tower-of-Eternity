@@ -25,6 +25,8 @@ class CombatUnit:
     luck: int = 5  # combat/exploration drop-rate bonus, applied at the team-average level, not per-unit
     power_stat: str = "strength"  # which stat drives this unit's attack damage
     dmg_reduction_pct: float = 0.0  # flat % mitigation from equipped gear, applied after Defense
+    physical_resist_pct: float = 0.0  # extra mitigation vs. strength-basis hits only — Twins miniboss
+    magic_resist_pct: float = 0.0     # extra mitigation vs. intelligence-basis hits only — Twins miniboss
     trauma: int = 0
     hero_class: str = "Classless"
     is_hero: bool = True
@@ -452,6 +454,12 @@ SWARM_SURVIVAL_CHANCE = 0.35
 # alive," not "survive an onslaught."
 ESCORT_TURN_LIMIT = 15
 ESCORT_NPC_AGGRO_CHANCE = 0.4  # without a taunt up, the NPC is at elevated but not certain risk
+ESCORT_RESCUE_MORALE_BONUS = 8  # small, deliberate — "nothing crazy" per explicit direction
+
+# Blitz/Time Attack: the room itself empowers enemies every round they're
+# still standing — a flat stacking multiplier, applied once per round
+# starting round 2 (round 1 is the baseline, nothing stacked yet).
+BLITZ_STACK_PER_ROUND = 0.20
 
 _UNSET = object()
 
@@ -607,6 +615,91 @@ def make_boss(floor_number: int, zone_theme: str = "", is_miniboss: bool = False
         abilities=abilities,
     )
     return [boss]
+
+
+
+
+def make_miniboss_variant(variant: str, floor_number: int, zone_theme: str, heroes: list[dict]) -> list[CombatUnit]:
+    """The 4 non-swarm miniboss "gear/comp check" variants — "survival" is
+    handled separately by the existing is_survival_swarm path (see caller),
+    not here. Each forces a different team-comp answer instead of every
+    5th floor just being "a beefier guy": Behemoth tests raw DPS, Assassin
+    tests having a real frontline, Twins tests a mixed-damage comp, Mirror
+    tests against the team's own shape."""
+    scale = 1 + (floor_number * 0.12)
+    power = 1.5 + (floor_number / 40)
+    from services.portrait_cache import get_random_boss_portrait
+
+    if variant == "behemoth":
+        return [CombatUnit(
+            id=-99, name="The Behemoth",
+            level=max(1, floor_number + 5),
+            health=int(220 * scale * power * 2.6), max_health=int(220 * scale * power * 2.6),
+            strength=int(16 * scale * power * 0.12), intelligence=0,
+            defense=int(12 * scale * power * 0.9), endurance=int(12 * scale * power * 0.9),
+            agility=int(8 * scale * 0.5),
+            morale=100, stress=0, is_hero=False,
+            portrait_path=get_random_boss_portrait(is_miniboss=True),
+            abilities=["enrage"],
+        )]
+
+    if variant == "assassin":
+        return [CombatUnit(
+            id=-99, name="The Assassin",
+            level=max(1, floor_number + 5),
+            health=int(220 * scale * power * 0.55), max_health=int(220 * scale * power * 0.55),
+            strength=int(16 * scale * power * 0.55), intelligence=0,
+            defense=int(12 * scale * power * 0.2), endurance=int(12 * scale * power * 0.2),
+            agility=int(8 * scale * 2.2),
+            crit_chance=0.35,
+            morale=100, stress=0, is_hero=False,
+            portrait_path=get_random_boss_portrait(is_miniboss=True),
+            abilities=["crushing_blow"],
+        )]
+
+    if variant == "twins":
+        base_stats = dict(
+            health=int(220 * scale * power * 0.85), max_health=int(220 * scale * power * 0.85),
+            strength=int(16 * scale * power * 0.30), intelligence=0,
+            defense=int(12 * scale * power * 0.35), endurance=int(12 * scale * power * 0.35),
+            agility=int(8 * scale),
+            morale=100, stress=0, is_hero=False,
+            abilities=["cleave"],
+        )
+        return [
+            CombatUnit(id=-98, name="Twin of Iron", physical_resist_pct=0.6,
+                       portrait_path=get_random_boss_portrait(is_miniboss=True), **base_stats),
+            CombatUnit(id=-99, name="Twin of Shadow", magic_resist_pct=0.6,
+                       portrait_path=get_random_boss_portrait(is_miniboss=True), **base_stats),
+        ]
+
+    if variant == "mirror":
+        # One shadow clone per deployed hero (capped at 4 so a full 5-stack
+        # doesn't become an unwinnable mirror match) — each clone borrows
+        # the matching hero's own class, power_stat, and stat RATIO scaled
+        # to miniboss power, so a STR-heavy team fights a STR-heavy mirror
+        # and a caster-heavy team fights one that actually hits via INT.
+        clones = []
+        for i, h in enumerate(heroes[:4]):
+            hero_power = max(1, h.get("strength", 10) + h.get("intelligence", 0) + h.get("agility", 10))
+            target_power = 16 * scale * power * 0.30
+            mult = target_power / hero_power
+            clones.append(CombatUnit(
+                id=-(90 + i), name=f"Shadow {h.get('name', 'Doppelganger')}",
+                level=max(1, floor_number + 5),
+                health=int(220 * scale * power * 0.55), max_health=int(220 * scale * power * 0.55),
+                strength=max(1, int(h.get("strength", 10) * mult)),
+                intelligence=max(0, int(h.get("intelligence", 0) * mult)),
+                defense=int(12 * scale * power * 0.3), endurance=int(12 * scale * power * 0.3),
+                agility=max(1, int(h.get("agility", 10) * mult * 0.6)),
+                power_stat=h.get("power_stat", "strength"),
+                hero_class=h.get("hero_class", "Classless"),
+                morale=100, stress=0, is_hero=False,
+                portrait_path=get_random_boss_portrait(is_miniboss=True),
+            ))
+        return clones or make_boss(floor_number, zone_theme, is_miniboss=True)
+
+    return make_boss(floor_number, zone_theme, is_miniboss=True)
 
 
 def _fear_check(unit: CombatUnit, log: list, resist_mult: float = 1.0) -> bool:
@@ -794,11 +887,21 @@ def apply_unimber(damage: int, stacks: int) -> int:
     return int(damage * (1.0 + UNIMBER_DAMAGE_PER_EXTRA_ENEMY * stacks))
 
 
-def calc_damage(attacker: CombatUnit, defender: CombatUnit) -> tuple[int, bool]:
+def calc_damage(attacker: CombatUnit, defender: CombatUnit, force_strength: bool = False) -> tuple[int, bool]:
     effective_def = defender.endurance * (1 - attacker.armor_pen)
     if defender.bracing_rounds > 0:
         effective_def *= 1.6  # bracing defensively to survive — the whole point of not fleeing
-    power = attacker.intelligence if attacker.power_stat == "intelligence" else attacker.strength
+    # force_strength=True is the basic/auto attack path — casters (Acolyte,
+    # Mage, etc.) hit hard through their Intelligence-scaled active skills,
+    # not their plain weapon swing. Without this split, a class like Acolyte
+    # with high STR but power_stat="intelligence" did the SAME basic-attack
+    # damage as an ally with a fraction of its INT, since neither stat was
+    # actually strength — confirmed real complaint: a 63 STR Acolyte hitting
+    # for the same as a 12 STR ally on a plain attack.
+    if force_strength:
+        power = attacker.strength
+    else:
+        power = attacker.intelligence if attacker.power_stat == "intelligence" else attacker.strength
     base = power * (100 / (100 + max(0, effective_def)))
 
     if attacker.is_hero and attacker.morale < 40:
@@ -810,6 +913,14 @@ def calc_damage(attacker: CombatUnit, defender: CombatUnit) -> tuple[int, bool]:
 
     if defender.dmg_reduction_pct > 0:
         damage = max(1, int(damage * (1 - defender.dmg_reduction_pct)))
+
+    # Physical/magic resist — same "intelligence basis = magical" split
+    # power already uses above. Twins miniboss is the producer: one twin
+    # resists physical, the other magical, forcing a mixed-damage comp.
+    is_magical_hit = (not force_strength) and attacker.power_stat == "intelligence"
+    resist = defender.magic_resist_pct if is_magical_hit else defender.physical_resist_pct
+    if resist > 0:
+        damage = max(1, int(damage * (1 - resist)))
 
     shield = next((e for e in defender.status_effects if e["type"] == "dmg_shield" and e["rounds"] > 0), None)
     if shield:
@@ -1079,12 +1190,44 @@ def _execute_active_skill(attacker: CombatUnit, skill: dict, targets: list, all_
         log.append(f"  ⚡ {attacker.log_name} uses {skill['name']} — enemies stunned!")
         return True
 
+    if "self_heal_pct" in eff:
+        heal = apply_heal(attacker, int(attacker.max_health * eff["self_heal_pct"]))
+        log.append(f"  ✚ {attacker.log_name} uses {skill['name']} — recovers {heal} [{attacker.health}/{attacker.max_health}]")
+        return True
+
+    if "team_buff_pct" in eff:
+        stat = eff.get("buff_stat", "strength")
+        allies = [u for u in all_units if u.is_hero and u.alive and not u.is_npc]
+        for ally in allies:
+            setattr(ally, stat, int(getattr(ally, stat) * (1 + eff["team_buff_pct"])))
+        log.append(f"  📯 {attacker.log_name} uses {skill['name']} — the team's {stat} surges for the rest of the fight!")
+        return True
+
+    if "cleanse_self" in eff:
+        before = len(attacker.status_effects)
+        attacker.status_effects = [s for s in attacker.status_effects if s["type"] not in ("bleed", "poison", "stun", "freeze", "burn")]
+        cleared = before - len(attacker.status_effects)
+        log.append(f"  ✨ {attacker.log_name} uses {skill['name']}" + (f" — clears {cleared} affliction(s)." if cleared else ", but has nothing to cleanse."))
+        return True
+
+    if "revive_pct" in eff:
+        fallen = [u for u in all_units if u.is_hero and not u.alive and not u.is_npc]
+        if fallen:
+            target = max(fallen, key=lambda u: u.max_health)
+            target.alive = True
+            target.health = int(target.max_health * eff["revive_pct"])
+            log.append(f"  ✟ {attacker.log_name} uses {skill['name']} — {target.log_name} returns to the fight! [{target.health}/{target.max_health}]")
+        else:
+            log.append(f"  {attacker.log_name} uses {skill['name']}, but no one has fallen.")
+        return True
+
     if "dmg_pct" in eff:
         if eff.get("aoe"):
             chosen = list(targets)
         else:
             n_targets = eff.get("multi_target", 1)
             chosen = random.sample(targets, min(n_targets, len(targets))) if targets else []
+        total_dealt = 0
         for target in chosen:
             damage, is_crit = calc_damage(attacker, target)
             damage = int(damage * eff["dmg_pct"])
@@ -1094,7 +1237,10 @@ def _execute_active_skill(attacker: CombatUnit, skill: dict, targets: list, all_
             if eff.get("guaranteed_crit"):
                 damage = int(damage * 1.5)
                 is_crit = True
+            if "execute_bonus_pct" in eff and target.health / target.max_health <= eff.get("execute_threshold", 0.30):
+                damage = int(damage * (1 + eff["execute_bonus_pct"]))
             target.health -= damage
+            total_dealt += damage
             damage_dealt_stats[attacker.id] = damage_dealt_stats.get(attacker.id, 0) + damage
             crit_text = " CRIT!" if is_crit else ""
             log_msg = f"  ✦ {attacker.log_name} uses {skill['name']} on {target.log_name} for {damage}{crit_text} [{max(0, target.health)}/{target.max_health}]"
@@ -1108,6 +1254,9 @@ def _execute_active_skill(attacker: CombatUnit, skill: dict, targets: list, all_
                 for h in all_units:
                     if h.is_hero and h.alive:
                         morale_changes[h.id] = morale_changes.get(h.id, 0) + random.randint(2, 5)
+        if "lifesteal_pct" in eff and total_dealt > 0:
+            healed = apply_heal(attacker, int(total_dealt * eff["lifesteal_pct"]))
+            log.append(f"    🩸 {attacker.log_name} drains {healed} Health from the kill.")
         return True
 
     return False  # should be unreachable — is_skill_executable already filtered this out
@@ -1261,6 +1410,20 @@ def resolve_hero_stats(heroes: list[dict]) -> list[dict]:
             modified = apply_passive_skills(modified, hero_relics)
         modified["regen_pct"] = modified.get("regen_pct", 0.0)
 
+        # Weapon Art — a free bonus active granted only while a matching-type
+        # weapon is equipped (see class_service.get_weapon_affinity and
+        # skills_service.WEAPON_ART_SKILLS). Equipped weapon comes from
+        # modified["equipment"], stashed there by apply_equipment_stats above.
+        equipped_weapon = next((eq for eq in modified.get("equipment", []) if eq.get("type") == "Weapon"), None)
+        if equipped_weapon and equipped_weapon.get("weapon_type"):
+            from services.class_service import get_weapon_affinity
+            from services.skills_service import get_weapon_art_skill
+            affinity = get_weapon_affinity(modified.get("hero_class", "Classless"))
+            if equipped_weapon["weapon_type"] in affinity:
+                art = get_weapon_art_skill(equipped_weapon["weapon_type"])
+                if art and art["id"] not in {s["id"] for s in hero_skills}:
+                    hero_skills.append(art)
+
         # Remove raw string payload to avoid confusion later, but keep as python list for UI/Combat logic if needed
         if "skills" in modified:
             modified["_skills"] = hero_skills
@@ -1273,7 +1436,7 @@ def resolve_hero_stats(heroes: list[dict]) -> list[dict]:
     return processed
 
 
-def run_combat(heroes: list[dict], floor_number: int, is_boss: bool = False, is_miniboss: bool = False, zone_theme: str = "", boss_data_override=_UNSET, enemy_count_override: int = None, difficulty_mult: float = 1.0, preset_enemies: list = None, outer_conn=None, skip_stat_pipeline: bool = False, family_override: dict = None, is_survival_swarm: bool = False, turn_limit: int = None, available_consumables: list = None, is_escort: bool = False) -> dict:
+def run_combat(heroes: list[dict], floor_number: int, is_boss: bool = False, is_miniboss: bool = False, zone_theme: str = "", boss_data_override=_UNSET, enemy_count_override: int = None, difficulty_mult: float = 1.0, preset_enemies: list = None, outer_conn=None, skip_stat_pipeline: bool = False, family_override: dict = None, is_survival_swarm: bool = False, turn_limit: int = None, available_consumables: list = None, is_escort: bool = False, is_ambush: bool = False, is_blitz: bool = False, cursed_debuff: dict = None, miniboss_variant: str = None) -> dict:
     log = []
     turns = []
     morale_changes = {h["id"]: 0 for h in heroes}
@@ -1294,7 +1457,8 @@ def run_combat(heroes: list[dict], floor_number: int, is_boss: bool = False, is_
                                                  preset_enemies, outer_conn, log, turns,
                                                  morale_changes, kill_counts, stress_changes,
                                                  family_override, is_survival_swarm, turn_limit, available_consumables,
-                                                 is_escort)
+                                                 is_escort, is_ambush, is_blitz, cursed_debuff,
+                                                 miniboss_variant)
         result.pop("_avg_luck", None)
         return result
 
@@ -1305,7 +1469,8 @@ def run_combat(heroes: list[dict], floor_number: int, is_boss: bool = False, is_
                                              preset_enemies, outer_conn, log, turns,
                                              morale_changes, kill_counts, stress_changes,
                                              family_override, is_survival_swarm, turn_limit, available_consumables,
-                                             is_escort)
+                                             is_escort, is_ambush, is_blitz, cursed_debuff,
+                                             miniboss_variant)
     _apply_combat_drops(result, floor_number, is_boss, is_miniboss, outer_conn)
     return result
 
@@ -1315,7 +1480,9 @@ def _resolve_combat_from_processed(processed, floor_number, is_boss, is_miniboss
                                     preset_enemies, outer_conn, log, turns,
                                     morale_changes, kill_counts, stress_changes,
                                     family_override=None, is_survival_swarm=False, turn_limit=None,
-                                    available_consumables=None, is_escort=False):
+                                    available_consumables=None, is_escort=False, is_ambush=False,
+                                    is_blitz=False, cursed_debuff=None,
+                                    miniboss_variant=None):
     """The CombatUnit-construction-and-turn-loop core of run_combat, split out
     of the stat-resolution pipeline above it so a caller that already has
     fully-resolved hero dicts (no local DB to re-derive equipment/relic/bond/
@@ -1347,6 +1514,8 @@ def _resolve_combat_from_processed(processed, floor_number, is_boss, is_miniboss
             willpower=h.get("willpower", 6), luck=h.get("luck", 5),
             power_stat=h.get("power_stat", "strength"),
             dmg_reduction_pct=h.get("dmg_reduction_pct", 0.0),
+            physical_resist_pct=h.get("physical_resist_pct", 0.0),
+            magic_resist_pct=h.get("magic_resist_pct", 0.0),
             trauma=h.get("trauma", 0),
             hero_class=h.get("hero_class", "Classless"),
             is_ranged=h.get("is_ranged", False),
@@ -1399,6 +1568,8 @@ def _resolve_combat_from_processed(processed, floor_number, is_boss, is_miniboss
     elif is_boss or is_miniboss:
         if preset_enemies:
             enemies = preset_enemies
+        elif is_miniboss and miniboss_variant in ("behemoth", "assassin", "twins", "mirror"):
+            enemies = make_miniboss_variant(miniboss_variant, floor_number, zone_theme, processed)
         else:
             enemies = make_boss(floor_number, zone_theme, is_miniboss, boss_data_override=boss_data_override, family_override=family_override)
         # Boss stat padding — mirrors Unimber from the enemy side: a boss
@@ -1423,6 +1594,17 @@ def _resolve_combat_from_processed(processed, floor_number, is_boss, is_miniboss
             enemies = preset_enemies
         else:
             enemies = make_enemies(floor_number, count=enemy_count_override, difficulty_mult=difficulty_mult)
+
+    if cursed_debuff:
+        for h in combatants_heroes:
+            if h.hero_class == "Construct":
+                continue
+            if cursed_debuff.get("poison_rounds"):
+                apply_status_effect(h, "poison", cursed_debuff["poison_rounds"], magnitude=cursed_debuff.get("poison_magnitude", 0.06))
+            if cursed_debuff.get("hp_pct_loss"):
+                h.max_health = max(1, int(h.max_health * (1 - cursed_debuff["hp_pct_loss"])))
+                h.health = min(h.health, h.max_health)
+        log.append("🩸 CURSED GROUND — the team stumbled in already weakened.")
 
     initial_state = {
         "is_boss": is_boss,
@@ -1514,7 +1696,23 @@ def _resolve_combat_from_processed(processed, floor_number, is_boss, is_miniboss
     consumables_used = {}
 
     for round_num in range(1, max_rounds + 1):
-        all_units.sort(key=lambda u: u.agility + random.uniform(0, 2), reverse=True)
+        # Blitz/Time Attack — the room empowers enemies further every round
+        # they survive, starting round 2 (nothing's stacked yet on round 1).
+        if is_blitz and round_num >= 2:
+            for e in enemies:
+                if e.alive:
+                    e.strength = int(e.strength * (1 + BLITZ_STACK_PER_ROUND))
+                    e.intelligence = int(e.intelligence * (1 + BLITZ_STACK_PER_ROUND))
+                    e.agility = int(e.agility * (1 + BLITZ_STACK_PER_ROUND))
+            log.append(f"  ⚡ The room surges — enemies grow stronger (round {round_num}).")
+
+        if is_ambush and round_num == 1:
+            # Guaranteed enemy-first round 1, regardless of agility — the
+            # whole point of an ambush. Normal agility-based turn order
+            # resumes from round 2 on.
+            all_units.sort(key=lambda u: (u.is_hero, -(u.agility + random.uniform(0, 2))))
+        else:
+            all_units.sort(key=lambda u: u.agility + random.uniform(0, 2), reverse=True)
 
         alive_heroes  = [u for u in combatants_heroes if u.alive]
         alive_enemies = [u for u in enemies if u.alive]
@@ -1627,7 +1825,7 @@ def _resolve_combat_from_processed(processed, floor_number, is_boss, is_miniboss
                     log.append(f"  ✦ {attacker.name} ({attacker.hero_class}) casts — hits all enemies!")
                     attacker.mana = min(attacker.max_mana, attacker.mana + ON_ATTACK_MANA_GAIN)
                     for target in targets:
-                        damage, is_crit = calc_damage(attacker, target)
+                        damage, is_crit = calc_damage(attacker, target, force_strength=True)
                         damage_dealt_stats[attacker.id] += damage
                         target.health -= damage
                         target.mana = min(target.max_mana, target.mana + ON_HIT_MANA_GAIN)
@@ -1671,7 +1869,7 @@ def _resolve_combat_from_processed(processed, floor_number, is_boss, is_miniboss
                         log.append(f"  {target.name} dodges!")
                         continue
 
-                    damage, is_crit = calc_damage(attacker, target)
+                    damage, is_crit = calc_damage(attacker, target, force_strength=True)
                     damage_dealt_stats[attacker.id] += damage
 
                     # Construct absorbs first hit for Magic Engineer
@@ -1819,6 +2017,17 @@ def _resolve_combat_from_processed(processed, floor_number, is_boss, is_miniboss
             log.append(f"✓ Victory. {len(alive_heroes)} hero(es) survived.")
         if is_boss:
             log.append(f"  ═══ BOSS DEFEATED ═══")
+        # Rescue's win bonus: a small, lasting morale boost (the captive's
+        # gratitude) — NOT a heal, since every floor already fully heals
+        # surviving heroes on its own (see tower.py's between_floor_recovery),
+        # which made an escort-specific heal a no-op. Morale/stress are the
+        # only state that actually persists floor-to-floor, so that's where
+        # a real "win bonus" has to live. Kept deliberately small per
+        # explicit direction ("nothing crazy").
+        if is_escort:
+            for h in alive_heroes:
+                morale_changes[h.id] = morale_changes.get(h.id, 0) + ESCORT_RESCUE_MORALE_BONUS
+            log.append(f"  ✚ The rescued captive's gratitude lifts the team's spirits (+{ESCORT_RESCUE_MORALE_BONUS} morale).")
         for h in alive_heroes:
             morale_changes[h.id] = morale_changes.get(h.id, 0) - random.randint(3, 10)
     else:
@@ -1858,7 +2067,7 @@ def _resolve_combat_from_processed(processed, floor_number, is_boss, is_miniboss
                 if random.random() < chance:
                     from services.skills_service import get_skill_for_class
                     known_ids = {s["id"] for s in h.skills}
-                    new_skill = get_skill_for_class(h.hero_class)
+                    new_skill = get_skill_for_class(h.hero_class, hero_star=h.hero_star)
                     if new_skill and new_skill["id"] not in known_ids:
                         new_skill["tier"] = "Beginner"
                         new_skill["level"] = 1
@@ -1986,7 +2195,7 @@ def _apply_combat_drops(result: dict, floor_number: int, is_boss: bool, is_minib
     except Exception as e:
         print(f"Error generating drop: {e}")
 
-def run_multi_combat(hero_teams: list[list[dict]], floor_number: int, is_boss: bool = False, is_miniboss: bool = False, zone_theme: str = "", boss_data_override=_UNSET, difficulty_mult: float = 1.0, conn=None, family_override: dict = None, is_survival_swarm: bool = False, turn_limit: int = None, available_consumables: list = None, is_escort: bool = False) -> dict:
+def run_multi_combat(hero_teams: list[list[dict]], floor_number: int, is_boss: bool = False, is_miniboss: bool = False, zone_theme: str = "", boss_data_override=_UNSET, difficulty_mult: float = 1.0, conn=None, family_override: dict = None, is_survival_swarm: bool = False, turn_limit: int = None, available_consumables: list = None, is_escort: bool = False, enemy_count_override: int = None, is_ambush: bool = False, is_blitz: bool = False, cursed_debuff: dict = None, miniboss_variant: str = None) -> dict:
     # Raid Boss — reduced to exactly Floor 50 and Floor 100 (was every 20th
     # floor), so the multi-team merge fight stays a genuine milestone
     # instead of a recurring pattern. Floor 100 still gets its own random
@@ -2015,10 +2224,13 @@ def run_multi_combat(hero_teams: list[list[dict]], floor_number: int, is_boss: b
     # make_boss() inside run_combat. Fixed below.
     if is_survival_swarm:
         shared_enemies = make_swarm_miniboss_encounter(floor_number)
+    elif is_miniboss and miniboss_variant in ("behemoth", "assassin", "twins", "mirror"):
+        flat_heroes = [h for team in hero_teams for h in team]
+        shared_enemies = make_miniboss_variant(miniboss_variant, floor_number, zone_theme, flat_heroes)
     elif is_boss or is_miniboss:
         shared_enemies = make_boss(floor_number, zone_theme, is_miniboss, boss_data_override=boss_data_override, family_override=family_override)
     else:
-        shared_enemies = make_enemies(floor_number, difficulty_mult=difficulty_mult * len(hero_teams))
+        shared_enemies = make_enemies(floor_number, count=enemy_count_override, difficulty_mult=difficulty_mult * len(hero_teams))
 
     logs = []
     final_result = {
@@ -2063,7 +2275,7 @@ def run_multi_combat(hero_teams: list[list[dict]], floor_number: int, is_boss: b
         # same list object is passed (and mutated in place) into every team's
         # fight in this loop, so a multi-team floor can't double-dip the same
         # finite stock once one team's fight already spent it.
-        res = run_combat(team, floor_number, is_boss=is_boss, is_miniboss=is_miniboss, zone_theme=zone_theme, difficulty_mult=difficulty_mult, preset_enemies=current_enemies, outer_conn=conn, is_survival_swarm=is_survival_swarm, turn_limit=turn_limit, available_consumables=available_consumables, is_escort=is_escort)
+        res = run_combat(team, floor_number, is_boss=is_boss, is_miniboss=is_miniboss, zone_theme=zone_theme, difficulty_mult=difficulty_mult, preset_enemies=current_enemies, outer_conn=conn, is_survival_swarm=is_survival_swarm, turn_limit=turn_limit, available_consumables=available_consumables, is_escort=is_escort, is_ambush=is_ambush, is_blitz=is_blitz, cursed_debuff=cursed_debuff, miniboss_variant=miniboss_variant)
         logs.extend(res.get("log", []))
         final_result["team_results"].append(res)
 

@@ -12,6 +12,36 @@ load_dotenv()
 
 client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
 
+# Hero chatter is the one place voice/personality actually matters (it's
+# free-form conversation, not a structured description) — confirmed real
+# complaint that Gemini's tone reads stiff/over-explainy there specifically.
+# Everything else (zone themes, event narration, boss naming) is shorter,
+# more atmospheric/descriptive text where that's less of a liability, so it
+# stays on Gemini rather than switching every single call over and leaving
+# the remaining Gemini credit with nothing left to spend on.
+_anthropic_client = None
+if os.getenv("ANTHROPIC_API_KEY"):
+    import anthropic
+    _anthropic_client = anthropic.Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
+
+CLAUDE_CHAT_MODEL = "claude-haiku-4-5-20251001"
+
+def generate_with_claude(prompt: str, max_tokens: int = 600, temperature: float = 0.9) -> str:
+    """Same shape/contract as _generate_with_fallback (raises on failure,
+    caller decides the fallback) but for the Anthropic-backed hero chatter
+    path. Raises if ANTHROPIC_API_KEY isn't set rather than silently
+    falling back to Gemini — that fallback would defeat the entire point of
+    switching providers for quality."""
+    if _anthropic_client is None:
+        raise RuntimeError("ANTHROPIC_API_KEY not set — cannot use Claude/Haiku.")
+    response = _anthropic_client.messages.create(
+        model=CLAUDE_CHAT_MODEL,
+        max_tokens=max_tokens,
+        temperature=temperature,
+        messages=[{"role": "user", "content": prompt}],
+    )
+    return response.content[0].text.strip()
+
 # Tower combat resolution must never block on flavor text (zone theme, boss
 # naming, narration) — none of it affects combat math. Calls submitted here
 # keep running in the background even after a timeout; we just stop waiting
@@ -37,7 +67,10 @@ def await_flavor_text(future, timeout=1.5, fallback=None):
 # Fallback chain 
 MODELS_BY_PRIORITY = [
     "gemini-2.5-pro",
-    "gemini-1.5-pro",
+    # gemini-1.5-pro was removed from the API (404 NOT_FOUND on every call,
+    # confirmed) — it used to silently eat a full fallback slot (and the
+    # round-trip time) on every single LLM call before ever reaching a model
+    # that could actually respond.
     "gemini-2.5-flash",
     "gemini-2.5-flash-lite",
 ]
@@ -72,14 +105,22 @@ def _generate_with_fallback(prompt: str, max_tokens: int = 600, temperature: flo
     last_error = None
     for model in MODELS_BY_PRIORITY:
         try:
+            config_kwargs = {
+                "temperature": temperature,
+                "max_output_tokens": max_tokens,
+            }
+            # thinking_budget=0 (disable extended thinking, for speed/cost)
+            # only works on the flash variants — gemini-2.5-pro rejects it
+            # outright ("Budget 0 is invalid. This model only works in
+            # thinking mode"), which used to get misclassified as a fatal
+            # API-key error below and abort the whole fallback chain before
+            # ever trying the flash models that would've worked fine.
+            if "pro" not in model:
+                config_kwargs["thinking_config"] = types.ThinkingConfig(thinking_budget=0)
             response = client.models.generate_content(
                 model=model,
                 contents=prompt,
-                config=types.GenerateContentConfig(
-                    temperature=temperature,
-                    max_output_tokens=max_tokens,
-                    thinking_config=types.ThinkingConfig(thinking_budget=0),
-                ),
+                config=types.GenerateContentConfig(**config_kwargs),
             )
             return response.text.strip()
         except Exception as e:
@@ -88,10 +129,14 @@ def _generate_with_fallback(prompt: str, max_tokens: int = 600, temperature: flo
                 print(f"[LLM] {model} rate limited, trying next...")
                 last_error = e
                 continue
-            elif "API_KEY_INVALID" in err or "400" in err:
+            elif "API_KEY_INVALID" in err:
                 print(f"[LLM] FATAL API key error ({model}): {e}")
                 raise
             else:
+                # Any other failure (including a plain 400 INVALID_ARGUMENT,
+                # which is usually a per-model quirk, not an account-wide
+                # problem) falls through to the next model instead of
+                # aborting the whole chain.
                 print(f"[LLM] {model} failed: {type(e).__name__}: {e}")
                 last_error = e
                 continue
@@ -442,3 +487,74 @@ def generate_creative_craft(description: str, materials: dict, power_pool: int, 
             "str_pct": 0.0, "int_pct": 0.0, "hlt_pct": 0.0, "agi_pct": 0.0, "def_pct": 0.0, "end_pct": 0.0, "wil_pct": 0.0, "luck_pct": 0.0, "regen_pct": 0.0
         }
         return equip, "Failed Recipe", "The materials were ruined."
+
+
+def generate_lore_entry(milestone: int, previous_titles: list[str], encounters: list[str] = None) -> tuple[str, str]:
+    """One Lore Journal page, unlocked every 10th floor cleared. Mirrors
+    chat_service._tower_era's escalation (early = pure confusion, later =
+    a settled but still-unfolding mythology) so the Journal and hero
+    chatter read as the same continuity, not two unrelated voices.
+
+    `encounters` is THIS save's own floor_history rows since the prior
+    milestone (what was actually fought/chosen) — woven in as the concrete
+    detail the page is "about", so two different saves reaching the same
+    milestone get genuinely different pages, not the same generic text.
+    Returns (title, text)."""
+    if milestone < 30:
+        stage = (
+            "This is early. Whatever truth the Tower holds is still completely "
+            "obscured — write a fragment that raises more questions than it "
+            "answers: an inscription, a corpse's final note, a half-glimpsed "
+            "structure that shouldn't exist. No grand revelations yet."
+        )
+    elif milestone < 70:
+        stage = (
+            "The mystery is starting to take shape, but nothing is confirmed. "
+            "Write a fragment that connects to or complicates what's likely "
+            "been hinted at before, without fully resolving it."
+        )
+    else:
+        stage = (
+            "Deep into the Tower now. The fragments should be converging "
+            "toward something — write a piece that feels like a real piece of "
+            "the puzzle clicking into place, even if the full picture still "
+            "isn't whole."
+        )
+
+    avoid = ""
+    if previous_titles:
+        avoid = "Previously revealed page titles (do NOT reuse these names or repeat their exact angle): " + ", ".join(previous_titles[-6:])
+
+    encounter_block = ""
+    if encounters:
+        sample = "\n".join(encounters[-12:])
+        encounter_block = (
+            "What this specific party actually lived through on the floors covered by this page "
+            f"(weave details from this in naturally — this page should feel like IT belongs to this "
+            f"party's own climb, not a generic page any party would get):\n{sample}"
+        )
+
+    prompt = f"""You are writing one page of a slowly-unlocked lore journal for a dark fantasy roguelike tower.
+This page unlocks after floor {milestone} has been cleared.
+
+{stage}
+{avoid}
+
+{encounter_block}
+
+Write a short, evocative journal page (4-6 sentences) — a found document, a carved inscription, a survivor's account, or a fragment of forbidden knowledge about the Tower itself: what it is, who built it, or why it exists. Dark, mysterious, literary in tone — not a stat readout, not addressed to "the player".
+
+Respond in exactly this format with no extra commentary:
+TITLE: <a short evocative title, 2-5 words>
+TEXT: <the journal page text>"""
+    try:
+        raw = _generate_with_fallback(prompt, max_tokens=220, temperature=0.95)
+        title, text = "Untitled Page", raw.strip()
+        for line in raw.splitlines():
+            if line.strip().upper().startswith("TITLE:"):
+                title = line.split(":", 1)[1].strip()
+            elif line.strip().upper().startswith("TEXT:"):
+                text = line.split(":", 1)[1].strip()
+        return title, text
+    except Exception:
+        return f"Floor {milestone}", "The page is illegible — water damage has claimed whatever was written here."

@@ -317,6 +317,13 @@ export default function InventoryPage() {
                       E
                     </div>
                   )}
+
+                  {/* Weapon type badge on card */}
+                  {item && item.itemType === 'equipment' && item.weapon_type && (
+                    <div style={{ position: 'absolute', bottom: -4, left: '50%', transform: 'translateX(-50%)', background: 'rgba(0,0,0,0.85)', border: '1px solid rgba(201,168,76,0.5)', borderRadius: 3, padding: '0 4px', fontSize: '0.6rem', color: 'var(--gold)', whiteSpace: 'nowrap' }}>
+                      {item.weapon_type}
+                    </div>
+                  )}
                 </div>
               )
             })}
@@ -412,9 +419,16 @@ export default function InventoryPage() {
                   <div style={{ fontFamily: 'Cinzel, serif', fontSize: '1.8rem', textAlign: 'center', color: rarityColor(selectedItem.rarity), borderBottom: `1px solid ${rarityColor(selectedItem.rarity)}`, paddingBottom: '0.5rem', marginBottom: '0.2rem', textShadow: `0 0 10px ${rarityColor(selectedItem.rarity)}` }}>
                     {selectedItem.name}
                   </div>
-                  <div style={{ textAlign: 'center', color: 'var(--text-dim)', textTransform: 'uppercase', letterSpacing: '3px', fontSize: '0.9rem', marginBottom: '1.5rem' }}>
+                  <div style={{ textAlign: 'center', color: 'var(--text-dim)', textTransform: 'uppercase', letterSpacing: '3px', fontSize: '0.9rem', marginBottom: '0.4rem' }}>
                     {selectedItem.rarity}★ {selectedItem.type}
                   </div>
+                  {selectedItem.type === 'Weapon' && selectedItem.weapon_type && (
+                    <div style={{ textAlign: 'center', marginBottom: '1.2rem' }}>
+                      <span style={{ background: 'rgba(201,168,76,0.15)', border: '1px solid rgba(201,168,76,0.4)', borderRadius: 4, padding: '0.2rem 0.7rem', fontSize: '0.8rem', color: 'var(--gold)', letterSpacing: '1px' }}>
+                        {selectedItem.weapon_type}
+                      </span>
+                    </div>
+                  )}
 
                   <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '0.8rem' }}>
                     {[

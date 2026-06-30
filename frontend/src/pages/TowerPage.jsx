@@ -7,8 +7,13 @@ import FairyGuide from '../components/FairyGuide'
 import { CardFrame } from '../components/HeroCard'
 
 const FLOOR_ICONS = {
-  combat: '⚔️',
+  field_combat: '🗡️',
   miniboss: '💀',
+  miniboss_survival: '🌊',
+  miniboss_behemoth: '🗿',
+  miniboss_assassin: '🔪',
+  miniboss_twins: '👥',
+  miniboss_mirror: '🪞',
   boss: '👿',
   resource: '💎',
   event: '❓',
@@ -16,19 +21,47 @@ const FLOOR_ICONS = {
   defend: '🏰',
   explore: '🗺️',
   escort: '🤝',
-  rest: '🏕️',
+  conquest: '🔥',
+  war: '⚜️',
+  retrieve: '📦',
+  ambush: '🌑',
+  blitz: '⚡',
+  cursed_ground: '☠️',
+}
+
+// FLOOR_TYPE_INFO colors are 3-digit hex shorthand (#a44) — appending an
+// alpha suffix directly (`${color}22`) produces an invalid 5-digit hex
+// string that browsers silently drop, falling back to a plain white/gray
+// <button> background (confirmed bug: floor tiles went blank-white).
+// Expands to 6-digit hex first so the alpha suffix actually forms valid
+// 8-digit #RRGGBBAA.
+function hexWithAlpha(hex, alpha) {
+  const expanded = hex.length === 4
+    ? '#' + [...hex.slice(1)].map(c => c + c).join('')
+    : hex
+  return `${expanded}${alpha}`
 }
 
 const FLOOR_TYPE_INFO = {
-  combat: { color: '#a44', label: 'Combat', blurb: 'A standard fight.' },
+  field_combat: { color: '#b65', label: 'Field Combat', blurb: 'A looser skirmish, open ground.' },
   miniboss: { color: '#c63', label: 'Miniboss', blurb: 'A tougher single enemy.' },
+  miniboss_survival: { color: '#368', label: 'Miniboss: Survival', blurb: 'Endurance check — outlast a real wave.' },
+  miniboss_behemoth: { color: '#765', label: 'Miniboss: Behemoth', blurb: 'DPS check — huge HP/DEF, tiny attack.' },
+  miniboss_assassin: { color: '#a13', label: 'Miniboss: Assassin', blurb: 'Tank check — blinding speed, brutal burst.' },
+  miniboss_twins: { color: '#759', label: 'Miniboss: Twins', blurb: 'Comp check — one resists physical, one resists magic.' },
+  miniboss_mirror: { color: '#577', label: 'Miniboss: Mirror', blurb: 'Mirror match — shadow clones of your own team.' },
   boss: { color: '#e33', label: 'Boss', blurb: 'The floor\'s guardian.' },
   event: { color: '#86c', label: 'Event', blurb: 'A choice encounter.' },
   survival: { color: '#c44', label: 'Survival', blurb: 'A fight against a larger enemy wave.' },
   defend: { color: '#64a', label: 'Defend', blurb: 'A fight to hold a chokepoint.' },
   explore: { color: '#4a6', label: 'Explore', blurb: 'A risk/reward discovery.' },
-  escort: { color: '#c93', label: 'Escort', blurb: 'A fight to protect an NPC.' },
-  rest: { color: '#3a5', label: 'Rest', blurb: 'Free healing, no combat.' },
+  escort: { color: '#c93', label: 'Escort', blurb: 'Protect an NPC — a win lifts the team\'s morale.' },
+  conquest: { color: '#933', label: 'Conquest', blurb: 'A larger enemy wave — clear it by force.' },
+  war: { color: '#722', label: 'War', blurb: 'The hardest non-boss fight on this floor.' },
+  retrieve: { color: '#a82', label: 'Retrieve', blurb: 'Something valuable is guarded here.' },
+  ambush: { color: '#414', label: 'Ambush', blurb: 'Enemies get a guaranteed first strike.' },
+  blitz: { color: '#dd4', label: 'Blitz', blurb: 'Enemies grow stronger every round — burst them down fast.' },
+  cursed_ground: { color: '#5a3', label: 'Cursed Ground', blurb: 'Your team starts the fight already debuffed.' },
 }
 
 function FloorBadge({ type }) {
@@ -124,14 +157,6 @@ function PostCombatScreen({ lastResult, combatEntities, onReturn, onRerun, busy 
           <div className="text-dim" style={{ fontSize: '0.8rem', marginTop: '0.3rem' }}>— {lastResult.chatter_line.name}</div>
         </div>
       )}
-
-      {lastResult.level_up_chatter?.map((c, i) => (
-        <div key={i} className="card" style={{ textAlign: 'center', borderColor: 'var(--gold)' }}>
-          <div className="text-gold" style={{ fontSize: '0.8rem', textTransform: 'uppercase', letterSpacing: 1, marginBottom: '0.3rem' }}>Level Up</div>
-          <div style={{ fontStyle: 'italic', fontSize: '1.05rem' }}>"{c.line}"</div>
-          <div className="text-dim" style={{ fontSize: '0.8rem', marginTop: '0.3rem' }}>— {c.name}</div>
-        </div>
-      ))}
 
       {/* Team Status */}
       <div className="card">
@@ -326,6 +351,18 @@ export default function TowerPage({ onGoldChange }) {
   const [eventResolution, setEventResolution] = useState(null)
   const [pendingExplore, setPendingExplore] = useState(null)
   const [exploreResolution, setExploreResolution] = useState(null)
+
+  const [showLegend, setShowLegend] = useState(false)
+
+  // The manager's standing tactical directive — applies to every regular
+  // combat floor automatically (Boss/Miniboss ignore it, see backend). The
+  // one persistent lever the player gets since they can't dictate the fight
+  // itself once the team's deployed.
+  const [stance, setStance] = useState(localStorage.getItem('tower_stance') || 'balanced')
+  function changeStance(s) {
+    setStance(s)
+    localStorage.setItem('tower_stance', s)
+  }
   
   const [combatEntities, setCombatEntities] = useState(null)
   const [postCombatPhase, setPostCombatPhase] = useState(false)
@@ -450,7 +487,7 @@ export default function TowerPage({ onGoldChange }) {
 
     try {
       const requiredTeams = (floorNumber - 1) === 0 ? 1 : Math.floor((floorNumber - 1) / 20) + 1
-      const result = await enterFloor(floorNumber, deployTeamIds.slice(0, requiredTeams))
+      const result = await enterFloor(floorNumber, deployTeamIds.slice(0, requiredTeams), stance)
       setLastResult(result)
       setCombatEntities(mergedCombatEntities(result))
       if (result.narrative_id) pollNarrative(result.narrative_id)
@@ -502,8 +539,7 @@ export default function TowerPage({ onGoldChange }) {
     setResolving(true)
     setError(null)
     try {
-      const requiredTeams = ((resolvedFloor || selectedFloor) - 1) === 0 ? 1 : Math.floor(((resolvedFloor || selectedFloor) - 1) / 20) + 1
-      const result = await resolveEvent(resolvedFloor || selectedFloor, deployTeamIds.slice(0, requiredTeams), pendingEvent.event.id, choiceId, pendingEvent.theme)
+      const result = await resolveEvent(resolvedFloor || selectedFloor, deployTeamIds[0], pendingEvent.event.template_id, choiceId, pendingEvent.theme)
       setEventResolution(result)
       setPendingEvent(null)
 
@@ -522,8 +558,7 @@ export default function TowerPage({ onGoldChange }) {
     setResolving(true)
     setError(null)
     try {
-      const requiredTeams = ((resolvedFloor || selectedFloor) - 1) === 0 ? 1 : Math.floor(((resolvedFloor || selectedFloor) - 1) / 20) + 1
-      const result = await resolveExplore(resolvedFloor || selectedFloor, deployTeamIds.slice(0, requiredTeams), choiceId)
+      const result = await resolveExplore(resolvedFloor || selectedFloor, deployTeamIds[0], choiceId)
       // Explore always ends in a real fight now — route through the same
       // combat animation as a normal floor, instead of jumping straight to
       // a static result box.
@@ -584,10 +619,10 @@ export default function TowerPage({ onGoldChange }) {
           {pendingEvent && !postCombatPhase && (
             <div className="card" style={{ maxWidth: '600px', margin: '0 auto 2rem auto', border: '1px solid var(--gold)' }}>
               <div style={{ fontFamily: 'Cinzel, serif', color: 'var(--gold)', fontSize: '1.2rem', marginBottom: '1rem', textAlign: 'center' }}>
-                Event: {pendingEvent.event.name}
+                Event
               </div>
               <div style={{ marginBottom: '1.5rem', lineHeight: 1.6, color: 'var(--text-hi)', fontSize: '1.05rem', textAlign: 'center' }}>
-                {pendingEvent.event.description}
+                {pendingEvent.event_narrative || pendingEvent.event.theme}
               </div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
                 {pendingEvent.event.choices.map(choice => (
@@ -606,10 +641,10 @@ export default function TowerPage({ onGoldChange }) {
                       WebkitUserSelect: 'none',
                     }}
                     onMouseOver={e => {
-                      if (!resolving) e.target.style.background = 'rgba(255,255,255,0.1)'
+                      if (!resolving) e.currentTarget.style.background = 'rgba(255,255,255,0.1)'
                     }}
                     onMouseOut={e => {
-                      if (!resolving) e.target.style.background = 'rgba(0,0,0,0.3)'
+                      if (!resolving) e.currentTarget.style.background = 'rgba(0,0,0,0.3)'
                     }}
                   >
                     <div style={{ color: 'var(--text-hi)' }}>
@@ -663,10 +698,10 @@ export default function TowerPage({ onGoldChange }) {
                       WebkitUserSelect: 'none',
                     }}
                     onMouseOver={e => {
-                      if (!resolving) e.target.style.background = 'rgba(255,255,255,0.1)'
+                      if (!resolving) e.currentTarget.style.background = 'rgba(255,255,255,0.1)'
                     }}
                     onMouseOut={e => {
-                      if (!resolving) e.target.style.background = 'rgba(0,0,0,0.3)'
+                      if (!resolving) e.currentTarget.style.background = 'rgba(0,0,0,0.3)'
                     }}
                   >
                     <div style={{ color: 'var(--text-hi)' }}>
@@ -792,21 +827,58 @@ export default function TowerPage({ onGoldChange }) {
 
         </div>
       ) : (
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 300px', gap: '1.5rem' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 340px', gap: '2rem' }}>
           {/* Floor Grid */}
           <div className="card">
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: '1rem' }}>
-              <div className="text-gold" style={{ fontFamily: 'Cinzel, serif', fontSize: '1.1rem' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.2rem' }}>
+              <div className="text-gold" style={{ fontFamily: 'Cinzel, serif', fontSize: '1.2rem' }}>
                 Zone {selectedZone + 1} Floors
               </div>
-              <div className="text-dim" style={{ fontSize: '0.75rem' }}>
-                Floors {startFloorOfZone}–{startFloorOfZone + 9}
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.8rem' }}>
+                <div className="text-dim" style={{ fontSize: '0.75rem' }}>
+                  Floors {startFloorOfZone}–{startFloorOfZone + 9}
+                </div>
+                {/* Floor legend — lists what each icon/colour means */}
+                <div style={{ position: 'relative' }}>
+                  <button
+                    className="btn"
+                    onClick={() => setShowLegend(v => !v)}
+                    style={{ fontSize: '0.75rem', padding: '0.3rem 0.7rem' }}
+                    title="Floor type legend"
+                  >
+                    ? Legend
+                  </button>
+                  {showLegend && (
+                    <div onClick={() => setShowLegend(false)} style={{
+                      position: 'fixed', inset: 0, zIndex: 50,
+                    }}>
+                      <div onClick={e => e.stopPropagation()} style={{
+                        position: 'absolute', right: 0, top: '110%',
+                        background: 'var(--bg-panel)', border: '1px solid var(--border)',
+                        borderRadius: 8, padding: '1rem', zIndex: 51,
+                        minWidth: 240, maxHeight: '70vh', overflowY: 'auto',
+                        boxShadow: '0 4px 20px rgba(0,0,0,0.6)',
+                      }}>
+                        <div className="text-gold" style={{ fontFamily: 'Cinzel, serif', fontSize: '0.85rem', marginBottom: '0.7rem' }}>Floor Types</div>
+                        {Object.entries(FLOOR_TYPE_INFO).filter(([k]) => k !== 'miniboss').map(([key, info]) => (
+                          <div key={key} style={{ display: 'flex', alignItems: 'flex-start', gap: '0.5rem', marginBottom: '0.5rem' }}>
+                            <span style={{ fontSize: '1rem', lineHeight: 1 }}>{FLOOR_ICONS[key]}</span>
+                            <div>
+                              <div style={{ fontSize: '0.8rem', color: info.color, fontWeight: 600 }}>{info.label}</div>
+                              <div className="text-dim" style={{ fontSize: '0.7rem', lineHeight: 1.3 }}>{info.blurb}</div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
               </div>
             </div>
             <div style={{
               display: 'grid',
               gridTemplateColumns: 'repeat(5, 1fr)',
-              gap: '0.6rem'
+              gap: '1rem'
             }}>
               {Array.from({ length: 10 }).map((_, i) => {
                 const floorNum = startFloorOfZone + i
@@ -815,8 +887,10 @@ export default function TowerPage({ onGoldChange }) {
                 const isSelected = floorNum === selectedFloor
                 const isBoss = floorNum % 10 === 0
                 const preview = zoneFloorTypes[floorNum]
-                const typeInfo = preview ? FLOOR_TYPE_INFO[preview.floor_type] : null
-                const icon = isBoss ? '👿' : (preview ? FLOOR_ICONS[preview.floor_type] : null)
+                // Only reveal floor type/colour once the player has actually entered it
+                const visited = preview?.visited
+                const typeInfo = visited ? FLOOR_TYPE_INFO[preview.floor_type] : null
+                const icon = isBoss ? '👿' : (visited ? FLOOR_ICONS[preview.floor_type] : null)
 
                 let bg = 'rgba(255,255,255,0.05)'
                 let border = '1px solid rgba(255,255,255,0.12)'
@@ -827,8 +901,8 @@ export default function TowerPage({ onGoldChange }) {
                   bg = 'rgba(0,0,0,0.35)'
                   color = 'var(--text-dim)'
                 } else if (typeInfo) {
-                  bg = `${typeInfo.color}22`
-                  border = `1px solid ${typeInfo.color}88`
+                  bg = hexWithAlpha(typeInfo.color, '22')
+                  border = `1px solid ${hexWithAlpha(typeInfo.color, '88')}`
                 }
                 if (isNext) {
                   border = '1px solid var(--gold)'
@@ -847,34 +921,31 @@ export default function TowerPage({ onGoldChange }) {
                     disabled={isLocked}
                     onClick={() => setSelectedFloor(floorNum)}
                     className={`floor-tile${extraClass}`}
-                    title={typeInfo ? `${typeInfo.label}${isLocked ? ' (locked)' : ''}` : undefined}
+                    title={typeInfo ? typeInfo.label : (isLocked ? 'Locked' : 'Unknown')}
                     style={{
                       background: bg,
                       border,
                       color,
                       cursor: isLocked ? 'not-allowed' : 'pointer',
                       opacity: isLocked ? 0.6 : 1,
+                      padding: '1rem 0.5rem',
+                      minHeight: '90px',
                     }}
                   >
                     {isBoss && <div className="floor-tile-boss-stripe" />}
-                    <div className="floor-tile-icon">{isLocked ? '🔒' : (icon || '·')}</div>
-                    <div className="floor-tile-num">{floorNum}</div>
+                    <div className="floor-tile-icon" style={{ fontSize: '1.4rem' }}>
+                      {isLocked ? '🔒' : (icon || '?')}
+                    </div>
+                    <div className="floor-tile-num" style={{ fontSize: '1.1rem', fontWeight: 600 }}>{floorNum}</div>
                     {isNext && <span className="floor-tile-tag" style={{ background: 'rgba(201,168,76,0.3)', color: 'var(--gold)' }}>Next</span>}
-                    {!isLocked && !isNext && <span className="floor-tile-tag" style={{ background: 'rgba(80,200,120,0.2)', color: 'var(--green)' }}>Cleared</span>}
-                    {isLocked && typeInfo && <span className="floor-tile-tag" style={{ background: 'rgba(255,255,255,0.08)', color: 'var(--text-dim)' }}>{typeInfo.label}</span>}
+                    {!isLocked && !isNext && <span className="floor-tile-tag" style={{ background: 'rgba(80,200,120,0.2)', color: 'var(--green)' }}>
+                      {typeInfo ? typeInfo.label : 'Cleared'}
+                    </span>}
                   </button>
                 )
               })}
             </div>
-            <div style={{ display: 'flex', gap: '0.8rem', flexWrap: 'wrap', marginTop: '1rem', fontSize: '0.7rem' }}>
-              {Object.entries(FLOOR_TYPE_INFO).filter(([k]) => k !== 'miniboss').map(([key, info]) => (
-                <span key={key} className="text-dim" style={{ display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
-                  <span style={{ width: 8, height: 8, borderRadius: '50%', background: info.color, display: 'inline-block' }} />
-                  {FLOOR_ICONS[key]} {info.label}
-                </span>
-              ))}
-            </div>
-            
+
             <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '1.5rem' }}>
               <button 
                 className="btn" 
@@ -933,6 +1004,35 @@ export default function TowerPage({ onGoldChange }) {
                 )}
               </div>
             ))}
+
+            <div style={{ marginBottom: '1rem' }}>
+              <label className="text-dim text-sm" style={{ display: 'block', marginBottom: '0.5rem' }}>Tactical Stance</label>
+              <div style={{ display: 'flex', gap: '0.4rem' }}>
+                {[
+                  { id: 'cautious', label: 'Cautious', title: 'Safer fights, smaller rewards (-10% loot, -15% enemy difficulty)' },
+                  { id: 'balanced', label: 'Balanced', title: 'No adjustment — the default.' },
+                  { id: 'aggressive', label: 'Aggressive', title: 'Tougher enemies, bigger rewards (+20% loot, +15% enemy difficulty)' },
+                ].map(opt => (
+                  <button
+                    key={opt.id}
+                    className="btn"
+                    title={opt.title}
+                    onClick={() => changeStance(opt.id)}
+                    style={{
+                      flex: 1, fontSize: '0.75rem', padding: '0.4rem 0.3rem',
+                      background: stance === opt.id ? 'rgba(201,168,76,0.25)' : 'rgba(0,0,0,0.3)',
+                      borderColor: stance === opt.id ? 'var(--gold)' : 'var(--border)',
+                      color: stance === opt.id ? 'var(--gold)' : '#ddd',
+                    }}
+                  >
+                    {opt.label}
+                  </button>
+                ))}
+              </div>
+              <div className="text-dim" style={{ fontSize: '0.65rem', marginTop: '0.3rem', fontStyle: 'italic' }}>
+                Doesn't apply to Boss/Miniboss floors — those are a fixed gear check either way.
+              </div>
+            </div>
 
             {floorPreview?.blurb && (
               <div style={{

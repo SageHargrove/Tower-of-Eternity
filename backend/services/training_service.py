@@ -97,8 +97,21 @@ def process_training_xp(conn):
                 hero[stat_to_boost] += 1
                 if stat_to_boost == "max_health":
                     hero["health"] += 1
-                conn.execute(f"UPDATE heroes SET {stat_to_boost} = ?, health = ? WHERE id = ?", 
+                conn.execute(f"UPDATE heroes SET {stat_to_boost} = ?, health = ? WHERE id = ?",
                              (hero[stat_to_boost], hero["health"], hid))
+
+            # A slow passive hero-level XP trickle just for being assigned
+            # here at all — separate from (and much slower than) the
+            # per-skill xp below, and far slower than actually fighting.
+            # "Training Grounds could level it up" was an explicit ask.
+            hero_xp_gain = int(0.4 * minutes_passed * diligence_mult * tg_level_mult)
+            if hero_xp_gain > 0:
+                conn.execute("UPDATE heroes SET xp = xp + ? WHERE id = ?", (hero_xp_gain, hid))
+                from services.level_service import recalculate_hero_level
+                hero_row = conn.execute("SELECT * FROM heroes WHERE id = ?", (hid,)).fetchone()
+                if hero_row:
+                    new_level = recalculate_hero_level(dict(hero_row))
+                    conn.execute("UPDATE heroes SET level = ? WHERE id = ?", (new_level, hid))
 
             if not skill_id: continue
             

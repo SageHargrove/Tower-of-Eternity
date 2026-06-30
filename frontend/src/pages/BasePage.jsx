@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react'
 import { getBase, getFacilities, buildFacility, upgradeFacility, assignFacility, removeFacility, restHeroes, listHeroes, configTraining, getMageTowerUpgrades, buyResearchUpgrade, craftMaterialEquipment, craftBandages, getBaseFloors, assignBaseFloor, getLegacies, getChatLogs, renameBase, upgradeBase, getMarketCatalog, purchaseMarketItem, getBaseUpgrades, buyBaseUpgrade, getMailList, claimMail } from '../api/client'
 import TalentObservatory from '../components/TalentObservatory'
+import LoreJournal from '../components/LoreJournal'
 
 // Hand-painted banner art for the base-wide upgrade tree — keyed by the
 // upgrade's id (see DEFAULT_UPGRADES in routers/base.py) so a rename there
@@ -350,14 +351,15 @@ const handleRenameBase = async () => {
 
   const renderTabs = () => (
     <div style={{ display: 'flex', gap: '1rem', marginBottom: '1.5rem', borderBottom: '1px solid var(--border)', overflowX: 'auto' }}>
-      {['lobby', 'facilities', 'mail', 'legacy', 'floors'].map(tab => {
+      {['lobby', 'facilities', 'mail', 'legacy', 'floors', 'lore'].map(tab => {
         const locked = !!tourTargetSubTab && tab !== tourTargetSubTab
-        
+
         let label = tab
         if (tab === 'floors') label = 'Base Hierarchy'
         else if (tab === 'legacy') label = 'Legacies'
         else if (tab === 'lobby') label = 'The Lobby'
         else if (tab === 'mail') label = 'Mailbox'
+        else if (tab === 'lore') label = 'Lore Journal'
         
         // Unclaimed mail indicator
         let badge = null;
@@ -925,6 +927,18 @@ const getGenRate = (fac) => {
               ))}
             </div>
           </div>
+        </div>
+      )}
+
+      {activeTab === 'lore' && (
+        <div className="card" style={{ maxWidth: 700 }}>
+          <div style={{ fontFamily: 'Cinzel, serif', fontSize: '1.2rem', color: 'var(--gold)', marginBottom: '1.2rem' }}>
+            📖 Lore Journal
+          </div>
+          <div className="text-dim" style={{ fontSize: '0.8rem', marginBottom: '1.2rem' }}>
+            A new page unlocks every 10 floors cleared — written from what your team actually fought and chose along the way.
+          </div>
+          <LoreJournal inline />
         </div>
       )}
     </div>

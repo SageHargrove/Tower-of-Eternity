@@ -476,7 +476,7 @@ export default function HeroesPage() {
       <div key={hero.id}
            style={{
              position: 'relative',
-             width: '220px',
+             width: activeTab !== 'all' ? '260px' : '220px',
              height: '100%',
              display: 'flex',
              flexDirection: 'column',
@@ -536,6 +536,7 @@ export default function HeroesPage() {
           }}
           onToggleSelect={!synthMode ? () => toggleSelect(hero.id) : undefined}
           showFull={false}
+          scale={activeTab !== 'all' ? 1.15 : 1}
           onRegenerateProfile={() => load()}
           onManageEquipment={(h, s, e) => setEqModal({ hero: h, slot: s, currentEq: e })}
           onManageConsumable={(h) => setConsModal({ hero: h })}

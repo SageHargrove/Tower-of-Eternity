@@ -3,13 +3,11 @@ from database import db
 from services.combat_service import run_combat
 from services.morale_service import between_floor_recovery, witness_death_trauma, get_morale_state, apply_morale_delta, apply_stress, apply_trauma
 from services.llm_service import generate_combat_narration, generate_event_narrative, generate_event_resolution_narrative
-from services.event_service import select_event, resolve_event_choice
+from services.event_service import select_event, resolve_event_choice, get_event_theme
 from services.floor_templates import (
     get_floor_type, get_cached_floor_type, FLOOR_FLAVOR_INTRO,
     generate_explore_floor, get_explore_choice, resolve_explore_loot,
-    generate_rest_floor, resolve_rest_floor,
 )
-from services.combat_service import SWARM_SURVIVAL_CHANCE
 from services.enemy_families import get_miniboss_override, get_boss_override, get_raid_boss_override
 import json
 import random
@@ -21,6 +19,11 @@ class EnterFloorRequest(BaseModel):
     team_ids: list[int] = []
     team_id: int = 1
     floor_number: int
+    # The manager's standing tactical directive — applies to every combat
+    # floor automatically rather than interrupting with a popup per floor
+    # (the team executes the fight itself either way; this is the one lever
+    # the manager actually gets to pull before the team engages).
+    stance: str = "balanced"
 
 # Combat narration used to block floor-entry for up to 1.5s waiting on an LLM
 # call that has nowhere to render on the frontend anyway. Now fired in the
@@ -39,6 +42,16 @@ def _register_narrative_future(future):
             del _narrative_futures[old_id]
     return nid
 
+@router.get("/lore")
+def get_lore():
+    """Every Lore Journal page unlocked so far, oldest first."""
+    from services.lore_service import get_lore_journal
+    with db() as conn:
+        highest_floor = conn.execute("SELECT highest_floor FROM base WHERE id = 1").fetchone()["highest_floor"]
+        entries = get_lore_journal(conn, highest_floor)
+    return {"entries": entries, "highest_floor": highest_floor}
+
+
 @router.get("/narrative/{narrative_id}")
 def get_narrative(narrative_id: int):
     future = _narrative_futures.get(narrative_id)
@@ -56,7 +69,8 @@ def _resolve_real_combat(conn, hero_teams, floor_number, is_boss, is_miniboss, z
                           boss_data_override, base_row, pending_legacies,
                           enemy_count_override=None, flavor_intro=None, difficulty_mult=1.0,
                           family_override=None, is_survival_swarm=False, available_consumables=None,
-                          is_escort=False):
+                          is_escort=False, reward_mult=1.0, is_ambush=False, is_blitz=False,
+                          cursed_debuff=None, miniboss_variant=None):
     """Run a real fight and apply every resulting effect."""
     from services.llm_service import generate_combat_narration, submit_flavor_text
     from services.combat_service import run_multi_combat
@@ -68,6 +82,8 @@ def _resolve_real_combat(conn, hero_teams, floor_number, is_boss, is_miniboss, z
             difficulty_mult=difficulty_mult, conn=conn,
             family_override=family_override, is_survival_swarm=is_survival_swarm,
             available_consumables=available_consumables, is_escort=is_escort,
+            enemy_count_override=enemy_count_override, is_ambush=is_ambush, is_blitz=is_blitz,
+            cursed_debuff=cursed_debuff, miniboss_variant=miniboss_variant,
         )
     except Exception as e:
         print(f"Combat error: {e}")
@@ -233,6 +249,10 @@ def _resolve_real_combat(conn, hero_teams, floor_number, is_boss, is_miniboss, z
     result["supplies_gained"] = combat_result.get("supplies_gained", 0)
     result["materials_gained"] = combat_result.get("materials_gained", {})
 
+    if reward_mult != 1.0:
+        result["gold_gained"] = int(result["gold_gained"] * reward_mult)
+        result["materials_gained"] = {m: max(1, int(qty * reward_mult)) for m, qty in result["materials_gained"].items()}
+
     if floor_number <= base_row["highest_floor"]:
         result["gold_gained"] = int(result["gold_gained"] * 0.05)
         result["supplies_gained"] = int(result["supplies_gained"] * 0.05)
@@ -270,15 +290,23 @@ def _resolve_real_combat(conn, hero_teams, floor_number, is_boss, is_miniboss, z
 
 @router.get("/floor/preview/{floor_number}")
 def preview_floor(floor_number: int):
-    """Peek at a floor's type/flavor without spending supplies or resolving
-    anything. Floor type is cached on first peek (or first enter, whichever
-    comes first) so it never changes on a later visit or rerun. Free and
-    unconditional — there is no facility gate on this."""
+    """Peek at a floor's type/flavor. The type is rolled once and cached
+    forever (same as before), but it's only REVEALED to the player after
+    they've actually entered the floor at least once — locked or unvisited
+    floors always return floor_type: null so the grid shows '?' instead
+    of the real type, preventing spoilers and looking cleaner."""
     with db() as conn:
         floor_type = get_cached_floor_type(conn, floor_number)
+        visited_row = conn.execute(
+            "SELECT visited FROM floor_cache WHERE floor_number = ?", (floor_number,)
+        ).fetchone()
+        visited = bool(visited_row and visited_row["visited"])
+    if not visited:
+        return {"floor_type": None, "blurb": None, "visited": False}
     return {
         "floor_type": floor_type,
         "blurb": FLOOR_FLAVOR_INTRO.get(floor_type, ""),
+        "visited": True,
     }
 
 @router.post("/floor/enter")
@@ -374,28 +402,25 @@ def enter_floor(req: EnterFloorRequest):
         floor_type = get_cached_floor_type(conn, req.floor_number)
         hero_list = [h for team in hero_teams for h in team] # flattened for event logs and logic
         is_boss = floor_type == "boss"
-        is_miniboss = floor_type == "miniboss"
-
-        # Survival Floor — a random *alternative* to the usual single named
-        # miniboss, never a replacement for all of them, and never on a Boss
-        # floor. Rolled before the family-override lookup below since a
-        # swarm fight doesn't use one (it's a horde, not a named unit).
-        # Seeded by floor_number — whether floor N is secretly a Survival
-        # Swarm is composition, not combat tactics, so it must be the same
-        # answer on every attempt (a scout team's "floor 15 is a swarm"
-        # report needs to stay true), same reasoning as make_enemies'
-        # seeded composition rolls in combat_service.py.
-        is_survival_swarm = is_miniboss and random.Random(req.floor_number * 7919 + 4).random() < SWARM_SURVIVAL_CHANCE
+        is_miniboss = floor_type.startswith("miniboss")
+        # "miniboss_behemoth" -> "behemoth"; bare legacy "miniboss" (stale
+        # floor_cache rows from before variants existed) has no variant.
+        miniboss_variant = floor_type.split("_", 1)[1] if is_miniboss and "_" in floor_type else None
+        is_survival_swarm = is_miniboss and miniboss_variant == "survival"
 
         # Built-out floor families (currently just floor 1-10's Slime/Goblin/
         # Rat/Wolf range) supply a deterministic named miniboss/boss instead
-        # of the generic LLM-flavored naming below — see enemy_families.py.
-        # Floors without a built-out family fall back to the old behavior.
+        # of the generic variant/LLM-flavored naming below — see
+        # enemy_families.py. Takes priority over a rolled variant so curated
+        # early-floor content (e.g. floor 5's "Goblin King") never gets
+        # silently replaced by a generic Behemoth/Assassin/Twins/Mirror.
         family_override = None
         if is_survival_swarm:
             pass
         elif is_miniboss:
             family_override = get_miniboss_override(req.floor_number)
+            if family_override:
+                miniboss_variant = None
         elif is_boss:
             # Raid Boss merge (see run_multi_combat's matching floor==50/100
             # check) gets its own dedicated unique where one's been built,
@@ -413,7 +438,7 @@ def enter_floor(req: EnterFloorRequest):
         # name — no point spending an LLM call on flavor that's discarded.
         zone_theme_future = submit_flavor_text(generate_zone_theme, req.floor_number)
         boss_future = None
-        if (is_boss or is_miniboss) and not family_override and not is_survival_swarm:
+        if (is_boss or is_miniboss) and not family_override and not is_survival_swarm and not miniboss_variant:
             placeholder_theme = f"a dark, dangerous zone around floor {req.floor_number} of a tower"
             boss_future = submit_flavor_text(generate_boss_enemy, placeholder_theme, req.floor_number, is_miniboss)
 
@@ -424,13 +449,21 @@ def enter_floor(req: EnterFloorRequest):
         result = {}
         narrative = None
 
-        # Resolve Floor Logic — survival/defend/escort are real fights with
-        # a different frame and a bigger/different enemy wave, not abstract
-        # stat checks. They share the exact same resolution path as plain
-        # combat (death/legacy/trauma/rewards/equipment) below.
-        if floor_type in ("combat", "miniboss", "boss", "survival", "defend", "escort"):
+        # Resolve Floor Logic — every combat-family type below is a real
+        # fight under a different frame/twist, not an abstract stat check.
+        # They share the exact same resolution path as each other
+        # (death/legacy/trauma/rewards/equipment) below.
+        COMBAT_FAMILY_TYPES = ("boss", "survival", "defend", "escort", "field_combat",
+                               "conquest", "war", "retrieve", "ambush", "blitz",
+                               "cursed_ground")
+        if is_miniboss or floor_type in COMBAT_FAMILY_TYPES:
             enemy_count_override = None
             flavor_intro = FLOOR_FLAVOR_INTRO.get(floor_type)
+            reward_mult = 1.0
+            extra_difficulty_mult = 1.0
+            is_ambush = False
+            is_blitz = False
+            cursed_debuff = None
             if is_survival_swarm:
                 flavor_intro = "Waves without end pour from the dark. There's no winning this one outright — only surviving it."
             elif floor_type == "survival":
@@ -438,9 +471,41 @@ def enter_floor(req: EnterFloorRequest):
             elif floor_type == "escort":
                 npc = random.choice(["a wounded traveler", "a lost child", "a captured merchant", "a dying scholar"])
                 flavor_intro = f"You find {npc} who needs safe passage. Enemies close in on the path."
+            elif floor_type == "conquest":
+                # Bigger wave, no twist beyond the numbers — kill everything,
+                # the natural per-kill rewards do the rest.
+                enemy_count_override = random.randint(5, 7)
+            elif floor_type == "war":
+                # The hardest non-boss set-piece: biggest wave AND toughened
+                # stats on top of the floor's normal difficulty.
+                enemy_count_override = random.randint(6, 9)
+                extra_difficulty_mult = 1.15
+            elif floor_type == "retrieve":
+                # Mission-sized fight (no bigger than normal combat) but a
+                # guaranteed bonus on whatever loot the fight already drops —
+                # "go in, take the valuable thing, get out."
+                reward_mult = 1.5
+            elif floor_type == "ambush":
+                is_ambush = True
+            elif floor_type == "blitz":
+                is_blitz = True
+            elif floor_type == "cursed_ground":
+                cursed_debuff = {"poison_rounds": 3, "poison_magnitude": 0.06, "hp_pct_loss": 0.25}
+
+            # The manager's stance — a real, standing lever on every regular
+            # combat floor (Boss/Miniboss stay a committed "no dial" comp
+            # check, consistent with their framing). Aggressive trades
+            # tougher enemies for better loot; Cautious trades the other way.
+            if not is_boss and not is_miniboss:
+                if req.stance == "aggressive":
+                    reward_mult *= 1.2
+                    extra_difficulty_mult *= 1.15
+                elif req.stance == "cautious":
+                    reward_mult *= 0.9
+                    extra_difficulty_mult *= 0.85
 
             from services.difficulty_service import get_difficulty_mults
-            enemy_stat_mult = get_difficulty_mults(conn)["enemy_stat_mult"]
+            enemy_stat_mult = get_difficulty_mults(conn)["enemy_stat_mult"] * extra_difficulty_mult
 
             result = _resolve_real_combat(
                 conn, hero_teams, req.floor_number, is_boss, is_miniboss, zone_theme,
@@ -449,14 +514,18 @@ def enter_floor(req: EnterFloorRequest):
                 difficulty_mult=enemy_stat_mult,
                 family_override=family_override, is_survival_swarm=is_survival_swarm,
                 available_consumables=available_consumables, is_escort=(floor_type == "escort"),
+                reward_mult=reward_mult, is_ambush=is_ambush, is_blitz=is_blitz,
+                cursed_debuff=cursed_debuff, miniboss_variant=miniboss_variant,
             )
             result["floor_type"] = floor_type
+            if not is_boss and not is_miniboss:
+                result["stance"] = req.stance
 
         elif floor_type == "event":
             event_data = select_event(req.floor_number, zone_theme_display)
             narrative = call_with_timeout(
-                generate_event_narrative, zone_theme_display, req.floor_number, [h["name"] for h in hero_list],
-                timeout=1.5, fallback=event_data["description"]
+                generate_event_narrative, event_data["theme"], req.floor_number, [h["name"] for h in hero_list],
+                timeout=1.5, fallback=event_data["theme"]
             )
             result = {
                 "floor_type": "event",
@@ -484,23 +553,6 @@ def enter_floor(req: EnterFloorRequest):
                 "awaiting_choice": True,
             }
 
-        elif floor_type == "rest":
-            template = generate_rest_floor(req.floor_number)
-            resolution = resolve_rest_floor(template, hero_list)
-            for hr in resolution["hero_results"]:
-                hero_data = next((h for h in hero_list if h["id"] == hr["id"]), None)
-                if hero_data:
-                    new_morale = max(0, min(100, hero_data["morale"] + hr.get("morale_delta", 0)))
-                    new_stress = max(0, hero_data["stress"] + hr.get("stress_gained", 0))
-                    conn.execute("UPDATE heroes SET health = MIN(max_health, ?), morale = ?, stress = ?, morale_state = ? WHERE id = ?",
-                                 (hr["health"], new_morale, new_stress, get_morale_state(new_morale), hr["id"]))
-            result = {
-                "floor_type": "rest",
-                "resolution": resolution,
-                "narrative": resolution["summary"],
-                "log": resolution["log"],
-            }
-
         # Add fatigue to deployed heroes
         conn.execute(
             """
@@ -524,18 +576,38 @@ def enter_floor(req: EnterFloorRequest):
         combat_won = result.get("combat", {}).get("winner") == "heroes"
         is_sole_survivor = combat_won and is_boss and len(survivors) == 1
 
+        # Record what this floor actually was for the Lore Journal — only
+        # for floors that resolved outright here (event/explore haven't
+        # resolved yet at this point, see their own /resolve endpoints).
+        if result.get("combat") and not result.get("awaiting_choice"):
+            from services.lore_service import record_floor_history
+            enemy_names = [e["name"] for e in result["combat"].get("initial_state", {}).get("enemies", [])]
+            outcome = "won" if combat_won else "was wiped"
+            summary = f"Fought {', '.join(enemy_names) or 'enemies'} — party {outcome}."
+            record_floor_history(conn, req.floor_number, result.get("floor_type", floor_type), summary)
+
+        from services.level_service import kill_xp_reward, floor_clear_xp_reward
         for s in survivors:
             hid = s["id"]
             surviving_ids.append(hid)
             kills_gained = s.get("kills_gained", 0)
             stress_delta = s.get("stress_delta", 0)
-            
+
             hero_row = conn.execute("SELECT team_position FROM heroes WHERE id = ?", (hid,)).fetchone()
             is_leader = hero_row and hero_row["team_position"] == 0
-            
+
             u_sole = 1 if is_sole_survivor else 0
             u_leader = 1 if (is_leader and combat_won) else 0
             u_first = 1 if (is_first_clear and combat_won) else 0
+
+            # XP: per-kill always (you really did kill it, win or lose),
+            # plus a floor-clear bonus only on an actual win — this is what
+            # actually drives level now (see recalculate_hero_level), not
+            # floors_survived/kills directly anymore. Those two columns
+            # still get tracked below for titles/achievements/display.
+            xp_gained = kills_gained * kill_xp_reward(req.floor_number, is_boss, is_miniboss)
+            if combat_won:
+                xp_gained += floor_clear_xp_reward(req.floor_number, is_boss, is_miniboss)
 
             conn.execute("""
                 UPDATE heroes SET
@@ -545,9 +617,10 @@ def enter_floor(req: EnterFloorRequest):
                     sole_survivor_boss_clears = sole_survivor_boss_clears + ?,
                     leader_clears = leader_clears + ?,
                     unique_floor_clears = unique_floor_clears + ?,
-                    stress = MIN(100, MAX(0, stress + ?))
+                    stress = MIN(100, MAX(0, stress + ?)),
+                    xp = xp + ?
                 WHERE id = ?
-            """, (kills_gained, kills_gained, u_sole, u_leader, u_first, stress_delta, hid))
+            """, (kills_gained, kills_gained, u_sole, u_leader, u_first, stress_delta, xp_gained, hid))
 
             from services.title_service import check_and_assign_titles
             new_titles = check_and_assign_titles(conn, hid)
@@ -564,9 +637,6 @@ def enter_floor(req: EnterFloorRequest):
                     conn.execute("UPDATE heroes SET level = ? WHERE id = ?", (new_level, hid))
                     level_msgs = level_up_summary(old_level, new_level, hero_dict["name"])
                     result.setdefault("level_ups", []).extend(level_msgs)
-                    from services.dialogue_service import get_hero_line
-                    line = get_hero_line(hero_dict["hero_class"], hero_dict.get("birth_star", 1), "level_up")
-                    result.setdefault("level_up_chatter", []).append({"hero_id": hid, "name": hero_dict["name"], "line": line})
 
         if len(surviving_ids) >= 2:
             for i in range(len(surviving_ids)):
@@ -591,6 +661,13 @@ def enter_floor(req: EnterFloorRequest):
                 conn.execute("""
                     UPDATE heroes SET health = max_health, morale = ?, stress = ?, trauma = ?, morale_state = ? WHERE id = ?
                 """, (recovery["morale"], recovery["stress"], recovery["trauma"], recovery["morale_state"], hid))
+
+        # Mark this floor as visited regardless of win/loss — the player
+        # entered it, so the floor type is now revealed on the grid.
+        conn.execute(
+            "UPDATE floor_cache SET visited = 1 WHERE floor_number = ?",
+            (req.floor_number,)
+        )
 
         if not result.get("run_over") and not result.get("awaiting_choice") and req.floor_number > base_row["highest_floor"]:
             gems_reward = 500 if req.floor_number % 5 == 0 else 100
@@ -639,6 +716,12 @@ def resolve_event_floor(data: ResolveEventRequest):
         resolution = resolve_event_choice(data.template_id, data.choice_id, hero_list)
         if "error" in resolution:
             raise HTTPException(status_code=400, detail=resolution["error"])
+
+        from services.lore_service import record_floor_history
+        record_floor_history(
+            conn, data.floor_number, "event",
+            f"Event \"{get_event_theme(data.template_id)[:80]}\" — chose: {resolution['choice_label']}.",
+        )
 
         effects = resolution["effects"]
 
@@ -700,7 +783,7 @@ def resolve_event_floor(data: ResolveEventRequest):
 
         try:
             narrative = generate_event_resolution_narrative(
-                data.theme, resolution["choice_label"], effects, hero_names
+                get_event_theme(data.template_id), resolution["choice_label"], effects, hero_names
             )
         except Exception:
             narrative = f"The party chose: {resolution['choice_label']}."
@@ -777,6 +860,15 @@ def resolve_explore_floor_choice(data: ResolveExploreRequest):
             difficulty_mult=choice["difficulty_mult"] * enemy_stat_mult, flavor_intro=template["theme"],
         )
         result["floor_type"] = "explore"
+
+        from services.lore_service import record_floor_history
+        enemy_names = [e["name"] for e in result.get("combat", {}).get("initial_state", {}).get("enemies", [])]
+        outcome = "won" if not result.get("run_over") else "was wiped"
+        record_floor_history(
+            conn, data.floor_number, "explore",
+            f"Explored \"{template['theme'][:80]}\" — chose: {choice.get('label', data.choice_id)}. "
+            f"Fought {', '.join(enemy_names) or 'enemies'} — party {outcome}.",
+        )
 
         # Loot is a bonus on top of the fight — only rolls if the fight was won.
         if not result.get("run_over"):

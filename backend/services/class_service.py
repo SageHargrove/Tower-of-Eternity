@@ -192,7 +192,18 @@ CLASS_EVOLUTIONS = {
 }
 
 COMBAT_BASE_CLASSES = ["Warrior", "Spearman", "Thief", "Archer", "Mage", "Acolyte", "Magic Engineer", "Spellsword"]
+
+# SUPPORT_BASE_CLASSES is the full "base/profession" gacha roll pool (unchanged —
+# still rolled as a single "base" category, see assign_class). Within it,
+# SUPPORT_COMBAT_CLASSES marks the subset that's actually combat-capable at
+# the literal base name itself — everyone else (Chef/Blacksmith/Quartermaster/
+# Priest/Alchemist/Merchant/Farmer) is a pure crafting/economy role until they
+# evolve into a named combat form (e.g. Blacksmith -> Weaponsmith), same as
+# how the other 5 already worked. Confirmed deliberately: Merchant/Farmer
+# are NOT support-combat — more valuable staffed at base than fighting, and
+# their evolutions still become real fighters exactly like Blacksmith's do.
 SUPPORT_BASE_CLASSES = ["Chef", "Medic", "Scout", "Blacksmith", "Quartermaster", "Tactician", "Priest", "Alchemist", "Merchant", "Farmer"]
+SUPPORT_COMBAT_CLASSES = ["Medic", "Scout", "Tactician"]
 BASE_CLASSES = SUPPORT_BASE_CLASSES # Legacy naming convention
 
 # Weights within combat class pool (per star)
@@ -276,11 +287,48 @@ def assign_class(birth_star: int) -> tuple[str, str]:
         return ("Classless", actual_class)
     return (actual_class, None)
 
+# Within the 7 pure-profession lineages (Chef/Blacksmith/Quartermaster/
+# Priest/Alchemist/Merchant/Farmer — see SUPPORT_BASE_CLASSES minus
+# SUPPORT_COMBAT_CLASSES), evolving no longer makes a class combat-capable
+# by default. Confirmed deliberate: "a weaponsmith shouldn't be combat
+# capable, just better at making weapons" — most evolutions in these
+# lines (Weaponsmith, Trader, Master Chef, Apothecary, Logistics Officer,
+# Confessor, etc.) are more valuable staffed at base and stay pure
+# crafting/economy/faith roles forever. Only branches whose NAME itself
+# reads as genuinely dangerous get carved out as fighters, and once a
+# branch is carved out its further (tier-60) evolutions inherit that —
+# a Poisoner becoming a Brewmaster doesn't retire from being dangerous.
+# Blacksmith, Quartermaster, and Priest have no branch that clears that
+# bar, so those three lineages never fight at any tier.
+PROFESSION_COMBAT_BRANCHES = {
+    "Butcher",                                          # Chef line
+    "Poisoner", "Brewmaster",                           # Alchemist line
+    "Smuggler", "Black Market Baron", "Shadow Broker",   # Merchant line
+    "Beast Tamer", "Apex Predator", "Wild Master",       # Farmer line
+}
+
+_PROFESSION_LINEAGES = ["Chef", "Blacksmith", "Quartermaster", "Priest", "Alchemist", "Merchant", "Farmer"]
+_PROFESSION_EVOLUTION_NAMES = None
+
+def _build_profession_evolution_names() -> set:
+    names = set()
+    for base in _PROFESSION_LINEAGES:
+        tiers = CLASS_EVOLUTIONS.get(base, {})
+        names.update(tiers.get(30, []))
+        for branch in tiers.get(60, {}).values():
+            names.update(branch)
+    return names
+
 def is_combat_class(hero_class: str) -> bool:
-    # A support class can still be deployed, but typically combat classes have stats
-    # For now, anything that isn't explicitly a base support class is combat capable.
-    # Scout and Tactician are deployed classes too now.
-    return hero_class not in ["Chef", "Blacksmith", "Quartermaster", "Alchemist", "Priest"]
+    global _PROFESSION_EVOLUTION_NAMES
+    non_combat_base = [c for c in SUPPORT_BASE_CLASSES if c not in SUPPORT_COMBAT_CLASSES]
+    if hero_class in non_combat_base:
+        return False
+    if _PROFESSION_EVOLUTION_NAMES is None:
+        _PROFESSION_EVOLUTION_NAMES = _build_profession_evolution_names()
+    if hero_class in _PROFESSION_EVOLUTION_NAMES and hero_class not in PROFESSION_COMBAT_BRANCHES:
+        return False
+    return True
 
 def is_base_class(hero_class: str) -> bool:
     return hero_class in SUPPORT_BASE_CLASSES
@@ -289,199 +337,70 @@ def can_pilot(hero_class: str) -> bool:
     return hero_class == "Magic Engineer"
 
 # ---------------------------------------------------------------------------
-# Combat stat modifiers by class
+# Weapon affinity — class-specific weapon types + Weapon Art
 # ---------------------------------------------------------------------------
-# Using a dict to cleanly apply stats. Supports flat boosts, multipliers, and flags.
-# Modifiers compound (e.g. Knight is applied ON TOP of Warrior if we wanted, but we replace the class entirely, so stats should be absolute for the tier)
+# Five weapon types for now (Bow added so Archer's line has something to
+# hold, Dagger added per direct request so Thief's line isn't stuck with
+# the heavier-feeling Sword). Each type grants a bonus "Art" skill (see
+# skills_service.WEAPON_ART_SKILLS) ONLY while a hero has a matching-type
+# weapon equipped — equip is a hard restriction: a class can only wear a
+# *typed* weapon (weapon_type is not None) that's in its affinity list.
+# Untyped legacy weapons (pre-dating this system) are grandfathered in —
+# equippable by anyone, just never grant an Art.
+WEAPON_TYPES = ["Sword", "Spear", "Staff", "Bow", "Dagger"]
 
-CLASS_MODIFIERS = {
-    # Tier 1 Combat
-    "Warrior": {"def_mult": 1.20, "hp_mult": 1.15},
-    "Spearman": {"atk_mult": 1.15, "spd_mult": 1.10},
-    "Thief": {"spd_mult": 1.30, "crit_add": 0.15, "dodge_add": 0.10},
-    "Archer": {"atk_mult": 1.10, "is_ranged": True},
-    "Spellsword": {"atk_mult": 1.10, "def_mult": 0.90, "is_aoe": True, "power_stat": "intelligence"},
-    "Mage": {"atk_mult": 0.85, "is_aoe": True, "power_stat": "intelligence"},
-    "Acolyte": {"hp_mult": 1.10, "is_healer": True, "power_stat": "intelligence"},
-    "Magic Engineer": {"atk_mult": 0.90, "has_construct": True, "power_stat": "intelligence"},
-    "Classless": {"atk_mult": 0.75, "def_mult": 0.75, "spd_mult": 0.90},
-
-    # Tier 2 Combat (Lv 30) - Massive Boosts
-    "Knight": {"def_mult": 1.60, "hp_mult": 1.40, "has_taunt": True},
-    "Berserker": {"atk_mult": 1.50, "def_mult": 0.70, "hp_mult": 1.20, "lifesteal": 0.1},
-    "Paladin": {"def_mult": 1.30, "hp_mult": 1.30, "is_healer": True},
-    "Lancer": {"atk_mult": 1.30, "spd_mult": 1.20, "armor_pen": 0.5},
-    "Halberdier": {"atk_mult": 1.40, "is_cleave": True},
-    "Dragoon": {"atk_mult": 1.40, "spd_mult": 1.30, "dodge_add": 0.15},
-    "Assassin": {"atk_mult": 1.50, "spd_mult": 1.50, "crit_add": 0.30},
-    "Rogue": {"spd_mult": 1.40, "dodge_add": 0.25, "crit_add": 0.20},
-    "Ninja": {"spd_mult": 1.60, "dodge_add": 0.20, "multi_hit": 2},
-    "Sniper": {"atk_mult": 1.40, "is_ranged": True, "crit_add": 0.25},
-    "Ranger": {"atk_mult": 1.20, "is_ranged": True, "has_pet": True},
-    "Crossbowman": {"atk_mult": 1.50, "spd_mult": 0.90, "is_ranged": True},
-    "Sorcerer": {"atk_mult": 1.20, "is_aoe": True, "power_stat": "intelligence"},
-    "Warlock": {"atk_mult": 1.10, "is_aoe": True, "lifesteal": 0.3, "power_stat": "intelligence"},
-    "Necromancer": {"atk_mult": 1.0, "is_aoe": True, "summons_undead": True, "power_stat": "intelligence"},
-    "Summoner": {"atk_mult": 0.9, "summons_beast": True, "has_construct": True, "hp_mult": 1.5, "power_stat": "intelligence"},
-    "Cleric": {"def_mult": 1.20, "is_healer": True, "strong_heal": True, "power_stat": "intelligence"},
-    "Bard": {"spd_mult": 1.30, "team_buff": True},
-    "Druid": {"hp_mult": 1.40, "is_healer": True, "power_stat": "intelligence"},
-    "Monk": {"atk_mult": 1.30, "spd_mult": 1.30, "dodge_add": 0.15},
-    
-    # Support Deployed (Lv 1)
-    "Tactician": {"team_atk_mult": 1.10},
-    "Scout": {"team_spd_mult": 1.10},
-    
-    # Tier 2 Support Deployed (Lv 30)
-    "Strategist": {"team_end_mult": 1.20},
-    "Commander": {"team_atk_mult": 1.25},
-    "Advisor": {"team_xp_mult": 1.20},
-    "Pathfinder": {"trap_immune": True},
-    "Tracker": {"rare_find_mult": 1.5},
-    "Spy": {"floor_reveal": 3},
+# Keyed by BASE LINEAGE (same lineages skills_service.py builds kits for)
+# — evolutions resolve back to their lineage's affinity the same way they
+# resolve back to their lineage's skill kit. Classes/lineages absent here
+# (Blacksmith, Quartermaster, Priest, Tactician, etc.) have no enforced
+# restriction — equip is unrestricted for them since they were never
+# given a defined weapon identity.
+CLASS_WEAPON_AFFINITY = {
+    "Warrior": ["Sword"],
+    "Spearman": ["Spear"],
+    "Thief": ["Dagger"],
+    "Archer": ["Bow"],
+    "Mage": ["Staff"],
+    "Acolyte": ["Staff"],
+    "Magic Engineer": ["Staff"],
+    "Spellsword": ["Sword", "Staff"],
+    "Medic": ["Staff"],
+    "Scout": ["Dagger"],
+    # Classless intentionally omitted — no weapon identity yet (they
+    # haven't specialized), so they can equip any weapon type with no
+    # restriction. Once they evolve at level 30, that class defines it.
+    # Profession lineages only matter once a combat branch evolves in
+    # (see PROFESSION_COMBAT_BRANCHES) — affinity still lives at the
+    # lineage level so it resolves the same way skill kits do.
+    "Merchant": ["Dagger"],   # Smuggler/Black Market Baron/Shadow Broker — concealed blade
+    "Farmer": ["Spear"],      # Beast Tamer/Apex Predator/Wild Master — taming pole
+    "Chef": ["Dagger"],       # Butcher — cleaver
+    "Alchemist": ["Dagger"],  # Poisoner/Brewmaster — poisoned blade
 }
 
-def apply_class_combat_modifiers(hero: dict) -> dict:
-    h = hero.copy()
-    cls = h.get("hero_class", "Classless")
-    
-    mods = CLASS_MODIFIERS.get(cls, {})
-    
-    h["strength"] = int(h["strength"] * mods.get("atk_mult", 1.0))
-    h["intelligence"] = int(h["intelligence"] * mods.get("atk_mult", 1.0) if mods.get("power_stat") == "intelligence" else h["intelligence"])
-    h["defense"] = int(h.get("defense", 5) * mods.get("def_mult", 1.0))
-    h["endurance"] = int(h.get("endurance", h.get("defense", 5)) * mods.get("def_mult", 1.0))
-    h["agility"] = int(h["agility"] * mods.get("spd_mult", 1.0))
-    h["max_health"] = int(h["max_health"] * mods.get("hp_mult", 1.0))
-    h["health"] = int(h["health"] * mods.get("hp_mult", 1.0))
-    h["power_stat"] = mods.get("power_stat", "strength")
+_WEAPON_LINEAGE_MAP = None
 
-    h["crit_chance"] = h.get("crit_chance", 0.05) + mods.get("crit_add", 0.0)
-    h["dodge_chance"] = h.get("dodge_chance", 0.0) + mods.get("dodge_add", 0.0)
+def _build_weapon_lineage_map() -> dict:
+    mapping = {}
+    for base, tiers in CLASS_EVOLUTIONS.items():
+        for name in tiers.get(30, []):
+            mapping.setdefault(name, base)
+        for branch in tiers.get(60, {}).values():
+            for name in branch:
+                mapping.setdefault(name, base)
+    return mapping
 
-    for flag in ["is_ranged", "is_aoe", "has_construct", "has_taunt", "is_healer", "strong_heal", "is_cleave", "summons_undead", "summons_beast", "team_buff"]:
-        if mods.get(flag):
-            h[flag] = True
-
-    if "lifesteal" in mods: h["lifesteal"] = mods["lifesteal"]
-    if "armor_pen" in mods: h["armor_pen"] = mods["armor_pen"]
-    if "multi_hit" in mods: h["multi_hit"] = mods["multi_hit"]
-    leader_mult = 1.5 if h.get("is_team_leader") else 1.0
-    if "team_atk_mult" in mods: h["team_atk_mult"] = 1.0 + ((mods["team_atk_mult"] - 1.0) * leader_mult)
-    if "team_end_mult" in mods: h["team_end_mult"] = 1.0 + ((mods["team_end_mult"] - 1.0) * leader_mult)
-    if "team_spd_mult" in mods: h["team_spd_mult"] = 1.0 + ((mods["team_spd_mult"] - 1.0) * leader_mult)
-    
-    return h
-
-# ---------------------------------------------------------------------------
-# Base class effects
-# ---------------------------------------------------------------------------
-
-def get_base_class_rest_bonus(hero_class: str, hero_level: int) -> dict:
-    scale = 1.0 + (hero_level * 0.02)
-    
-    bonuses = {
-        "Chef":          {"morale_bonus": int(8 * scale),  "stress_reduction": int(5 * scale)},
-        "Master Chef":   {"morale_bonus": int(15 * scale), "stress_reduction": int(10 * scale)},
-        "Medic":         {"hp_restore_pct": min(0.30, 0.15 * scale), "trauma_reduction": int(3 * scale)},
-        "Chief Medical Officer": {"hp_restore_pct": min(0.60, 0.30 * scale), "trauma_reduction": int(8 * scale)},
-        "Priest":        {"morale_bonus": int(5 * scale),  "trauma_reduction": int(6 * scale)},
-        "High Priest":   {"morale_bonus": int(10 * scale), "trauma_reduction": int(12 * scale)},
-        "Blacksmith":    {"team_def_bonus": int(2 * scale)},
-        "Forge Lord":    {"team_def_bonus": int(8 * scale)},
-        "Quartermaster": {"gold_bonus_pct": min(0.25, 0.10 * scale)},
-        "Tycoon":        {"gold_bonus_pct": min(0.60, 0.25 * scale)},
-        "Alchemist":     {"material_bonus": int(1 * scale)},
-        "Grand Alchemist":{"material_bonus": int(3 * scale)},
-    }
-    return bonuses.get(hero_class, {})
-
-# ---------------------------------------------------------------------------
-# Forge crafting
-# ---------------------------------------------------------------------------
-# Blacksmith is the only Forge specialist. Crafting quality is capped by
-# your single BEST Blacksmith present (a pile of weak ones can't out-craft
-# one great one) — but multiple Blacksmiths of that same evolution tier
-# add a smaller bonus on top, since a crew of comparably-skilled smiths
-# really does work better together than just one.
-BLACKSMITH_LINE = ["Blacksmith", "Weaponsmith", "Armorer", "Artificer", "Master Smith", "Forge Lord", "Runesmith"]
-
-# Evolution tier rank — higher tier smiths set a meaningfully higher
-# quality ceiling, not just a flat bonus regardless of how evolved they are.
-SMITH_TIER_RANK = {
-    "Blacksmith": 1, "Weaponsmith": 1, "Armorer": 1, "Artificer": 1,
-    "Master Smith": 2,
-    "Forge Lord": 3, "Runesmith": 3,
-}
-# tier -> (apt_bonus, level_bonus) for the best smith present.
-SMITH_TIER_BONUS = {1: (30, 5), 2: (60, 10), 3: (100, 18)}
-# tier -> (apt_bonus, level_bonus) added per *additional* smith sharing
-# that same tier — the peak is still set by the best smith's tier alone.
-SMITH_TIER_TEAMWORK_BONUS = {1: (15, 2), 2: (25, 4), 3: (40, 6)}
-
-def forge_smith_bonus(hero_classes: list[str]) -> tuple[int, int, str | None]:
-    """Returns (apt_bonus, level_bonus, best_smith_class) for a Forge craft.
-    None present -> (0, 0, None). The bonus is anchored to the single best
-    (highest-tier) Blacksmith-line class present, plus a smaller bonus per
-    additional smith of that exact same tier."""
-    smith_classes = [c for c in hero_classes if c in BLACKSMITH_LINE]
-    if not smith_classes:
-        return (0, 0, None)
-    best = max(smith_classes, key=lambda c: SMITH_TIER_RANK.get(c, 1))
-    best_tier = SMITH_TIER_RANK.get(best, 1)
-    apt, level = SMITH_TIER_BONUS[best_tier]
-    # Remove exactly one occurrence of `best` (the best smith themself)
-    # before counting same-tier teammates — otherwise two heroes sharing
-    # the identical class name would wrongly cancel each other out.
-    remaining = smith_classes.copy()
-    remaining.remove(best)
-    same_tier_extra = sum(1 for c in remaining if SMITH_TIER_RANK.get(c, 1) == best_tier)
-    extra_apt, extra_level = SMITH_TIER_TEAMWORK_BONUS[best_tier]
-    apt += extra_apt * same_tier_extra
-    level += extra_level * same_tier_extra
-    return (apt, level, best)
-    roll = random.uniform(0, 100)
-    if roll < combat_pct:
-        category = "combat"
-    elif roll < combat_pct + base_pct:
-        category = "base"
-    else:
-        category = "classless"
-
-    if category == "classless":
-        actual_class = "Classless"
-    elif category == "base":
-        if birth_star == 6:
-            # 6-star base classes are exclusively Blacksmith due to combat scaling
-            actual_class = "Blacksmith"
-        else:
-            actual_class = random.choice(SUPPORT_BASE_CLASSES)
-    else:
-        # Weighted roll for combat classes
-        pool = COMBAT_WEIGHTS_BY_STAR.get(birth_star, {})
-        weights = {k: v for k, v in pool.items() if v > 0}
-        if not weights:
-            actual_class = "Classless"
-        else:
-            classes = list(weights.keys())
-            wts = list(weights.values())
-            actual_class = random.choices(classes, weights=wts, k=1)[0]
-            
-    if birth_star <= 2 and actual_class != "Classless":
-        return ("Classless", actual_class)
-    return (actual_class, None)
-
-def is_combat_class(hero_class: str) -> bool:
-    # A support class can still be deployed, but typically combat classes have stats
-    # For now, anything that isn't explicitly a base support class is combat capable.
-    # Scout and Tactician are deployed classes too now.
-    return hero_class not in ["Chef", "Blacksmith", "Quartermaster", "Alchemist", "Priest"]
-
-def is_base_class(hero_class: str) -> bool:
-    return hero_class in SUPPORT_BASE_CLASSES
-
-def can_pilot(hero_class: str) -> bool:
-    return hero_class == "Magic Engineer"
+def get_weapon_affinity(hero_class: str) -> list[str]:
+    """Which WEAPON_TYPES this class can equip + draw an Art from. Empty
+    list means no restriction is enforced (class has no defined weapon
+    identity, e.g. a pure profession class or Tactician)."""
+    global _WEAPON_LINEAGE_MAP
+    if hero_class in CLASS_WEAPON_AFFINITY:
+        return CLASS_WEAPON_AFFINITY[hero_class]
+    if _WEAPON_LINEAGE_MAP is None:
+        _WEAPON_LINEAGE_MAP = _build_weapon_lineage_map()
+    base = _WEAPON_LINEAGE_MAP.get(hero_class)
+    return CLASS_WEAPON_AFFINITY.get(base, [])
 
 # ---------------------------------------------------------------------------
 # Combat stat modifiers by class
@@ -681,3 +600,15 @@ def get_class_abbrev(hero_class: str) -> str:
     return CLASS_ABBREVS.get(hero_class, hero_class[:2].upper() if hero_class else "?")
 
 CLASS_DESCRIPTIONS = { k: 'A powerful hero.' for k in ALL_CLASSES }
+
+
+def get_power_stat(hero_class: str) -> str:
+    """Which raw stat (strength/intelligence) actually drives this class's
+    attack damage — most classes are strength, casters/healers (Acolyte,
+    Mage, Cleric, etc.) are intelligence. Exposed to the frontend so a
+    hero's stat card can flag which number actually matters for their
+    damage; otherwise a high-STR Acolyte looks like it should hit hard and
+    doesn't, with nothing on the card explaining why (confirmed real player
+    confusion: a 63 STR Acolyte doing the same damage as a 12 STR ally,
+    because Acolyte's real power stat is Intelligence, not Strength)."""
+    return CLASS_MODIFIERS.get(hero_class, {}).get("power_stat", "strength")

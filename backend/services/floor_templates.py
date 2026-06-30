@@ -4,20 +4,44 @@ Floor Templates Service
 Defines mechanical templates for all floor types beyond standard combat.
 All outcomes are deterministic — the backend decides everything, LLM only narrates.
 
-Floor types:
-  combat    — Standard fight (existing, handled by combat_service)
-  event     — Choice encounter (existing, handled by event_service)
-  survival  — A real fight against a larger wave of enemies (handled by tower.py via combat_service)
-  defend    — A real fight framed as holding a chokepoint (handled by tower.py via combat_service)
-  explore   — Risk/reward discovery. Find loot, traps, or materials.
-  escort    — A real fight framed as protecting an NPC (handled by tower.py via combat_service)
-  boss      — Every 10th floor. Powerful single enemy.
-  rest      — Every floor after boss. Free healing, no combat.
+Floor types (all are real fights of roughly normal length — the point is
+tactical variety, not "combat" as a single undifferentiated default):
+  field_combat   — A looser, lower-stakes skirmish
+  conquest       — A larger enemy wave to clear by force, no twist beyond the numbers
+  war            — The hardest non-boss set-piece fight: biggest wave, toughened stats
+  retrieve       — A fight guarding something worth taking; guaranteed bonus loot on a win
+  ambush         — Enemies get a guaranteed first strike round 1, regardless of speed
+  blitz          — Enemies gain a stacking +20% ATK/SPD every round — a pure burst race
+  cursed_ground  — Team starts the fight already debuffed (poisoned + HP cap reduced)
+  event          — Choice encounter (existing, handled by event_service)
+  survival       — A real fight against a larger wave of enemies
+  defend         — A real fight framed as holding a chokepoint
+  explore        — Risk/reward discovery. Find loot, traps, or materials.
+  escort         — Protect an NPC; a win also gives a small morale boost (the captive's gratitude)
+  boss           — Every 10th floor. Powerful single enemy.
+  miniboss_*     — Every 5th floor, one of 5 "gear/comp check" variants (see MINIBOSS_VARIANTS)
+
+Rest floors were removed — health no longer carries between floor entries
+(a full heal happens on every return to the Tower screen), so a dedicated
+"safe, no combat" floor had nothing left to do. Plain undifferentiated
+"combat" was removed too, same reasoning pushed further — every regular
+floor should change the tactical priority somehow, not just be a generic
+fight with a different name on the tin.
 """
 
 import random
 
 # ─── Floor Type Distribution ───────────────────────────────────────
+
+# Miniboss (every 5th floor) rolls one of these instead of always being
+# "a slightly beefier guy" — each is a deliberate comp check:
+#   survival — endurance check (sustain through a real wave, see is_survival_swarm)
+#   behemoth — DPS check (huge HP/DEF, tiny ATK — can you crack it before bleeding out)
+#   assassin — tank check (huge speed/burst — no frontline means a one-shot squishy)
+#   twins    — damage-type check (one physical-resistant, one magic-resistant elite)
+#   mirror   — mirror-match (shadow clones of the deployed team's own classes/stats)
+MINIBOSS_VARIANTS = ["survival", "behemoth", "assassin", "twins", "mirror"]
+
 
 def get_floor_type(floor_number: int) -> str:
     """Determine floor type based on floor number."""
@@ -25,19 +49,23 @@ def get_floor_type(floor_number: int) -> str:
     if floor_number % 10 == 0:
         return "boss"
     if floor_number % 10 == 5:
-        return "miniboss"
-    if floor_number % 10 == 1 and floor_number > 1:
-        return "rest"
+        return f"miniboss_{random.choice(MINIBOSS_VARIANTS)}"
 
-    # Weighted random for other floors — survival/defend/escort are all real
-    # fights under a different frame, so combat still dominates the mix.
+    # Weighted random for every other floor — every entry here is a real
+    # fight, just with a different tactical hook. No plain "combat" anymore.
     weights = {
-        "combat": 50,
-        "event": 10,
+        "field_combat": 15,
+        "conquest": 6,
+        "war": 3,
+        "retrieve": 6,
+        "ambush": 10,
+        "blitz": 8,
+        "cursed_ground": 7,
+        "event": 12,
         "explore": 15,
-        "survival": 10,
-        "defend": 10,
-        "escort": 5,
+        "survival": 6,
+        "defend": 6,
+        "escort": 6,
     }
 
     types = list(weights.keys())
@@ -60,15 +88,25 @@ def get_cached_floor_type(conn, floor_number: int) -> str:
 # card (shown only for floors not yet visited) and the actual combat log
 # framing — keeps what the player previews consistent with what they get.
 FLOOR_FLAVOR_INTRO = {
-    "combat": "The corridor stretches ahead. Something waits in the dark.",
     "miniboss": "A presence looms ahead, stronger than the rest.",
+    "miniboss_survival": "Something enormous stirs. The walls themselves seem to be breathing.",
+    "miniboss_behemoth": "The ground shakes with every step it takes. This will be a war of attrition.",
+    "miniboss_assassin": "Silence. Too much silence — and then it's already moving.",
+    "miniboss_twins": "Two shapes step out of the dark together, watching you with one mind.",
+    "miniboss_mirror": "Something in the gloom looks back at you with familiar faces.",
     "boss": "The floor's guardian awaits. There is no other way through.",
     "event": "Something unusual catches your attention.",
     "survival": "Waves of enemies pour from every corridor. There is no retreat — only endurance.",
     "defend": "A narrow passage. Behind you, something worth protecting. They're coming.",
     "explore": "The corridor opens into an unexplored chamber. Dust and silence.",
     "escort": "Someone nearby needs safe passage. Enemies aren't far.",
-    "rest": "A safe chamber. Water flows from cracks in the stone.",
+    "field_combat": "An open chamber. Footing is loose, but there's room to fight.",
+    "conquest": "A war band holds this floor. Every last one of them stands between you and the stairs up.",
+    "war": "Banners, fire, and steel — this floor is a battlefield in miniature, and you've just walked into it.",
+    "retrieve": "Something valuable is held here, guarded. Take it from them.",
+    "ambush": "The corridor is too quiet. Too late — they were waiting.",
+    "blitz": "The air crackles with something that isn't yours. Whatever's here, it's getting stronger by the second.",
+    "cursed_ground": "The air here is wrong — your team feels it the moment they step through.",
 }
 
 
@@ -172,40 +210,6 @@ def _exploration_loot_table(floor_number: int) -> list[dict]:
 # path as every other combat floor type, just without an NPC or alternate
 # win condition. Removed rather than left to mislead the next reader.
 
-# ─── Rest Floor ────────────────────────────────────────────────────
-
-def generate_rest_floor(floor_number: int) -> dict:
-    """Generate a rest floor — free healing, no combat."""
-    return {
-        "floor_type": "rest",
-        "theme": "A safe chamber. Water flows from cracks in the stone. Your team can rest.",
-        "heal_pct": 0.50,  # 50% Health restored
-        "stress_reduction": 20,
-        "morale_boost": 15,
-    }
-
-
-def resolve_rest_floor(template: dict, heroes: list[dict]) -> dict:
-    """Apply rest floor healing to all heroes."""
-    hero_results = []
-    for hero in heroes:
-        heal = int(hero["max_health"] * template["heal_pct"])
-        new_hp = min(hero["max_health"], hero["health"] + heal)
-        hero_results.append({
-            "id": hero["id"],
-            "health": new_hp,
-            "stress_gained": -template["stress_reduction"],
-            "morale_delta": template["morale_boost"],
-        })
-
-    return {
-        "success": True,
-        "hero_results": hero_results,
-        "reward": {"gold": 0},
-        "log": [
-            "Rest — the team finds a moment of peace.",
-            "  Water is found. Wounds are tended. The silence is a gift.",
-            f"  All heroes recover {int(template['heal_pct']*100)}% Health, -{template['stress_reduction']} stress, +{template['morale_boost']} morale.",
-        ],
-        "summary": "The team rests and recovers.",
-    }
+# Rest floors removed — see module docstring. generate_rest_floor/
+# resolve_rest_floor used to live here (free healing, no combat); deleted
+# rather than left dead, since health no longer persists between floors.

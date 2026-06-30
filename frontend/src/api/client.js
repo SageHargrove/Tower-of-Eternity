@@ -157,11 +157,12 @@ export const redeemSpark = () => request('/gacha/spark-redeem', { method: 'POST'
 export const redeemEquipSpark = () => request('/gacha/equip-spark-redeem', { method: 'POST' })
 
 // Tower / Runs
-export const enterFloor = (floorNumber, teamIds) => request('/tower/floor/enter', { method: 'POST', body: JSON.stringify({ floor_number: floorNumber, team_ids: Array.isArray(teamIds) ? teamIds : [teamIds] }) })
+export const enterFloor = (floorNumber, teamIds, stance = 'balanced') => request('/tower/floor/enter', { method: 'POST', body: JSON.stringify({ floor_number: floorNumber, team_ids: Array.isArray(teamIds) ? teamIds : [teamIds], stance }) })
 export const getNarrative = (narrativeId) => request(`/tower/narrative/${narrativeId}`)
 export const previewFloor = (floorNumber) => request(`/tower/floor/preview/${floorNumber}`)
 export const resolveEvent = (floorNumber, teamId, templateId, choiceId, theme) => request('/tower/floor/event/resolve', { method: 'POST', body: JSON.stringify({ floor_number: floorNumber, team_id: teamId, template_id: templateId, choice_id: choiceId, theme: theme }) })
 export const resolveExplore = (floorNumber, teamId, choiceId) => request('/tower/floor/explore/resolve', { method: 'POST', body: JSON.stringify({ floor_number: floorNumber, team_id: teamId, choice_id: choiceId }) })
+export const getLore = () => request('/tower/lore')
 export const listRuns = () => request('/runs/')
 export const getEventLog = (runId = null, limit = 50) => request(`/runs/log?${runId ? `run_id=${runId}&` : ''}limit=${limit}`)
 

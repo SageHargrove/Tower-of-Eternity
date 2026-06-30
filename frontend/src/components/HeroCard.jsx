@@ -345,7 +345,7 @@ function AptitudeDisplay({ hero }) {
   )
 }
 
-export default function HeroCard({ hero, onAssign, onManageEquipment, onManageConsumable, selected, onClick, onToggleSelect, showFull = false, onRegenerateProfile, actions }) {
+export default function HeroCard({ hero, onAssign, onManageEquipment, onManageConsumable, selected, onClick, onToggleSelect, showFull = false, scale = 1, onRegenerateProfile, actions }) {
   if (!hero) return null
   const dead = !hero.is_alive
   const [refreshing, setRefreshing] = useState(false)
@@ -379,7 +379,7 @@ export default function HeroCard({ hero, onAssign, onManageEquipment, onManageCo
 
   return (
     <div
-      className={`hero-card ${selected ? 'selected' : ''} ${dead ? 'dead' : ''} ${showFull ? 'full' : ''}`} style={{ fontSize: showFull ? "1.6em" : "1em" }}
+      className={`hero-card ${selected ? 'selected' : ''} ${dead ? 'dead' : ''} ${showFull ? 'full' : ''}`} style={{ fontSize: showFull ? "1.6em" : `${scale}em` }}
       onClick={!dead && onClick ? onClick : undefined}
     >
       {onToggleSelect && (

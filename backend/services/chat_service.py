@@ -1,7 +1,47 @@
 import json
 import random
+from datetime import datetime
 from database import db
-from services.llm_service import _generate_with_fallback, _clean_json
+from services.llm_service import _generate_with_fallback, generate_with_claude, _clean_json
+
+
+def _time_of_day_bucket(hour: int) -> tuple[str, str]:
+    """(bucket name, prompt instruction) for the current LOCAL hour — this
+    is a desktop app, server and player are the same machine, so
+    datetime.now() (no UTC conversion) already IS the player's real local
+    time. Chat previously had zero time-of-day awareness at all; this is
+    what actually lets heroes reference morning/lunch/late-night rather
+    than the timestamp on the message just being incidentally correct."""
+    if 5 <= hour < 11:
+        return "morning", "It's morning at camp. A few are still waking up; some are already up and about."
+    if 11 <= hour < 14:
+        return "midday", "It's around midday — lunch is likely on someone's mind, or already happening."
+    if 14 <= hour < 18:
+        return "afternoon", "It's mid-afternoon. A normal, unremarkable stretch of the day."
+    if 18 <= hour < 22:
+        return "evening", "It's evening. The day's winding down; this is a relaxed, unwind-after-the-climb mood."
+    if 22 <= hour < 24 or 0 <= hour < 2:
+        return "night", "It's late at night. Most are asleep or heading there; whoever's still up is talking quietly so as not to wake the others."
+    return "late_night", "It's the dead of night (very late/very early). Almost everyone is asleep — only a genuine night owl would still be up talking."
+
+
+def is_night_owl(hero_id: int) -> bool:
+    """Deterministic per-hero trait (no schema change) — roughly 3 in 10
+    heroes are night owls, so 'late_night' chatter has someone plausible to
+    pull from instead of waking a random morning person."""
+    return (hero_id * 2654435761) % 100 < 30
+
+
+def _generate_chat_text(prompt: str, max_tokens: int, temperature: float) -> str:
+    """Hero chatter prefers Claude/Haiku for voice (see llm_service's
+    CLAUDE_CHAT_MODEL comment) — falls back to Gemini if no Anthropic key
+    is configured yet, or if the Claude call itself fails, so this doesn't
+    just break for anyone who hasn't added ANTHROPIC_API_KEY."""
+    try:
+        return generate_with_claude(prompt, max_tokens=max_tokens, temperature=temperature)
+    except Exception as e:
+        print(f"[Chat] Claude unavailable ({e}), falling back to Gemini")
+        return _generate_with_fallback(prompt, max_tokens=max_tokens, temperature=temperature)
 
 
 def _tower_era(highest_floor: int) -> tuple[str, str]:
@@ -74,24 +114,37 @@ def generate_hero_chat() -> dict:
         if location not in ["The Lobby", "The Vault"]:
             fac_row = conn.execute("SELECT id FROM facilities WHERE type = ?", (location,)).fetchone()
             if fac_row:
-                assigned = conn.execute("SELECT h.id, h.name, h.personality, h.hero_class, h.level, h.ego_type, h.is_on_team, h.synergy_group FROM heroes h JOIN facility_assignments fa ON h.id = fa.hero_id WHERE fa.facility_id = ? AND h.is_alive = 1", (fac_row["id"],)).fetchall()
+                assigned = conn.execute("SELECT h.id, h.name, h.personality, h.hero_class, h.level, h.ego_type, h.is_on_team, h.synergy_group, h.created_at FROM heroes h JOIN facility_assignments fa ON h.id = fa.hero_id WHERE fa.facility_id = ? AND h.is_alive = 1", (fac_row["id"],)).fetchall()
                 if assigned:
                     assigned_heroes = [dict(r) for r in assigned]
 
+    heroes_dict_list = [dict(h) for h in heroes]
+
+    time_bucket, time_instruction = _time_of_day_bucket(datetime.now().hour)
+
+    # Late at night, narrow the whole pool down to actual night owls before
+    # any selection logic runs (groups included) — falls back to everyone
+    # if this save happens to have no night owls alive, rather than going
+    # silent for the rest of the night.
+    if time_bucket == "late_night":
+        night_owls = [h for h in heroes_dict_list if is_night_owl(h["id"])]
+        if night_owls:
+            heroes_dict_list = night_owls
+            assigned_heroes = [h for h in assigned_heroes if is_night_owl(h["id"])]
+
     # Grouping logic: Try to pick heroes on the same team, or sharing synergy.
     grouped_heroes = {}
-    heroes_dict_list = [dict(h) for h in heroes]
     for h in heroes_dict_list:
         if h["is_on_team"]:
             grouped_heroes.setdefault(f"Team {h['is_on_team']}", []).append(h)
         if h["synergy_group"]:
             grouped_heroes.setdefault(f"Synergy {h['synergy_group']}", []).append(h)
-    
+
     valid_groups = [g for g in grouped_heroes.values() if len(g) >= 2]
-    
-    num_chatters = min(random.randint(2, 3), len(heroes))
+
+    num_chatters = min(random.randint(2, 3), len(heroes_dict_list))
     chatters = []
-    
+
     if assigned_heroes:
         # Prioritize assigned heroes. Add a random wanderer if possible
         num_assigned = min(len(assigned_heroes), num_chatters)
@@ -156,6 +209,9 @@ They are currently {activity}.
 Tower Era: {era_name}
 {era_instruction}
 
+Time of Day: {time_bucket}
+{time_instruction}
+
 Base State Context:
 - Current Base Gold: {gold}
 - Highest Tower Floor Cleared: {highest_floor}
@@ -178,7 +234,7 @@ Format:
 ]
 """
     try:
-        response = _generate_with_fallback(prompt, max_tokens=300, temperature=0.9)
+        response = _generate_chat_text(prompt, max_tokens=300, temperature=0.9)
         chat_data = json.loads(_clean_json(response))
         
         if isinstance(chat_data, list) and len(chat_data) > 0:
@@ -206,19 +262,35 @@ Format:
 import time
 import threading
 
+def _should_skip_tick() -> bool:
+    """Late at night, most of the roster is asleep — chatter every 5
+    minutes regardless of hour read as the whole camp being permanently
+    awake. Skips most ticks during that window instead of slowing the
+    interval itself, so a tick that DOES fire still has the normal 5-minute
+    freshness when someone happens to check in."""
+    bucket, _ = _time_of_day_bucket(datetime.now().hour)
+    if bucket == "late_night":
+        return random.random() < 0.75
+    if bucket == "night":
+        return random.random() < 0.35
+    return False
+
+
 def chat_worker_loop():
     # Generates immediately on startup instead of only after the first
     # 300s sleep — a short play session never saw any chat at all before
     # this, since the loop used to sleep before ever calling
     # generate_hero_chat() even once. Still every 5 minutes after that.
     try:
-        generate_hero_chat()
+        if not _should_skip_tick():
+            generate_hero_chat()
     except Exception as e:
         print(f'[Chat Worker] Error: {e}')
     while True:
         try:
             time.sleep(300)  # Generate new chat every 5 mins to save API quota
-            generate_hero_chat()
+            if not _should_skip_tick():
+                generate_hero_chat()
         except Exception as e:
             print(f'[Chat Worker] Error: {e}')
 
