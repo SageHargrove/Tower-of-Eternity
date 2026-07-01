@@ -505,12 +505,8 @@ def make_boss(floor_number: int, zone_theme: str = "", is_miniboss: bool = False
         # are named by archetype (boss_undead_monarch.png), not by the
         # family's display name ("The Undead Monarch"), so the slug-based
         # lookup wouldn't find them on its own.
-        # Raid Bosses — reduced to exactly 2 (Floor 50 and 100), down from
-        # every 20th floor, so the merge-fight raid mechanic stays a real
-        # milestone instead of a recurring "every 20 floors" pattern. Floor
-        # 100 stays on enemies/boss/ since its raid pick (Aetherion) lives
-        # in BOSS_OVERRIDES, not RAID_BOSS_OVERRIDES (see enemy_families.py).
-        is_raid = (not is_miniboss) and floor_number == 50
+        # Raid Boss portrait folder used only on floors 50 and 100.
+        is_raid = (not is_miniboss) and floor_number in {50, 100}
         portrait_tier_dir = "raid_boss" if is_raid else ("miniboss" if is_miniboss else "boss")
         portrait_path = family_override.get("portrait_path") or _enemy_portrait_path(boss_title, portrait_tier_dir) or None
         power = (1.5 + (floor_number / 40)) if is_miniboss else (2.5 + (floor_number / 30))

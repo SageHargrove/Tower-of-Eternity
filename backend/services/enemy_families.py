@@ -9,11 +9,10 @@ built out.
 
 Floors 1-100 are now fully covered — a named miniboss at every %5 floor
 (except 35, see comment above MINIBOSS_OVERRIDES) and a named boss at
-every %10 floor (floor 50's lives in RAID_BOSS_OVERRIDES instead of
-BOSS_OVERRIDES — see below). The multi-team Raid Boss merge used to only
-trigger on floors that are multiples of 20 (20/40/60/80/100) — floor 50
-(the halfway point) is now also included, given how significant a
-milestone it is despite not landing on a multiple of 20.
+every %10 floor. Raid Boss (multi-team merge) fires only on floors 50 and
+100 — those are the two real milestone floors (halfway point and final
+floor). All other x10 floors, including 20/40/60/80, are regular single-
+team boss fights pulled from BOSS_OVERRIDES.
 """
 
 # ─── Floors 1-10: Shadow Wisp / Goblin / Giant Spider / Wolf ────────────
@@ -218,24 +217,22 @@ AETHERION_END_OF_ALL_THINGS = {
 
 BOSS_OVERRIDES = {
     10: WARREN_TYRANT,
-    20: TROLL_KING,
+    # Floors 20/40/60/80 are regular boss floors. Each rolls randomly
+    # between the original override and the old-raid-boss that used to
+    # occupy that floor — keeps variety on repeat runs.
+    20: [TROLL_KING, GORRATH_BONEBREAKER],
     30: HOBGOBLIN_WARLORD,
-    40: GRAVE_SOVEREIGN,
-    60: OBSIDIAN_TYRANT,
+    40: [GRAVE_SOVEREIGN, ROTCALLER_FESTER_HOST],
+    60: [OBSIDIAN_TYRANT, EARTHSHAKER_TITAN],
     70: UNDEAD_MONARCH,
-    80: HYDRA_SOVEREIGN,
+    80: [HYDRA_SOVEREIGN, ASHEN_COLOSSUS],
     90: MASKED_HORROR_BOSS,
-    # A third, brand-new pick alongside the two preserved-art bosses — floor
-    # 100 is the final floor and asked for something extra, but Lich King/
-    # Nightwing Devourer are explicitly preserved-favorite art, not to be
-    # displaced, so this adds variety rather than replacing either.
+    # Floor 100 is a Raid Boss (Stormcaller) — this entry is never reached
+    # in normal play because get_raid_boss_override fires first. Kept for
+    # completeness / manual testing fallback.
     100: [LICH_KING, NIGHTWING_DEVOURER, AETHERION_END_OF_ALL_THINGS],
 }
 
-# Floor 50 (the tower's halfway point) now also triggers the Raid Boss
-# merge (see RAID_BOSS_OVERRIDES below, extended this pass to cover it).
-# Floor 100 (the final floor) gets a third random pick added above instead
-# — content-complete either way, no longer just a marker.
 SPECIAL_BOSS_FLOORS = {50, 100}
 
 
@@ -289,8 +286,6 @@ MORDANE_HOLLOW_KING = {
     "stat_mod": {"atk": 1.4, "def": 1.2, "spd": 1.0, "health": 1.6},
 }
 
-# Floor 50 (the halfway point) gets a second pick alongside Ashen Colossus,
-# same random-variety treatment as floor 100 gets below in BOSS_OVERRIDES.
 STORMCALLER_SKY_TYRANT = {
     "name": "The Stormcaller, Sky-Tyrant",
     "abilities": ["cleave", "enrage", "crushing_blow", "last_stand"],
@@ -298,12 +293,12 @@ STORMCALLER_SKY_TYRANT = {
     "stat_mod": {"atk": 1.3, "def": 1.1, "spd": 1.1, "health": 1.5},
 }
 
+# Only two true Raid Boss floors — 50 (halfway) and 100 (final).
+# Mordane first since dragon-heavy content ramps toward the end;
+# Stormcaller at 100 fits the sky/apex-predator final-boss feel.
 RAID_BOSS_OVERRIDES = {
-    20: GORRATH_BONEBREAKER,
-    40: ROTCALLER_FESTER_HOST,
-    50: [ASHEN_COLOSSUS, STORMCALLER_SKY_TYRANT],
-    60: EARTHSHAKER_TITAN,
-    80: MORDANE_HOLLOW_KING,
+    50: MORDANE_HOLLOW_KING,
+    100: STORMCALLER_SKY_TYRANT,
 }
 
 
