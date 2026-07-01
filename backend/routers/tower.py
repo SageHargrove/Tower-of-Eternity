@@ -8,7 +8,7 @@ from services.floor_templates import (
     get_floor_type, get_cached_floor_type, FLOOR_FLAVOR_INTRO,
     generate_explore_floor, get_explore_choice, resolve_explore_loot,
 )
-from services.enemy_families import get_miniboss_override, get_boss_override, get_raid_boss_override
+from services.enemy_families import get_miniboss_override, get_boss_override, get_raid_boss_override, get_generic_boss
 import json
 import random
 from pydantic import BaseModel
@@ -440,14 +440,14 @@ def enter_floor(req: EnterFloorRequest):
         # entirely when a family_override already supplies a deterministic
         # name — no point spending an LLM call on flavor that's discarded.
         zone_theme_future = submit_flavor_text(generate_zone_theme, req.floor_number)
-        boss_future = None
-        if (is_boss or is_miniboss) and not family_override and not is_survival_swarm and not miniboss_variant:
-            placeholder_theme = f"a dark, dangerous zone around floor {req.floor_number} of a tower"
-            boss_future = submit_flavor_text(generate_boss_enemy, placeholder_theme, req.floor_number, is_miniboss)
+        # Boss floors with no named override draw from the pre-built pool
+        # instead of generating a name via LLM — all boss art is committed.
+        if is_boss and not family_override and not is_survival_swarm:
+            family_override = get_generic_boss()
 
         zone_theme = await_flavor_text(zone_theme_future, timeout=1.5, fallback="")
         zone_theme_display = zone_theme or "The Dark Unknown: Shadows obscure the path ahead."
-        boss_data_override = await_flavor_text(boss_future, timeout=1.5, fallback=None) if boss_future else None
+        boss_data_override = None
 
         result = {}
         narrative = None

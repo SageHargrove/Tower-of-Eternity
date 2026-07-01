@@ -298,3 +298,73 @@ def get_raid_boss_override(floor_number: int) -> dict | None:
         import random
         return random.choice(entry)
     return entry
+
+
+# ─── Generic Boss Pool (no LLM fallback) ────────────────────────────────────
+#
+# Every boss floor without a named BOSS_OVERRIDES entry draws from this pool
+# instead of calling the LLM. portrait_path is explicit because these use the
+# "boss_<key>.png" naming convention that _enemy_portrait_path can't resolve
+# from the display name alone.
+
+GENERIC_BOSS_POOL = [
+    {
+        "name": "The Juggernaut",
+        "portrait_path": "static/portraits/enemies/boss/boss_juggernaut.png",
+        "abilities": ["crushing_blow", "enrage", "last_stand"],
+        "stat_mod": {"atk": 1.2, "def": 1.4, "spd": 0.7, "health": 1.5},
+    },
+    {
+        "name": "The Specter Tyrant",
+        "portrait_path": "static/portraits/enemies/boss/boss_specter_tyrant.png",
+        "abilities": ["team_buff_aura", "self_regen", "last_stand"],
+        "stat_mod": {"atk": 1.1, "def": 0.9, "spd": 1.3, "health": 1.3},
+    },
+    {
+        "name": "The Feral Titan",
+        "portrait_path": "static/portraits/enemies/boss/boss_feral_titan.png",
+        "abilities": ["cleave", "enrage", "last_stand"],
+        "stat_mod": {"atk": 1.4, "def": 1.0, "spd": 1.1, "health": 1.4},
+    },
+    {
+        "name": "The Stone Titan",
+        "portrait_path": "static/portraits/enemies/boss/boss_stone_titan.png",
+        "abilities": ["crushing_blow", "last_stand"],
+        "stat_mod": {"atk": 1.1, "def": 1.6, "spd": 0.6, "health": 1.6},
+    },
+    {
+        "name": "The Arcane Abomination",
+        "portrait_path": "static/portraits/enemies/boss/boss_arcane_abomination.png",
+        "abilities": ["team_buff_aura", "summon_add", "last_stand"],
+        "stat_mod": {"atk": 1.3, "def": 1.1, "spd": 1.0, "health": 1.4},
+    },
+    {
+        "name": "The Demon Overlord",
+        "portrait_path": "static/portraits/enemies/boss/boss_demon_overlord.png",
+        "abilities": ["cleave", "crushing_blow", "enrage", "last_stand"],
+        "stat_mod": {"atk": 1.4, "def": 1.2, "spd": 1.0, "health": 1.5},
+    },
+    {
+        "name": "Big Greg",
+        "portrait_path": "static/portraits/enemies/boss/boss_big_greg.png",
+        "abilities": ["crushing_blow", "last_stand"],
+        "stat_mod": {"atk": 1.3, "def": 1.2, "spd": 0.9, "health": 1.5},
+    },
+    {
+        "name": "The Dragon",
+        "portrait_path": "static/portraits/enemies/boss/boss_dragon.png",
+        "abilities": ["cleave", "enrage", "self_regen", "last_stand"],
+        "stat_mod": {"atk": 1.4, "def": 1.2, "spd": 1.0, "health": 1.6},
+    },
+    {
+        "name": "The Nightwing Devourer",
+        "portrait_path": "static/portraits/enemies/boss/boss_nightwing_devourer.png",
+        "abilities": ["cleave", "enrage", "crushing_blow", "last_stand"],
+        "stat_mod": {"atk": 1.3, "def": 1.1, "spd": 1.2, "health": 1.4},
+    },
+]
+
+
+def get_generic_boss() -> dict:
+    import random
+    return random.choice(GENERIC_BOSS_POOL)

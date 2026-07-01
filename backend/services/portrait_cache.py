@@ -838,6 +838,7 @@ BOSS_ARCHETYPES = {
     "arcane_abomination": "arcane abomination, writhing dark violet tentacled mass, glowing cyan runic markings pulsing across its many limbs, multiple glowing white eyes embedded throughout its form",
     "dragon": "majestic ancient dragon rearing back on powerful hind legs, wings spread wide casting a massive shadow, long sinuous serpentine neck arched high with its head thrown back in a roar, rows of curling ivory horns crowning its skull, glowing molten-amber reptilian eyes, rows of sharp ivory fangs bared, gleaming obsidian-black scales with glowing crimson cracks pulsing across its hide, four powerful clawed reptilian legs with sharp curved talons, a tail coiled close behind its body in proportion with its frame, billowing smoke and embers from its open jaws",
     "nightwing_devourer": "winged dark dragon-demon armored warrior, towering bat-like wings flaring out behind its shoulders, sharp curling horns crowning its helm, a glowing violet rune-core embedded in its chest, gleaming dark blue-black plated armor, clawed gauntlets raised, standing in a beam of cold blue light",
+    "big_greg": "Big Greg, an enormous brutish humanoid giant covered in crude patchwork armor, missing teeth grin, small beady eyes, oversized club resting on one shoulder, dim dungeon background",
 }
 
 def _generate_boss_portrait(key: str, hint: str):
@@ -878,6 +879,7 @@ BOSS_TIER = {
     "masked_horror": "miniboss",
     "feral_titan": "miniboss",
     "nightwing_devourer": "miniboss",
+    "big_greg": "miniboss",
     "lich_king": "boss",
     "demon_overlord": "boss",
     "stone_titan": "boss",
