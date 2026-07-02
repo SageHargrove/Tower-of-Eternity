@@ -126,7 +126,7 @@ export const assignTeamLeader = (heroId) => request('/heroes/team/assign-leader'
 export const getLeaderRecommendation = (teamId) => request(`/heroes/team/${teamId}/leader-recommendation`)
 export const dismissHero = (id) => request(`/heroes/${id}`, { method: 'DELETE' })
 export const dismissHeroesBulk = (heroIds) => request('/heroes/dismiss-bulk', { method: 'POST', body: JSON.stringify({ hero_ids: heroIds }) })
-export const synthesizeHero = (targetId, sacrificeId) => request('/heroes/synthesize', { method: 'POST', body: JSON.stringify({ target_id: targetId, sacrifice_id: sacrificeId }) })
+export const synthesizeHero = (targetId, sacrificeIds) => request('/heroes/synthesize', { method: 'POST', body: JSON.stringify({ target_id: targetId, sacrifice_ids: Array.isArray(sacrificeIds) ? sacrificeIds : [sacrificeIds] }) })
 export const ascendHero = (heroId) => request(`/heroes/${heroId}/ascend`, { method: 'POST' })
 export const getAscensionInfo = (heroId) => request(`/heroes/${heroId}/ascension-info`)
 export const promoteHero = (heroId) => request(`/heroes/${heroId}/promote`, { method: 'POST' })

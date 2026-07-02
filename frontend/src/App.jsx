@@ -201,7 +201,7 @@ export default function App() {
     inventory: <InventoryPage />,
     tower:  <TowerPage onGoldChange={refreshResources} />,
     arena:  <ArenaPage />,
-    achievements: <AchievementsPage />,
+    achievements: <AchievementsPage onGoldChange={refreshResources} />,
     base:   <BasePage onGoldChange={refreshResources} onSubTabChange={setBaseSubTab}
                tourTargetSubTab={tourActive && TAB_TOUR_STEPS[tourStepIndex]?.tab === 'base' ? TAB_TOUR_STEPS[tourStepIndex].subTab : null} />,
     log:    <LogPage />,

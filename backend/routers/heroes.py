@@ -156,7 +156,12 @@ def regenerate_profile(hero_id: int):
         ]
         
         is_fallback = hero["name"] in fallback_names or hero["name"].startswith("Unknown")
-        prompt = f"dark fantasy anime warrior portrait, {hero['birth_star']} star rarity"
+        # Reroll the hero's look through the full house-style pipeline
+        # (race/hair/eyes/outfit/tier flavor + BASE_STYLE) — the old
+        # hardcoded one-liner here bypassed all of it, so "Regenerate
+        # Portrait" produced generic off-style art that barely changed.
+        from services.portrait_cache import build_appearance_prompt
+        prompt = build_appearance_prompt(hero["birth_star"], hero.get("hero_class", "Classless"), hero.get("gender", "unknown"))
         
         # If it was a fallback, completely regenerate the LLM profile
         if is_fallback:
@@ -393,65 +398,89 @@ def get_hero_aptitudes(hero_id: int):
 
 class SynthesizeRequest(BaseModel):
     target_id: int
-    sacrifice_id: int
+    # Single-sacrifice callers keep working via sacrifice_id; the chamber
+    # sends sacrifice_ids for multi-offering rites.
+    sacrifice_id: int | None = None
+    sacrifice_ids: list[int] | None = None
+
+# Each additional soul consumed in the SAME rite hits every witness harder
+# than the last — a mass sacrifice is a categorically worse thing to watch
+# than several spaced-out ones. Wave i (0-based) is scaled by 1 + i*0.25.
+MASS_RITE_ESCALATION = 0.25
 
 @router.post("/synthesize")
 def synthesize_hero(data: SynthesizeRequest):
     """
-    Sacrifice one hero to empower another. Causes trauma to roster.
-    The sacrifice is permanent. All living heroes witness the act.
+    Sacrifice one or more heroes to empower another. Grants XP (through the
+    normal leveling pipeline), may pass on skills/traits, and traumatizes
+    every living witness — compounding per sacrifice in a multi-offering rite.
     """
+    import random
     from services.morale_service import get_morale_state
+    from services.level_service import recalculate_hero_level
 
-    if data.target_id == data.sacrifice_id:
+    ids = data.sacrifice_ids if data.sacrifice_ids else ([data.sacrifice_id] if data.sacrifice_id is not None else [])
+    ids = list(dict.fromkeys(ids))  # dedupe, keep order
+    if not ids:
+        raise HTTPException(status_code=400, detail="No sacrifice selected.")
+    if data.target_id in ids:
         raise HTTPException(status_code=400, detail="Cannot sacrifice a hero to themselves.")
 
     with db() as conn:
         target = conn.execute("SELECT * FROM heroes WHERE id = ? AND is_alive = 1", (data.target_id,)).fetchone()
-        sacrifice = conn.execute("SELECT * FROM heroes WHERE id = ? AND is_alive = 1", (data.sacrifice_id,)).fetchone()
         if not target:
             raise HTTPException(status_code=404, detail="Target hero not found or dead.")
-        if not sacrifice:
-            raise HTTPException(status_code=404, detail="Sacrifice hero not found or dead.")
-
         target_dict = dict(target)
-        sacrifice_dict = dict(sacrifice)
 
-        # Synthesis grants XP, not raw stats — raw stat transfer stacked
-        # outside the level system and made synthesized heroes permanently
-        # off-curve. XP flows through the same leveling pipeline as combat:
-        # half the sacrifice's own earned XP, plus a base worth scaled by
-        # their star and level, so higher-invested sacrifices are worth more.
-        xp_gain = int(sacrifice_dict.get("xp", 0) * 0.5) + 30 * sacrifice_dict["birth_star"] * sacrifice_dict["level"]
+        sacrifices = []
+        for sid in ids:
+            row = conn.execute("SELECT * FROM heroes WHERE id = ? AND is_alive = 1", (sid,)).fetchone()
+            if not row:
+                raise HTTPException(status_code=404, detail=f"Sacrifice hero {sid} not found or dead.")
+            sacrifices.append(dict(row))
 
-        is_resonant = (target_dict["hero_class"] == sacrifice_dict["hero_class"] and target_dict["hero_class"] != "Classless")
+        # XP per sacrifice: half their own earned XP plus a base worth by
+        # star and level. Resonance (matching class) doubles that
+        # sacrifice's contribution.
+        total_xp = 0
+        any_resonant = False
         msg_suffix = ""
-        if is_resonant:
-            xp_gain *= 2
+        for sac in sacrifices:
+            xp = int(sac.get("xp", 0) * 0.5) + 30 * sac["birth_star"] * sac["level"]
+            if target_dict["hero_class"] == sac["hero_class"] and target_dict["hero_class"] != "Classless":
+                xp *= 2
+                any_resonant = True
+            total_xp += xp
+        if any_resonant:
             conn.execute("UPDATE heroes SET ego_type = 'Resonant' WHERE id = ?", (data.target_id,))
             msg_suffix += " EGO RESONANCE TRIGGERED!"
-            
-        import random
-        b_skills = json.loads(sacrifice_dict.get("skills") or "[]")
-        b_traits = json.loads(sacrifice_dict.get("traits") or "[]")
-        if random.random() < 0.5 and (b_skills or b_traits):
-            inherited = random.choice(b_skills + b_traits)
-            a_skills = json.loads(target_dict.get("skills") or "[]")
-            a_traits = json.loads(target_dict.get("traits") or "[]")
-            a_names = [x["name"] for x in a_skills + a_traits]
-            if inherited["name"] not in a_names:
-                if inherited in b_skills:
-                    a_skills.append(inherited)
-                    conn.execute("UPDATE heroes SET skills = ? WHERE id = ?", (json.dumps(a_skills), data.target_id))
-                else:
-                    a_traits.append(inherited)
-                    conn.execute("UPDATE heroes SET traits = ? WHERE id = ?", (json.dumps(a_traits), data.target_id))
-                msg_suffix += f" Inherited {inherited['name']}!"
 
-        # Apply XP to target and recalculate their level through the normal
-        # leveling pipeline (same flow as tower floor clears).
-        from services.level_service import recalculate_hero_level
-        conn.execute("UPDATE heroes SET xp = xp + ? WHERE id = ?", (xp_gain, data.target_id))
+        # Inheritance rolls independently per sacrifice (50% each), skipping
+        # anything the target already knows.
+        a_skills = json.loads(target_dict.get("skills") or "[]")
+        a_traits = json.loads(target_dict.get("traits") or "[]")
+        skills_changed = traits_changed = False
+        for sac in sacrifices:
+            b_skills = json.loads(sac.get("skills") or "[]")
+            b_traits = json.loads(sac.get("traits") or "[]")
+            if random.random() < 0.5 and (b_skills or b_traits):
+                inherited = random.choice(b_skills + b_traits)
+                a_names = [x["name"] for x in a_skills + a_traits]
+                if inherited["name"] not in a_names:
+                    if inherited in b_skills:
+                        a_skills.append(inherited)
+                        skills_changed = True
+                    else:
+                        a_traits.append(inherited)
+                        traits_changed = True
+                    msg_suffix += f" Inherited {inherited['name']}!"
+        if skills_changed:
+            conn.execute("UPDATE heroes SET skills = ? WHERE id = ?", (json.dumps(a_skills), data.target_id))
+        if traits_changed:
+            conn.execute("UPDATE heroes SET traits = ? WHERE id = ?", (json.dumps(a_traits), data.target_id))
+
+        # Apply XP and recalculate level through the normal pipeline.
+        conn.execute("UPDATE heroes SET xp = xp + ? WHERE id = ?", (total_xp, data.target_id))
         t_row = conn.execute("SELECT * FROM heroes WHERE id = ?", (data.target_id,)).fetchone()
         levels_gained = 0
         if t_row:
@@ -463,75 +492,75 @@ def synthesize_hero(data: SynthesizeRequest):
                 levels_gained = new_level - old_level
                 msg_suffix += f" {target_dict['name']} reached level {new_level}!"
 
-        # Mark sacrifice as dead/synthesized
-        conn.execute("""
-            UPDATE heroes SET is_alive = 0, is_on_team = 0, synthesized = 1
-            WHERE id = ?
-        """, (data.sacrifice_id,))
+        for sac in sacrifices:
+            conn.execute("UPDATE heroes SET is_alive = 0, is_on_team = 0, synthesized = 1 WHERE id = ?", (sac["id"],))
 
-        # Trauma to all living heroes (they witnessed a sacrifice)
-        trauma_gain = 5 + sacrifice_dict["birth_star"]
-        stress_gain = 10 + sacrifice_dict["birth_star"] * 2
-        morale_loss = -(8 + sacrifice_dict["birth_star"] * 2)
-
+        # Trauma to all living witnesses: one wave per sacrifice, each wave
+        # escalated by MASS_RITE_ESCALATION, accumulated in memory and
+        # written once per hero. Observer confidence still applies per wave —
+        # heroes stronger than the victim feel safer, weaker ones realize
+        # nobody is safe.
         living_heroes = conn.execute(
             "SELECT * FROM heroes WHERE is_alive = 1 AND id != ?", (data.target_id,)
         ).fetchall()
+        first_sac = sacrifices[0]
+        base_trauma = 5 + first_sac["birth_star"]
+        base_stress = 10 + first_sac["birth_star"] * 2
+
+        def apply_waves(h, halve=False):
+            """Accumulate every sacrifice's psychological hit onto hero dict h."""
+            trauma_total = stress_total = morale_total = 0
+            for i, sac in enumerate(sacrifices):
+                escalation = 1.0 + i * MASS_RITE_ESCALATION
+                trauma_gain = 5 + sac["birth_star"]
+                stress_gain = 10 + sac["birth_star"] * 2
+                morale_loss = -(8 + sac["birth_star"] * 2)
+                if halve:
+                    trauma_gain = max(2, trauma_gain // 2)
+                    stress_gain = max(3, stress_gain // 2)
+                    morale_loss = morale_loss // 2
+                star_diff = h["birth_star"] - sac["birth_star"]
+                level_diff = h.get("level", 1) - sac.get("level", 1)
+                observer_mult = max(0.2, min(2.0, 1.0 - (star_diff * 0.15) - (level_diff * 0.01)))
+                trauma_total += int(trauma_gain * observer_mult * escalation)
+                stress_total += int(stress_gain * observer_mult * escalation)
+                morale_total += int(morale_loss * observer_mult * escalation)
+            new_trauma = min(100, h["trauma"] + trauma_total)
+            new_stress = min(100, h["stress"] + stress_total)
+            trauma_ceiling = 100 - int(new_trauma * 0.4)
+            new_morale = max(0, min(trauma_ceiling, h["morale"] + morale_total))
+            return new_trauma, new_stress, new_morale
+
         for hero in living_heroes:
             h = dict(hero)
-            
-            # Observer confidence factor: if they are stronger than the sacrifice, they feel safer.
-            # If they are weaker, they realize nobody is safe and take more damage.
-            star_diff = h["birth_star"] - sacrifice_dict["birth_star"]
-            level_diff = h.get("level", 1) - sacrifice_dict.get("level", 1)
-            observer_mult = 1.0 - (star_diff * 0.15) - (level_diff * 0.01)
-            observer_mult = max(0.2, min(2.0, observer_mult))
-            
-            actual_trauma = int(trauma_gain * observer_mult)
-            actual_stress = int(stress_gain * observer_mult)
-            actual_morale = int(morale_loss * observer_mult)
+            new_trauma, new_stress, new_morale = apply_waves(h)
+            conn.execute(
+                "UPDATE heroes SET trauma = ?, stress = ?, morale = ?, morale_state = ? WHERE id = ?",
+                (new_trauma, new_stress, new_morale, get_morale_state(new_morale), hero["id"])
+            )
 
-            new_trauma = min(100, h["trauma"] + actual_trauma)
-            new_stress = min(100, h["stress"] + actual_stress)
-            trauma_ceiling = 100 - int(new_trauma * 0.4)
-            new_morale = max(0, min(trauma_ceiling, h["morale"] + actual_morale))
-            new_state = get_morale_state(new_morale)
-            conn.execute("""
-                UPDATE heroes SET trauma = ?, stress = ?, morale = ?, morale_state = ?
-                WHERE id = ?
-            """, (new_trauma, new_stress, new_morale, new_state, hero["id"]))
-
-        # Target also gets some guilt, scaling similarly
-        t = target_dict
-        t_star_diff = t["birth_star"] - sacrifice_dict["birth_star"]
-        t_level_diff = t.get("level", 1) - sacrifice_dict.get("level", 1)
-        t_mult = max(0.2, min(2.0, 1.0 - (t_star_diff * 0.15) - (t_level_diff * 0.01)))
-
-        t_trauma_gain = int(max(2, trauma_gain // 2) * t_mult)
-        t_stress_gain = int(max(3, stress_gain // 2) * t_mult)
-        t_morale_loss = int((morale_loss // 2) * t_mult)
-
-        t_trauma = min(100, t["trauma"] + t_trauma_gain)
-        t_stress = min(100, t["stress"] + t_stress_gain)
-        t_ceiling = 100 - int(t_trauma * 0.4)
-        t_morale = max(0, min(t_ceiling, t["morale"] + t_morale_loss))
-        conn.execute("""
-            UPDATE heroes SET trauma = ?, stress = ?, morale = ?, morale_state = ?
-            WHERE id = ?
-        """, (t_trauma, t_stress, t_morale, get_morale_state(t_morale), data.target_id))
+        # Target's guilt: same waves at half strength.
+        t_trauma, t_stress, t_morale = apply_waves(target_dict, halve=True)
+        conn.execute(
+            "UPDATE heroes SET trauma = ?, stress = ?, morale = ?, morale_state = ? WHERE id = ?",
+            (t_trauma, t_stress, t_morale, get_morale_state(t_morale), data.target_id)
+        )
 
         updated = conn.execute("SELECT * FROM heroes WHERE id = ?", (data.target_id,)).fetchone()
 
+    names = ", ".join(s["name"] for s in sacrifices)
+    plural = "souls were" if len(sacrifices) > 1 else "soul was"
     return {
         "ok": True,
         "target": dict(updated),
-        "sacrifice_name": sacrifice_dict["name"],
-        "sacrifice_star": sacrifice_dict["birth_star"],
-        "xp_gained": xp_gain,
+        "sacrifice_names": [s["name"] for s in sacrifices],
+        "sacrifice_name": sacrifices[0]["name"],
+        "sacrifice_star": sacrifices[0]["birth_star"],
+        "xp_gained": total_xp,
         "levels_gained": levels_gained,
-        "roster_trauma": trauma_gain,
-        "roster_stress": stress_gain,
-        "message": f"{sacrifice_dict['name']} was consumed. {target_dict['name']} absorbs {xp_gain:,} XP.{msg_suffix}",
+        "roster_trauma": base_trauma,
+        "roster_stress": base_stress,
+        "message": f"{len(sacrifices)} {plural} consumed ({names}). {target_dict['name']} absorbs {total_xp:,} XP.{msg_suffix}",
     }
 
 

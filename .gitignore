@@ -29,3 +29,11 @@ ComfyUI/
 /dist/
 *.exe
 /build_venv/
+
+# Player save data + local DB backups — personal state, never committed
+backend/saves/
+backend/db_backups/
+
+# Local agent/tooling state
+.agent/
+.claude/

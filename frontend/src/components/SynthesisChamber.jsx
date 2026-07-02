@@ -18,6 +18,76 @@ function previewXp(sacrifice, resonant) {
   return resonant ? base * 2 : base
 }
 
+const MAX_OFFERINGS = 3
+
+// Multi-offering pedestal — up to MAX_OFFERINGS souls stacked side by side.
+function SacrificePedestal({ heroes, onRemove, onDropHero, synthesizing }) {
+  const [dragOver, setDragOver] = useState(false)
+  const accent = 'var(--red)'
+  const full = heroes.length >= MAX_OFFERINGS
+
+  return (
+    <div style={{ width: 250, textAlign: 'center' }}>
+      <div style={{ fontFamily: 'Cinzel, serif', letterSpacing: '0.15em', textTransform: 'uppercase', fontSize: '0.85rem', color: accent, marginBottom: '0.6rem' }}>
+        The Offering{heroes.length > 1 ? 's' : ''} {heroes.length > 0 && `(${heroes.length}/${MAX_OFFERINGS})`}
+      </div>
+      <div
+        onDragOver={(e) => { e.preventDefault(); setDragOver(true) }}
+        onDragLeave={() => setDragOver(false)}
+        onDrop={(e) => {
+          e.preventDefault()
+          setDragOver(false)
+          const heroId = e.dataTransfer.getData('heroId')
+          if (heroId && !synthesizing && !full) onDropHero(Number(heroId))
+        }}
+        style={{
+          width: 200, height: 290, margin: '0 auto', borderRadius: 8,
+          border: heroes.length ? `2px solid ${accent}` : `2px dashed ${dragOver ? accent : 'var(--border-hi)'}`,
+          boxShadow: heroes.length ? '0 0 30px rgba(192,64,64,0.45)' : dragOver ? '0 0 20px rgba(192,64,64,0.35)' : 'none',
+          display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4,
+          background: dragOver ? 'rgba(80,30,130,0.25)' : 'rgba(0,0,0,0.55)',
+          overflow: 'hidden', position: 'relative', padding: 4,
+          transition: 'box-shadow 0.3s, border-color 0.3s, background 0.2s',
+        }}
+      >
+        {heroes.length === 0 ? (
+          <div className="text-dim" style={{ fontStyle: 'italic', fontSize: '0.85rem', padding: '1rem' }}>
+            Drag up to {MAX_OFFERINGS} heroes here
+          </div>
+        ) : heroes.map(hero => (
+          <div
+            key={hero.id}
+            onClick={!synthesizing ? () => onRemove(hero.id) : undefined}
+            title={!synthesizing ? `${hero.name} — click to remove` : hero.name}
+            style={{ flex: 1, height: '96%', minWidth: 0, cursor: synthesizing ? 'default' : 'pointer', borderRadius: 4, overflow: 'hidden', border: '1px solid rgba(192,64,64,0.5)' }}
+          >
+            {hero.portrait_path ? (
+              <img
+                src={`/heroes/${hero.id}/card-image?mini=true`}
+                onError={(e) => { e.target.onerror = null; e.target.src = `/${hero.portrait_path}` }}
+                draggable={false}
+                style={{ width: '100%', height: '100%', objectFit: 'cover', objectPosition: 'center top', animation: synthesizing ? 'synth-consume 2.2s ease-in forwards' : 'none' }}
+                alt={hero.name}
+              />
+            ) : (
+              <div style={{ height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: 'Cinzel, serif', color: accent, fontSize: '0.7rem', padding: 4, animation: synthesizing ? 'synth-consume 2.2s ease-in forwards' : 'none' }}>{hero.name}</div>
+            )}
+          </div>
+        ))}
+      </div>
+      <div style={{ marginTop: '0.6rem', minHeight: '2.6rem' }}>
+        {heroes.length > 0 ? (
+          <div style={{ fontSize: '0.75rem', color: 'var(--text-hi)', lineHeight: 1.5 }}>
+            {heroes.map(h => <div key={h.id} style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{h.name} <span className="text-dim">Lv.{h.level} · {(h.current_star || h.birth_star)}★</span></div>)}
+          </div>
+        ) : (
+          <div className="text-dim" style={{ fontSize: '0.75rem', fontStyle: 'italic' }}>Consumed — permanently</div>
+        )}
+      </div>
+    </div>
+  )
+}
+
 function Pedestal({ hero, role, onClear, onDropHero, synthesizing }) {
   const isTarget = role === 'target'
   const accent = isTarget ? 'var(--gold)' : 'var(--red)'
@@ -92,32 +162,33 @@ function Pedestal({ hero, role, onClear, onDropHero, synthesizing }) {
 
 export default function SynthesisChamber({ heroes, onClose, onComplete }) {
   const [targetId, setTargetId] = useState(null)
-  const [sacrificeId, setSacrificeId] = useState(null)
+  const [sacrificeIds, setSacrificeIds] = useState([])
   const [synthesizing, setSynthesizing] = useState(false)
   const [result, setResult] = useState(null)
   const [error, setError] = useState(null)
 
   const alive = heroes.filter(h => h.is_alive)
   const target = alive.find(h => h.id === targetId) || null
-  const sacrifice = alive.find(h => h.id === sacrificeId) || null
+  const sacrifices = sacrificeIds.map(id => alive.find(h => h.id === id)).filter(Boolean)
 
-  const resonant = target && sacrifice && target.hero_class === sacrifice.hero_class && target.hero_class !== 'Classless'
-  const xpGain = sacrifice ? previewXp(sacrifice, resonant) : 0
+  const anyResonant = target && sacrifices.some(s => s.hero_class === target.hero_class && target.hero_class !== 'Classless')
+  const xpGain = target ? sacrifices.reduce((sum, s) =>
+    sum + previewXp(s, s.hero_class === target.hero_class && target.hero_class !== 'Classless'), 0) : 0
 
   function placeOnPedestal(role, heroId) {
     setError(null)
     setResult(null)
     if (role === 'target') {
-      if (heroId === sacrificeId) setSacrificeId(null)
+      setSacrificeIds(ids => ids.filter(id => id !== heroId))
       setTargetId(heroId)
     } else {
       if (heroId === targetId) setTargetId(null)
-      setSacrificeId(heroId)
+      setSacrificeIds(ids => ids.includes(heroId) || ids.length >= MAX_OFFERINGS ? ids : [...ids, heroId])
     }
   }
 
   async function beginRite() {
-    if (!target || !sacrifice) return
+    if (!target || sacrifices.length === 0) return
     setSynthesizing(true)
     setError(null)
     try {
@@ -125,12 +196,12 @@ export default function SynthesisChamber({ heroes, onClose, onComplete }) {
       // empower keyframes are the whole ceremony; an instant response
       // made it feel dead.
       const [res] = await Promise.all([
-        synthesizeHero(target.id, sacrifice.id),
+        synthesizeHero(target.id, sacrifices.map(s => s.id)),
         new Promise(r => setTimeout(r, 2300)),
       ])
       setResult(res)
       setTargetId(null)
-      setSacrificeId(null)
+      setSacrificeIds([])
       if (onComplete) onComplete()
     } catch (e) {
       setError(e.message)
@@ -230,7 +301,7 @@ export default function SynthesisChamber({ heroes, onClose, onComplete }) {
               </div>
             ) : (
               <>
-                {sacrifice && target ? (
+                {sacrifices.length > 0 && target ? (
                   <div style={{ marginTop: '0.8rem', border: '1px solid rgba(160,80,255,0.4)', background: 'rgba(80,30,130,0.15)', borderRadius: 8, padding: '0.9rem' }}>
                     <div style={{ fontFamily: 'Cinzel, serif', fontSize: '0.75rem', letterSpacing: '0.1em', textTransform: 'uppercase', color: '#b06aff', marginBottom: '0.5rem' }}>
                       {target.name} will absorb
@@ -238,38 +309,41 @@ export default function SynthesisChamber({ heroes, onClose, onComplete }) {
                     <div style={{ fontFamily: 'Cinzel, serif', fontSize: '1.6rem', color: 'var(--gold)', textShadow: '0 0 10px rgba(201,168,76,0.5)' }}>
                       +{xpGain.toLocaleString()} XP
                     </div>
-                    {resonant && (
+                    {anyResonant && (
                       <div style={{ marginTop: '0.5rem', color: '#b06aff', fontFamily: 'Cinzel, serif', fontSize: '0.8rem', textShadow: '0 0 8px rgba(160,80,255,0.7)' }}>
-                        ✦ EGO RESONANCE — XP doubled ✦
+                        ✦ EGO RESONANCE — matching-class XP doubled ✦
                       </div>
                     )}
                     <div style={{ marginTop: '0.5rem', fontSize: '0.7rem', color: 'var(--text-dim)', fontStyle: 'italic' }}>
-                      May also inherit one of {sacrifice.name}'s skills or traits.
+                      May also inherit skills or traits from {sacrifices.length > 1 ? 'each offering' : sacrifices[0].name}.
                     </div>
                   </div>
                 ) : (
                   <div className="text-dim" style={{ marginTop: '1rem', fontSize: '0.85rem', fontStyle: 'italic' }}>
-                    Drag a vessel and an offering onto the pedestals.
+                    Drag a vessel and up to {MAX_OFFERINGS} offerings onto the pedestals.
                   </div>
                 )}
 
                 <button
                   className="btn"
-                  disabled={!target || !sacrifice || synthesizing}
+                  disabled={!target || sacrifices.length === 0 || synthesizing}
                   onClick={beginRite}
                   style={{
                     marginTop: '1rem', width: '100%', padding: '0.9rem', fontSize: '1rem',
                     border: '2px solid #b06aff', color: '#d0a0ff', borderRadius: 8,
                     background: 'rgba(80,30,130,0.25)',
-                    boxShadow: target && sacrifice ? '0 0 20px rgba(160,80,255,0.4)' : 'none',
+                    boxShadow: target && sacrifices.length > 0 ? '0 0 20px rgba(160,80,255,0.4)' : 'none',
                   }}
                 >
                   {synthesizing ? 'The chamber hums…' : 'Begin the Rite'}
                 </button>
 
-                {target && sacrifice && !synthesizing && (
+                {target && sacrifices.length > 0 && !synthesizing && (
                   <div style={{ marginTop: '0.6rem', fontSize: '0.72rem', color: 'var(--red)', fontStyle: 'italic' }}>
-                    {sacrifice.name} will be lost forever. Every living hero will witness the sacrifice — expect trauma, stress, and shaken morale across the roster.
+                    {sacrifices.map(s => s.name).join(', ')} will be lost forever. Every living hero witnesses the rite —
+                    {sacrifices.length > 1
+                      ? ' and a mass sacrifice compounds: each additional soul consumed hits the roster\'s trauma, stress, and morale harder than the last.'
+                      : ' expect trauma, stress, and shaken morale across the roster.'}
                   </div>
                 )}
                 {error && <div className="text-red" style={{ marginTop: '0.5rem', fontSize: '0.85rem' }}>{error}</div>}
@@ -277,8 +351,9 @@ export default function SynthesisChamber({ heroes, onClose, onComplete }) {
             )}
           </div>
 
-          <Pedestal hero={sacrifice} role="sacrifice" synthesizing={synthesizing}
-            onClear={() => setSacrificeId(null)} onDropHero={(id) => placeOnPedestal('sacrifice', id)} />
+          <SacrificePedestal heroes={sacrifices} synthesizing={synthesizing}
+            onRemove={(id) => setSacrificeIds(ids => ids.filter(x => x !== id))}
+            onDropHero={(id) => placeOnPedestal('sacrifice', id)} />
         </div>
 
         {/* Hero pool — drag from here onto a pedestal */}
@@ -288,7 +363,7 @@ export default function SynthesisChamber({ heroes, onClose, onComplete }) {
           maxHeight: '36vh', overflowY: 'auto', padding: '0.5rem 0.2rem',
         }}>
           {alive.map(h => {
-            const role = h.id === targetId ? 'target' : h.id === sacrificeId ? 'sacrifice' : null
+            const role = h.id === targetId ? 'target' : sacrificeIds.includes(h.id) ? 'sacrifice' : null
             const ring = role === 'target' ? 'var(--gold)' : role === 'sacrifice' ? 'var(--red)' : 'var(--border)'
             return (
               <div

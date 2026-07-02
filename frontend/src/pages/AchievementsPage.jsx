@@ -14,7 +14,7 @@ function rewardText(reward) {
   return <span style={{ display: 'inline-flex', gap: '0.6rem', alignItems: 'center' }}>{parts}</span>
 }
 
-export default function AchievementsPage() {
+export default function AchievementsPage({ onGoldChange }) {
   const [achievements, setAchievements] = useState(null)
   const [loading, setLoading] = useState(true)
   const [claiming, setClaiming] = useState(null)
@@ -40,6 +40,7 @@ export default function AchievementsPage() {
       const res = await claimAchievement(id)
       setToast(<span>Claimed! {rewardText(res.reward)}</span>)
       await refresh()
+      if (onGoldChange) onGoldChange()
     } catch (e) {
       setToast(e.message)
     } finally {
@@ -68,6 +69,7 @@ export default function AchievementsPage() {
     } finally {
       setClaiming(null)
       await refresh()
+      if (onGoldChange) onGoldChange()
       setTimeout(() => setToast(null), 4000)
     }
   }

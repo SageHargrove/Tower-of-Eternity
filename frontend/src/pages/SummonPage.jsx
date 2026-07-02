@@ -279,7 +279,7 @@ export default function SummonPage({ onGoldChange }) {
                         {'★'.repeat(numStar)}
                       </span>
                       <span className="text-dim" style={{ fontFamily: 'monospace', fontSize: '1.1rem' }}>
-                        {Number(data.percent).toFixed(2)}%
+                        {Number(data.percent).toFixed(3)}%
                       </span>
                     </div>
                   );

@@ -47,84 +47,97 @@ npm run dev
 ComfyUI is only needed for generating new hero/enemy portraits — the game
 runs fine without it, portraits just won't regenerate.
 
+Save data lives in `backend/saves/<profile>.db` (git-ignored — one SQLite
+file per profile). DB schema migrations run automatically at startup.
+
 ---
 
 ## How to Play
 
-1. **Summon** → pull heroes with gold/gems.
-2. **Heroes** → review hero stats, classes, aptitudes, Egos, skills (5-tier
+1. **Summon** → pull heroes and equipment with gold (standard) or gems
+   (premium — better odds, builds Sparks toward a guaranteed 5★).
+2. **Heroes** → review stats, classes, aptitudes, Egos, skills (5-tier
    class-specific active/passive kits), traits, and weapon/armor affinity;
-   set your team(s) (5 per team).
-3. **Tower** → enter and advance floor by floor — combat, event (narrative
-   choice, sometimes turning into a real fight), explore, escort, survival,
-   and other floor types. Combat resolves automatically; deaths are
-   permanent and leave a Legacy bonus for your roster. Floor type/blurb
-   stays hidden (?) until you've actually visited it once.
-4. **Base** → between climbs, assign heroes to Facilities (Forge, Infirmary,
-   Market, etc.) and Base Upgrades, rest the roster, manage materials/equipment
-   (including weapon types — Sword/Spear/Staff/Bow/Dagger — and armor types —
-   Robe/Light/Brigandine/Heavy — each with class-restricted equip and their
-   own stat flavor), and read the Hero Chatter log / Lore Journal.
-5. **Arena** → PvP against another player's snapshot team (see Known Gaps below).
-6. **Achievements** → singleplayer milestones (floors, summons, battles, gear,
-   wealth) plus a few PvP-rating ones that just sit locked until Arena is
-   live. Rewards are gems, and for the hardest ones, a Summon Ticket — a
-   consumable (Items tab) that guarantees a 4★+/5★+/6★+/7★+ hero pull.
+   set your teams (5 per team), pin favorites (♥ tab), and compare any two
+   heroes side by side.
+3. **Synthesis Chamber** → sacrifice up to 3 heroes to feed another XP
+   (doubled on matching-class Ego Resonance, with a chance to inherit
+   skills/traits). The whole living roster witnesses the rite — trauma,
+   stress, and morale loss compound with every additional soul consumed.
+4. **Tower** → advance floor by floor — combat, events (narrative choices,
+   sometimes turning into real fights), explore, escort, survival, ambush,
+   blitz, and more. Every 5th floor is a miniboss comp-check (survival /
+   behemoth / assassin / twins), every 10th a boss. Combat resolves
+   automatically; deaths are permanent and leave a Legacy bonus. Floor
+   type stays hidden (?) until you've visited it once.
+5. **Items (Vault)** → equipment (weapons — Sword/Spear/Tome/Bow/Dagger;
+   armor — Robe/Light/Brigandine/Heavy; accessories — Ring/Amulet/Charm,
+   with **two** accessory slots per hero), each type with its own stat
+   identity and class-restricted equip. Storage is capped — build/upgrade
+   the Vault facility to expand it. Consumables (potions, scrolls, summon
+   tickets) are used from here.
+6. **Base** → between climbs: assign heroes to Facilities (you start with
+   the Training Grounds and Restaurant; build the Forge, Infirmary, Market,
+   and more), rest the roster, buy Base Upgrades, and read the Hero Chatter
+   log / Lore Journal. In the Base Hierarchy, every hero lives on a base
+   floor (Floor 1 by default; a new floor unlocks every 10 Tower floors) —
+   spreading them out trades a bigger stat bonus per hero against coverage.
+7. **Arena** → PvP against another player's snapshot team (see Known Gaps).
+8. **Achievements** → milestones across Tower/Summoning/Roster/Combat/
+   Economy/Equipment/Arena, with a Claim All button. Rewards are gems and,
+   for the hardest, star-tiered Summon Tickets — consumables (Items tab)
+   that guarantee a 4★+/5★+/6★+/7★+ hero pull.
 
 ---
 
-## Architecture
+## Repository Layout
 
 ```
+app_launcher.py               # One-step desktop launcher (backend + ComfyUI + window)
+Dockerfile                    # Container build for the backend
+docs/                         # Design/plan documents
+openspec/                     # Feature specs (openspec workflow)
+
 backend/
-  main.py                    # FastAPI app, CORS, serves frontend dist/ + static assets
-  database.py                # SQLite schema, per-profile save files (saves/<profile>.db)
-  services/                  # Game logic — combat, gacha, classes (3-way schema:
-                              # core combat / support-combat / utility-profession,
-                              # plus weapon & armor type affinity), egos, legacies,
-                              # equipment, facilities, materials, level/ascension,
-                              # skills (full 5-tier kits per class lineage), morale,
-                              # events, LLM flavor text, portrait gen...
-  routers/                   # API endpoints — heroes, gacha, tower, base, runs,
-                              # equipment, relics, crafting, arena, profiles, chat
-  static/portraits/          # Hero/enemy/boss art (git-ignored, locally generated)
+  main.py                     # FastAPI app, CORS, serves frontend dist/ + static assets
+  database.py                 # SQLite schema + startup migrations, per-profile saves
+  services/                   # Game logic — combat, gacha, classes, egos, legacies,
+                              #   equipment (weapon/armor/accessory type identities),
+                              #   facilities, materials, level/ascension, skills,
+                              #   morale, events, LLM flavor text, portrait generation
+  routers/                    # API endpoints — heroes, gacha, tower, base, runs,
+                              #   equipment, relics, crafting, arena, profiles, chat
+  scripts/                    # One-off/maintenance scripts (icon generation,
+                              #   card regeneration, db patches)
+  tests/                      # Test scripts
+  static/icons/               # Equipment art (weapons/armor, rarity-tiered)
+  static/facilities/          # Facility banner art
+  static/portraits/           # Hero/enemy/boss art (git-ignored, locally generated)
+  saves/                      # Per-profile save DBs (git-ignored)
 
 frontend/src/
-  App.jsx                    # Tab layout, forced onboarding tour, resource display
-  api/client.js              # All API calls
-  components/                # Reusable UI (HeroCard, CombatArena, tab tour overlay...)
-  pages/                     # SummonPage, HeroesPage, TowerPage, BasePage, ArenaPage,
-                              # AchievementsPage, InventoryPage, LogPage
+  App.jsx                     # Tab layout, onboarding tour, resource header
+  api/client.js               # All API calls (+ arenaServerClient.js for PvP)
+  components/                 # HeroCard, SynthesisChamber, CompareModal, DialogHost,
+                              #   GameIcon, EquipmentTypeIcon, CombatArena, overlays...
+  pages/                      # Summon, Heroes, Tower, Base, Arena, Achievements,
+                              #   Inventory (Vault), Log
+frontend/public/icons/        # UI icon art (currencies, classes, floors, accessories)
 
 arena_server/                 # Separate small FastAPI service for Arena match
-                               # resolution — not the main game backend.
+                              #   resolution — not the main game backend
 ```
 
 ---
 
 ## Known Gaps
 
-- **Arena PvP** — fully wired end-to-end (ArenaPage.jsx -> arenaServerClient.js
-  -> arena_server/, with the main backend just exporting a team snapshot via
-  /arena/team/{id}/snapshot). Matchmaking and leaderboards are implemented in
-  arena_server/. Not currently running as a live service — the game's combat/
-  skill/equipment systems are still changing too often for a hosted PvP server
-  to stay balanced — but there's no missing infrastructure, just a deliberate
-  choice not to launch it yet. **One real gap:** arena_server has no way to
-  report match results back to a player's local profile/save, so the
-  Achievements system's 3 PvP-rating achievements (Arena Debut/Gladiator/
-  Champion, gated on `base.arena_wins`) will stay at 0 progress until that
-  result-reporting round trip is built — they're visible in the list either
-  way, per design, just locked.
-- **Achievements** — implemented (`services/achievement_service.py`,
-  `routers/achievements.py`, AchievementsPage.jsx): 34 achievements across
-  Tower/Summoning/Roster/Combat/Economy/Equipment/Arena, computed live off
-  existing save state plus 4 new counters on `base`
-  (total_summons/total_battles_won/arena_wins/arena_losses). Rewards are
-  mostly gems; the hardest ones grant a Summon Ticket.
-- **Summon Tickets** — implemented (`/gacha/use-ticket`, item_type
-  `summon_ticket` in `inventory`): a guaranteed-minimum-star single hero
-  pull (4★/5★/6★/7★ tiers), reusing the same hero-creation pipeline as a
-  normal gacha pull. Currently only obtainable as Achievement rewards —
-  there's no separate event-drop or shop-purchase path for them yet.
-- **Enemy roster overhaul art** — waves of floors is implemented; enemy art needs polish
+- **Arena PvP** — fully wired end-to-end (ArenaPage.jsx → arenaServerClient.js
+  → arena_server/, with the main backend exporting team snapshots). Matchmaking
+  and leaderboards are implemented in arena_server/. Not currently running as a
+  live service — game balance is still moving too fast for hosted PvP. **One
+  real gap:** arena_server can't report match results back to a local save, so
+  the PvP-rating achievements stay at 0 progress until that round trip exists.
+- **Summon Tickets** — implemented (`/gacha/use-ticket`); currently only
+  obtainable as Achievement rewards. Tier art (4★–7★) uses placeholders.
+- **Enemy roster art** — floor waves are implemented; enemy art needs polish.
