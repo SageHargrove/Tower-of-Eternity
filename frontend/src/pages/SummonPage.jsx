@@ -147,6 +147,7 @@ export default function SummonPage({ onGoldChange }) {
     try {
       const data = await pullEquipment(count, currency)
       setEquipResults(data.results.map(e => ({...e, is_equipment: true})))
+      setShowAnimation(true)
       const cost = count * (currency === 'gem' ? 150 : 500)
       if (currency === 'gem') setGems(g => g - cost)
       else setGold(g => g - cost)

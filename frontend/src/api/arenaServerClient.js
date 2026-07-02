@@ -1,15 +1,18 @@
-// Talks to the separately-hosted Arena server (arena_server/), not the
-// player's local backend. The Arena server's address is whatever the
-// player enters once in the Arena tab — there's no default because every
-// host's address is different (localhost while testing, a real OpenNebula
-// VM address once deployed). Stored in localStorage like other client-side
-// settings (see App.jsx's soundEnabled/bgmVolume pattern).
+// Talks to the separately-hosted World/Arena server (arena_server/), not
+// the player's local backend. Players never configure this — the game
+// auto-connects to DEFAULT_ARENA_SERVER_URL. Change that constant to your
+// hosted server's address before shipping a build. A localStorage override
+// (arenaServerUrl) still wins if present, for dev/testing against a
+// different host — settable from the console:
+//   localStorage.setItem('arenaServerUrl', 'http://other-host:8001')
+export const DEFAULT_ARENA_SERVER_URL = 'http://localhost:8001'
+
 const URL_KEY = 'arenaServerUrl'
 const TOKEN_KEY = 'arenaServerToken'
 const USERNAME_KEY = 'arenaServerUsername'
 
 export function getArenaServerUrl() {
-  return localStorage.getItem(URL_KEY) || ''
+  return localStorage.getItem(URL_KEY) || DEFAULT_ARENA_SERVER_URL
 }
 
 export function setArenaServerUrl(url) {

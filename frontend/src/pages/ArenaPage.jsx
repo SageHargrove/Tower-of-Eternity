@@ -245,7 +245,7 @@ export default function ArenaPage() {
             {serverOnline === null ? 'CONNECTING…' : 'SERVER OFFLINE'}
           </div>
           {serverOnline === false && (
-            <div className="text-dim" style={{ fontSize: '0.72rem' }}>Set the World Server address below to go online.</div>
+            <div className="text-dim" style={{ fontSize: '0.72rem' }}>The World server can't be reached right now — it may be down for maintenance.</div>
           )}
         </div>
       )}
@@ -400,7 +400,20 @@ export default function ArenaPage() {
             
             {activeTab === 'pvp' && (
               <>
-                {leaderboard.length === 0 && <div className="text-dim text-sm">No matches recorded yet.</div>}
+                {leaderboard.length === 0 && (
+                  // Ghost rows so the board reads as a full-width table even
+                  // before anyone's on it (and under the offline veil).
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.3rem', opacity: 0.35 }}>
+                    {[1, 2, 3, 4, 5].map(i => (
+                      <div key={i} style={{ display: 'flex', gap: '1rem', fontSize: '0.85rem' }}>
+                        <span className="text-dim" style={{ minWidth: 30 }}>#{i}</span>
+                        <span className="text-dim" style={{ flex: 1 }}>———</span>
+                        <span className="text-dim" style={{ minWidth: 50, textAlign: 'right' }}>1000</span>
+                        <span className="text-dim">0W / 0L</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '0.3rem' }}>
                   {leaderboard.map((p, i) => (
                     <div key={p.username} style={{ display: 'flex', gap: '1rem', fontSize: '0.85rem' }}>
@@ -479,27 +492,13 @@ export default function ArenaPage() {
           </div>
           </SectionVeil>
 
-          {/* Server config — setup detail, lives at the bottom of the column */}
-          <details className="card" open={!serverUrl} style={{ padding: '0.8rem 1rem' }}>
-            <summary className="text-dim text-sm" style={{ cursor: 'pointer', userSelect: 'none' }}>
-              ⚙ World Server {serverOnline === true
-                ? <span style={{ color: 'var(--green)' }}>· online — {serverUrl}</span>
-                : serverUrl
-                  ? <span style={{ color: 'var(--red)' }}>· unreachable — {serverUrl}</span>
-                  : <span style={{ color: 'var(--red)' }}>· not configured</span>}
-            </summary>
-            <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.8rem' }}>
-              <input
-                type="text"
-                className="input"
-                placeholder="http://your-server-address:8001"
-                value={serverUrl}
-                onChange={e => setServerUrl(e.target.value)}
-                style={{ flex: 1, background: 'rgba(0,0,0,0.3)', border: '1px solid var(--border)', padding: '0.5rem', color: '#fff', borderRadius: 4 }}
-              />
-              <button className="btn" onClick={handleSaveUrl}>Save</button>
-            </div>
-          </details>
+          {/* Connection status — players never configure the server; the game
+              auto-connects (see arenaServerClient.DEFAULT_ARENA_SERVER_URL).
+              A localStorage 'arenaServerUrl' override exists for dev. */}
+          <div className="text-dim" style={{ fontSize: '0.72rem', textAlign: 'right', paddingRight: '0.3rem' }}>
+            <span style={{ color: serverOnline === true ? 'var(--green)' : 'var(--red)' }}>●</span>{' '}
+            {serverOnline === true ? 'World server online' : serverOnline === null ? 'Connecting to World server…' : 'World server offline'}
+          </div>
         </div>
       </div>
     </div>

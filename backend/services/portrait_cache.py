@@ -237,11 +237,19 @@ def _quality_tag(birth_star: int) -> str:
 # Escalating "epicness" by star rank — explicit rather than incidental, so
 # rarity reads as more legendary regardless of which class/race got rolled.
 TIER_FLAVOR = {
-    # Low stars stay visually humble through WARDROBE only — "untrained
-    # civilian" used to be here and dragged whole-render quality down with it.
-    1: "ordinary villager, plain worn traveling clothes, no armor, no special effects",
-    2: "novice adventurer, simple traveling clothes, lightly equipped, no special effects",
-    3: "(seasoned fighter:1.1), modest gear, no special effects",
+    # Low stars must be HUMBLE, not PLAIN — "plain worn clothes" kept
+    # steering the model toward flat, low-effort renders (confirmed across
+    # multiple 1★ batches while 4★+ looked great). The wardrobe stays
+    # modest, but every word now demands rendering detail: fabric texture,
+    # stitching, layering. Power/rarity still only escalates via
+    # gear/effects at higher tiers.
+    1: "humble commoner attire rendered in rich detail — layered weathered traveling clothes with "
+       "visible fabric texture, stitched patches, frayed hems, worn leather cords, detailed cloth folds "
+       "and creases, no armor, no magical effects",
+    2: "novice adventurer outfit rendered in rich detail — sturdy layered travel garb with detailed "
+       "stitching and buckles, a worn belt with small pouches, textured cloth and leather, "
+       "lightly equipped, no magical effects",
+    3: "(seasoned fighter:1.1), modest well-maintained gear with detailed straps and fittings, no special effects",
     4: "(elite warrior:1.15), ornate gear",
     5: "(legendary hero:1.2), ornate gear, intricate accessories, imposing presence",
     6: "(near-mythic champion:1.25), intricate ornate armor, elaborate jewelry, "

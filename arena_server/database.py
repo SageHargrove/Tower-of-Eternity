@@ -8,7 +8,10 @@ import sqlite3
 import os
 from contextlib import contextmanager
 
-DB_PATH = os.path.join(os.path.dirname(__file__), "arena.db")
+# ARENA_DB_PATH lets deployments (the Dockerfile mounts /app/data as a
+# volume) put the database somewhere that survives image rebuilds; local
+# runs keep the old alongside-the-code default.
+DB_PATH = os.environ.get("ARENA_DB_PATH") or os.path.join(os.path.dirname(__file__), "arena.db")
 
 
 def get_conn():
