@@ -5,6 +5,42 @@ import LoreJournal from '../components/LoreJournal'
 import GameIcon from '../components/GameIcon'
 import { alertDialog } from '../components/DialogHost'
 
+// Facility banner art comes in visual tiers that track the facility's
+// LEVEL (art parity is anchored to the Wall, since nothing can out-level
+// it). Naming convention: {slug}_tier{n}.png in static/facilities/, slug =
+// lowercase with underscores (wall_tier1.png, training_grounds_tier2.png…
+// a plural variant like walls_tier1.png is also accepted). Fallback chain:
+// exact tier → each lower tier → the flat {Type}.png → hidden.
+function facilityArtTier(level) {
+  if (level >= 45) return 5
+  if (level >= 30) return 4
+  if (level >= 15) return 3
+  if (level >= 5) return 2
+  return 1
+}
+
+function FacilityBanner({ type, level, style }) {
+  const slug = type.toLowerCase().replace(/ /g, '_')
+  const tier = facilityArtTier(level || 1)
+  const candidates = []
+  for (let t = tier; t >= 1; t--) {
+    candidates.push(`/static/facilities/${slug}_tier${t}.png`)
+    candidates.push(`/static/facilities/${slug}s_tier${t}.png`)
+  }
+  candidates.push(`/static/facilities/${type}.png`)
+  const [idx, setIdx] = useState(0)
+  useEffect(() => { setIdx(0) }, [type, tier])
+  if (idx >= candidates.length) return null
+  return (
+    <img
+      src={candidates[idx]}
+      alt=""
+      onError={() => setIdx(i => i + 1)}
+      style={style}
+    />
+  )
+}
+
 // SQLite's CURRENT_TIMESTAMP stores UTC with no timezone marker — passing
 // the raw "YYYY-MM-DD HH:MM:SS" string to new Date() makes JS read it as
 // LOCAL time, so every chat/mail timestamp displayed hours off (confirmed:
@@ -40,7 +76,7 @@ const FACILITY_TOOLTIPS = {
   "Alchemist Lab": "Brews potions passively over time. Alchemists and Mages brew dramatically faster; high Mental aptitude helps too.",
   "Tavern": "Assigned hosts take the edge off — passively reduces STRESS for the entire living roster. Bards and Chefs make the best hosts.",
   "Skydock": "Discounts the gold cost of upgrading every OTHER facility (up to 50% off), scaling with Skydock level — Magic Engineers triple their contribution. This is where magic battleships will be built: Magic Engineers craft the greatest hulls, but any high-Mental hero can apprentice here for a basic vessel.",
-  "Wall": "The outer fortification — every level adds flat defense rating for the coming Raid system (opt-in). The anchor of your defenses: raiders must breach the Wall before the Bastion's garrison ever engages.",
+  "Wall": "The base's FOUNDATION — no other facility can be upgraded above the Wall's level, so raise it first. Every level also adds flat defense rating for the coming Raid system (opt-in): raiders must breach the Wall before the Bastion's garrison ever engages.",
   "Bastion": "Your garrison for the coming Raid system (raiding is opt-in). Stationed heroes contribute their strength behind the Wall's cover — and a Magic Engineer's arcane cannons DOUBLE the whole garrison, letting even 1★ heroes hold the line.",
   "Shrine": "Assigned clergy slowly deepen the whole roster's LOYALTY (affinity) — the same track gifts raise, and the one that decides whether a captured hero stays yours. Priests and Acolytes are twice as effective.",
   "Mage Tower": "Conducts magical research for permanent upgrades. Magic Engineers are the most effective researchers, then Mages, then Spellswords."
@@ -637,7 +673,7 @@ const getGenRate = (fac) => {
             {facilitiesData.built.sort((a,b) => a.cost - b.cost).map(fac => (
               <div key={fac.id} className="card" style={{ overflow: 'hidden', padding: 0 }}>
                 <div style={{ width: '100%', aspectRatio: '3/1', overflow: 'hidden', position: 'relative' }}>
-                  <img src={`/static/facilities/${fac.type}.png`} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover', objectPosition: 'center', display: 'block' }} onError={(e) => { e.target.style.display = 'none'; e.target.nextSibling.style.display = 'none'; }} />
+                  <FacilityBanner type={fac.type} level={fac.level} style={{ width: '100%', height: '100%', objectFit: 'cover', objectPosition: 'center', display: 'block' }} />
                   <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(to bottom, rgba(0,0,0,0) 50%, rgba(10,10,14,0.95) 100%)' }} />
                 </div>
                 <div style={{ padding: '1rem' }}>
@@ -654,9 +690,22 @@ const getGenRate = (fac) => {
                       )}
                     </div>
                   {fac.level < fac.max_level && (
-                    <button className="btn" onClick={() => handleUpgradeFacility(fac.id)} disabled={facilityLoading || base.gold < fac.upgrade_cost} style={{ fontSize: '0.8rem', padding: '0.3rem 0.6rem' }}>
-                      Upgrade ({fac.upgrade_cost}g)
-                    </button>
+                    <div style={{ textAlign: 'right' }}>
+                      <button
+                        className="btn"
+                        onClick={() => handleUpgradeFacility(fac.id)}
+                        disabled={facilityLoading || base.gold < fac.upgrade_cost || fac.wall_capped}
+                        title={fac.wall_capped ? `The Wall must reach Level ${fac.level + 1} first — nothing outgrows its foundation.` : undefined}
+                        style={{ fontSize: '0.8rem', padding: '0.3rem 0.6rem' }}
+                      >
+                        Upgrade ({fac.upgrade_cost}g)
+                      </button>
+                      {fac.wall_capped && (
+                        <div style={{ fontSize: '0.65rem', color: 'var(--red)', marginTop: '0.2rem' }}>
+                          🧱 Wall Lv.{fac.level + 1} required
+                        </div>
+                      )}
+                    </div>
                   )}
                 </div>
                 

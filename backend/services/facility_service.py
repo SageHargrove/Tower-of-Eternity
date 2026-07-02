@@ -4,6 +4,10 @@ from database import db
 # floor 30 — early floors get the economy/survival core, the strategic and
 # multiplayer-facing buildings arrive as real milestones.
 FACILITY_TYPES = {
+    # The Wall is a STARTER facility (seeded pre-built alongside Training
+    # Grounds and Restaurant) and the base's foundation: no other facility
+    # can be upgraded above the Wall's level — see upgrade_facility.
+    "Wall": {"cost": 2000, "unlock_floor": 1, "max_level": 50},
     "Market": {"cost": 1000, "unlock_floor": 1, "max_level": 50},
     "Farm": {"cost": 1000, "unlock_floor": 1, "max_level": 50},
     "Training Grounds": {"cost": 1500, "unlock_floor": 1, "max_level": 50},
@@ -14,7 +18,6 @@ FACILITY_TYPES = {
     "Alchemist Lab": {"cost": 8000, "unlock_floor": 20, "max_level": 50},
     "Tavern": {"cost": 7000, "unlock_floor": 25, "max_level": 50},
     "Skydock": {"cost": 10000, "unlock_floor": 30, "max_level": 50},
-    "Wall": {"cost": 9000, "unlock_floor": 35, "max_level": 50},
     # Everything is obtainable by floor 50 — the game's hard enough that
     # late facilities need to arrive while they can still help.
     "Bastion": {"cost": 12000, "unlock_floor": 40, "max_level": 50},
@@ -43,16 +46,22 @@ def get_facilities():
                 WHERE h.is_alive = 1
             """).fetchall()
             
+            wall_row = next((f for f in fac_list if f["type"] == "Wall"), None)
+            wall_level = wall_row["level"] if wall_row else 0
+
             for f in fac_list:
                 f["heroes"] = [dict(a) for a in assigned if a["facility_id"] == f["id"]]
                 f["max_slots"] = f["slots_unlocked"]
-                
+
                 # Calculate upgrade cost
                 info = FACILITY_TYPES.get(f["type"], {"cost": 5000, "max_level": 50})
                 f["max_level"] = info.get("max_level", 50)
                 base_cost = info["cost"] * (2 ** (f["level"] - 1))
                 f["upgrade_cost"] = int(base_cost * (1 - get_workshop_discount(conn, f["type"])))
-                f["can_upgrade"] = f["level"] < f["max_level"] # Soft cap
+                # Foundation cap: non-Wall facilities can't be upgraded above
+                # the Wall's current level.
+                f["wall_capped"] = f["type"] != "Wall" and (f["level"] + 1) > wall_level
+                f["can_upgrade"] = f["level"] < f["max_level"] and not f["wall_capped"]
                 f["next_slots"] = f["slots_unlocked"] + 1
                 
             built_types = [f["type"] for f in fac_list]
@@ -140,6 +149,14 @@ def upgrade_facility(facility_id: int):
         max_level = info.get("max_level", 50)
         if level >= max_level:
             raise ValueError("Facility is already at maximum level.")
+
+        # The Wall is the base's foundation: nothing may be upgraded ABOVE
+        # its level (art parity too — a tier-2 Farm assumes tier-2 Walls).
+        if fac_type != "Wall":
+            wall = conn.execute("SELECT level FROM facilities WHERE type = 'Wall' AND base_id = 1").fetchone()
+            wall_level = wall["level"] if wall else 0
+            if level + 1 > wall_level:
+                raise ValueError(f"The Wall must reach Level {level + 1} first — no structure can outgrow the foundation it stands on.")
 
         cost = info["cost"] * (2 ** (level - 1))
         cost = int(cost * (1 - get_workshop_discount(conn, fac_type)))

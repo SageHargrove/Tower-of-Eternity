@@ -647,11 +647,12 @@ WHERE NOT EXISTS (SELECT 1 FROM recipes WHERE name = 'Void Ring');
         except Exception as e:
             print(f"[DB] Migration error renaming Workshop: {e}")
 
-        # Every base starts with the Training Grounds and Restaurant already
+        # Every base starts with the Wall (its foundation — other facilities
+        # can't out-level it), Training Grounds, and Restaurant already
         # built (existing saves gain them too if missing) — everything else
         # is player-built through the Facilities tab.
         try:
-            for fac_type in ("Training Grounds", "Restaurant"):
+            for fac_type in ("Wall", "Training Grounds", "Restaurant"):
                 existing = conn.execute("SELECT id FROM facilities WHERE base_id = 1 AND type = ?", (fac_type,)).fetchone()
                 if not existing:
                     conn.execute("INSERT INTO facilities (base_id, type, slots_unlocked) VALUES (1, ?, 1)", (fac_type,))
