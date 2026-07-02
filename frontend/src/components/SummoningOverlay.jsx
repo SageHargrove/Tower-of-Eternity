@@ -92,7 +92,14 @@ function FlipCard({ item, flipped, onFlip, width, height, revealed }) {
           <div className="tarot-face tarot-front">
             <CardBack item={item} />
           </div>
-          <div className="tarot-face tarot-backside">
+          {/* When the card has explicit dimensions (spread/equipment), the
+              back face must be absolutely stretched over them — its rotateY
+              transform makes it the containing block for its children, and
+              as a zero-height in-flow element the revealed art collapsed to
+              a sliver (confirmed: heroes flipped to a bare line, equipment
+              floated above the slot). Single hero reveals leave it in flow
+              so the HeroCard defines the size. */}
+          <div className="tarot-face tarot-backside" style={height ? { position: 'absolute', inset: 0 } : undefined}>
             {revealed}
           </div>
         </div>
@@ -185,9 +192,9 @@ function TarotSpread({ results, onComplete }) {
 
       {/* 3-4-3 spread: three vertical columns; the middle holds 4 cards so
           it's naturally taller — cards sized so a 4-card column fits. */}
-      <div style={{ display: 'flex', gap: '1.4rem', alignItems: 'center', justifyContent: 'center', position: 'relative', zIndex: 2, padding: '1rem', flexWrap: 'wrap' }}>
+      <div style={{ display: 'flex', gap: '3.5rem', alignItems: 'center', justifyContent: 'center', position: 'relative', zIndex: 2, padding: '1rem', flexWrap: 'wrap' }}>
         {columns.map((col, ci) => (
-          <div key={ci} style={{ display: 'flex', flexDirection: 'column', gap: '1rem', justifyContent: 'center', flexWrap: columns.length === 1 ? 'wrap' : 'nowrap', ...(columns.length === 1 ? { flexDirection: 'row', maxWidth: 900 } : {}) }}>
+          <div key={ci} style={{ display: 'flex', flexDirection: 'column', gap: '0.8rem', justifyContent: 'center', flexWrap: columns.length === 1 ? 'wrap' : 'nowrap', ...(columns.length === 1 ? { flexDirection: 'row', maxWidth: 900 } : {}) }}>
             {col.map((item) => {
               flatIndex += 1
               const key = keyOf(item, flatIndex)
@@ -198,8 +205,8 @@ function TarotSpread({ results, onComplete }) {
                   item={item}
                   flipped={flipped.has(key)}
                   onFlip={() => flipOne(key)}
-                  width={132}
-                  height={198}
+                  width={176}
+                  height={264}
                   revealed={
                     <div style={{ position: 'absolute', inset: 0 }}>
                       {item.is_equipment ? (

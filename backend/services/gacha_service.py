@@ -170,7 +170,9 @@ def generate_aptitudes(birth_star: int) -> dict:
 def get_pull_cost() -> int:
     return 100  # gold per pull, can expand to pity system later
 
-EQUIPMENT_PULL_COST = {"gold": 500, "gem": 150}
+# Cheaper than hero pulls on both currencies — heroes matter more, and
+# crafting is meant to overtake equipment summons long-term.
+EQUIPMENT_PULL_COST = {"gold": 300, "gem": 75}
 # Per-grade exponential weights (out of 100000), matching the same
 # philosophy as GEM_WEIGHTS/GOLD_WEIGHTS above — every grade is its own
 # weighted roll now, not a bucket of 3 sub-grades picked uniformly (the

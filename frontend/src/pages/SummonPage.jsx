@@ -96,6 +96,13 @@ export default function SummonPage({ onGoldChange }) {
 
   useEffect(() => {
     refreshData()
+    // Keep the page's own gold/gem readouts live — tutorial rewards, dev
+    // grants, and achievement claims all land while this page is open, and
+    // a stale "you have X" next to a fresh header counter reads as a bug.
+    const poll = setInterval(() => {
+      getBase().then(b => { setGold(b.gold); setGems(b.gems || 0) }).catch(() => {})
+    }, 4000)
+    return () => clearInterval(poll)
   }, [])
 
   async function refreshData() {
@@ -115,7 +122,7 @@ export default function SummonPage({ onGoldChange }) {
       // Portraits are always generated — this stopped being a player choice.
       const data = await pullHeroes(count, true, currency)
       setHeroResults(data.pulled)
-      const cost = count * (currency === 'gold' ? 250 : 100)
+      const cost = count * (currency === 'gold' ? 400 : 100)
       if (currency === 'gold') setGold(g => g - cost)
       else setGems(g => g - cost)
       setShowAnimation(true)
@@ -148,7 +155,7 @@ export default function SummonPage({ onGoldChange }) {
       const data = await pullEquipment(count, currency)
       setEquipResults(data.results.map(e => ({...e, is_equipment: true})))
       setShowAnimation(true)
-      const cost = count * (currency === 'gem' ? 150 : 500)
+      const cost = count * (currency === 'gem' ? 75 : 300)
       if (currency === 'gem') setGems(g => g - cost)
       else setGold(g => g - cost)
       await refreshData()
@@ -253,10 +260,10 @@ export default function SummonPage({ onGoldChange }) {
               <div className="text-dim" style={{ fontSize: '0.85rem' }}>you have <span className="text-gold">{gold.toLocaleString()} <GameIcon name="gold_coin" size={14} /></span></div>
             </div>
             <div style={{ display: 'flex', gap: '1.5rem' }}>
-              <SummonButton title="Summon 1x" cost={250} currency="gold" balance={gold}
-                onClick={() => doPull(1, 'gold')} disabled={pulling || gold < 250} pulling={pulling} />
-              <SummonButton title="Summon 10x" cost={2500} currency="gold" balance={gold}
-                onClick={() => doPull(10, 'gold')} disabled={pulling || gold < 2500} pulling={pulling} />
+              <SummonButton title="Summon 1x" cost={400} currency="gold" balance={gold}
+                onClick={() => doPull(1, 'gold')} disabled={pulling || gold < 400} pulling={pulling} />
+              <SummonButton title="Summon 10x" cost={4000} currency="gold" balance={gold}
+                onClick={() => doPull(10, 'gold')} disabled={pulling || gold < 4000} pulling={pulling} />
             </div>
           </div>
 
@@ -338,12 +345,12 @@ export default function SummonPage({ onGoldChange }) {
               <div className="text-dim" style={{ fontSize: '0.85rem' }}>Better odds · builds Sparks · you have <span style={{ color: '#00ffff' }}>{gems.toLocaleString()} <GameIcon name="gem" size={14} /></span></div>
             </div>
             <div style={{ display: 'flex', gap: '1.5rem' }}>
-              <SummonButton title="Summon 1x" cost={150} currency="gem" balance={gems} premium
-                onClick={() => doPullEquipment(1, 'gem')} disabled={pulling || gems < 150} pulling={pulling} />
-              <SummonButton title="Summon 10x" cost={1500} currency="gem" balance={gems} premium
-                onClick={() => doPullEquipment(10, 'gem')} disabled={pulling || gems < 1500} pulling={pulling} />
+              <SummonButton title="Summon 1x" cost={75} currency="gem" balance={gems} premium
+                onClick={() => doPullEquipment(1, 'gem')} disabled={pulling || gems < 75} pulling={pulling} />
+              <SummonButton title="Summon 10x" cost={750} currency="gem" balance={gems} premium
+                onClick={() => doPullEquipment(10, 'gem')} disabled={pulling || gems < 750} pulling={pulling} />
             </div>
-            {gems < 150 && (
+            {gems < 75 && (
               <div className="text-dim" style={{ marginTop: '0.8rem', fontSize: '0.85rem', fontStyle: 'italic', textAlign: 'center' }}>
                 Out of gems — claim Achievement rewards and set new Tower floor records to earn more.
               </div>
@@ -356,10 +363,10 @@ export default function SummonPage({ onGoldChange }) {
               <div className="text-dim" style={{ fontSize: '0.85rem' }}>you have <span className="text-gold">{gold.toLocaleString()} <GameIcon name="gold_coin" size={14} /></span></div>
             </div>
             <div style={{ display: 'flex', gap: '1.5rem' }}>
-              <SummonButton title="Summon 1x" cost={500} currency="gold" balance={gold}
-                onClick={() => doPullEquipment(1, 'gold')} disabled={pulling || gold < 500} pulling={pulling} />
-              <SummonButton title="Summon 10x" cost={5000} currency="gold" balance={gold}
-                onClick={() => doPullEquipment(10, 'gold')} disabled={pulling || gold < 5000} pulling={pulling} />
+              <SummonButton title="Summon 1x" cost={300} currency="gold" balance={gold}
+                onClick={() => doPullEquipment(1, 'gold')} disabled={pulling || gold < 300} pulling={pulling} />
+              <SummonButton title="Summon 10x" cost={3000} currency="gold" balance={gold}
+                onClick={() => doPullEquipment(10, 'gold')} disabled={pulling || gold < 3000} pulling={pulling} />
             </div>
           </div>
 

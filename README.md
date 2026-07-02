@@ -55,11 +55,15 @@ file per profile). DB schema migrations run automatically at startup.
 ## How to Play
 
 1. **Summon** → pull heroes and equipment with gold (standard) or gems
-   (premium — better odds, builds Sparks toward a guaranteed 5★).
+   (premium — better odds, builds Sparks toward a guaranteed 5★). Pulls
+   reveal as face-down tarot cards — rarity-tiered card backs, click to
+   flip (10-pulls deal all ten in a 3-4-3 spread over a summoning array).
 2. **Heroes** → review stats, classes, aptitudes, Egos, skills (5-tier
    class-specific active/passive kits), traits, and weapon/armor affinity;
-   set your teams (5 per team), pin favorites (♥ tab), and compare any two
-   heroes side by side.
+   set your teams (5 per team), pin favorites (♥ tab), compare any two
+   heroes side by side, and give **gifts** — every hero secretly loves
+   some gifts and resents others; loved gifts permanently raise a stat
+   and build affinity (a 0-100 loyalty track).
 3. **Synthesis Chamber** → sacrifice up to 3 heroes to feed another XP
    (doubled on matching-class Ego Resonance, with a chance to inherit
    skills/traits). The whole living roster witnesses the rite — trauma,
@@ -82,7 +86,11 @@ file per profile). DB schema migrations run automatically at startup.
    log / Lore Journal. In the Base Hierarchy, every hero lives on a base
    floor (Floor 1 by default; a new floor unlocks every 10 Tower floors) —
    spreading them out trades a bigger stat bonus per hero against coverage.
-7. **Arena** → PvP against another player's snapshot team (see Known Gaps).
+7. **World** → everything multiplayer: PvP arena against snapshot teams,
+   PvP/PvE leaderboards, and a training market — with base raids and
+   server-wide tournaments designed in as coming-soon sections. The game
+   auto-connects to the World server (address:
+   `DEFAULT_ARENA_SERVER_URL` in `frontend/src/api/arenaServerClient.js`).
 8. **Achievements** → milestones across Tower/Summoning/Roster/Combat/
    Economy/Equipment/Arena, with a Claim All button. Rewards are gems and,
    for the hardest, star-tiered Summon Tickets — consumables (Items tab)
@@ -124,8 +132,13 @@ frontend/src/
                               #   Inventory (Vault), Log
 frontend/public/icons/        # UI icon art (currencies, classes, floors, accessories)
 
-arena_server/                 # Separate small FastAPI service for Arena match
-                              #   resolution — not the main game backend
+arena_server/                 # The World server — separate FastAPI service you
+                              #   host for PvP (accounts, ELO, matches, market).
+                              #   Has its own Dockerfile:
+                              #     docker build -t tower-world-server ./arena_server
+                              #     docker run -d -p 8001:8001 \
+                              #       -e ARENA_ADMIN_KEY=<long-random-string> \
+                              #       -v world_data:/app/data tower-world-server
 ```
 
 ---
