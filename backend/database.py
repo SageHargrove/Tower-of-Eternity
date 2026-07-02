@@ -594,6 +594,31 @@ WHERE NOT EXISTS (SELECT 1 FROM recipes WHERE name = 'Void Ring');
         except sqlite3.OperationalError:
             pass
 
+        # Mage weapons are grimoires now (art changed from staves to tomes) —
+        # rename both the type tag and any item names that contain it. Safe to
+        # re-run: both UPDATEs are no-ops once nothing matches.
+        try:
+            changed = conn.execute("UPDATE equipment SET weapon_type = 'Tome' WHERE weapon_type = 'Staff'").rowcount
+            changed += conn.execute("UPDATE equipment SET name = REPLACE(name, 'Staff', 'Tome') WHERE name LIKE '%Staff%'").rowcount
+            if changed:
+                print(f"[DB] Migrated: renamed Staff weapons to Tome ({changed} row update(s))")
+        except sqlite3.OperationalError:
+            pass
+
+        # Accessory sub-types (Ring/Amulet/Charm) — same shape as
+        # weapon_type/armor_type. Existing accessories get a random sub-type
+        # so they participate in the new dual-accessory-slot system.
+        try:
+            conn.execute("ALTER TABLE equipment ADD COLUMN accessory_type TEXT")
+            rows = conn.execute("SELECT id, name FROM equipment WHERE type = 'Accessory'").fetchall()
+            for r in rows:
+                acc_type = random.choice(["Ring", "Amulet", "Charm"])
+                new_name = r["name"].replace("Accessory", acc_type) if "Accessory" in r["name"] else r["name"]
+                conn.execute("UPDATE equipment SET accessory_type = ?, name = ? WHERE id = ?", (acc_type, new_name, r["id"]))
+            print(f"[DB] Migrated: added 'accessory_type' to equipment, backfilled {len(rows)} accessory(ies)")
+        except sqlite3.OperationalError:
+            pass
+
         try:
             conn.execute("UPDATE facilities SET type = 'The Lobby' WHERE type = 'The Square'")
             conn.commit()
@@ -608,20 +633,42 @@ WHERE NOT EXISTS (SELECT 1 FROM recipes WHERE name = 'Void Ring');
             print(f"[DB] Migration error for Market/Farm rename: {e}")
 
         try:
-            conn.execute("DELETE FROM facility_assignments WHERE facility_id IN (SELECT id FROM facilities WHERE type IN ('Training Grounds', 'Training Center', 'Training Facility', 'Watchtower'))")
-            conn.execute("DELETE FROM facilities WHERE type IN ('Training Grounds', 'Training Center', 'Training Facility', 'Watchtower')")
+            conn.execute("DELETE FROM facility_assignments WHERE facility_id IN (SELECT id FROM facilities WHERE type IN ('Training Center', 'Training Facility', 'Watchtower'))")
+            conn.execute("DELETE FROM facilities WHERE type IN ('Training Center', 'Training Facility', 'Watchtower')")
             conn.commit()
         except Exception as e:
             print(f"[DB] Migration error removing unused facilities: {e}")
 
+        # Every base starts with the Training Grounds and Restaurant already
+        # built (existing saves gain them too if missing) — everything else
+        # is player-built through the Facilities tab.
         try:
-            for fac_type in ("Market", "Farm", "Infirmary", "Training Grounds"):
+            for fac_type in ("Training Grounds", "Restaurant"):
                 existing = conn.execute("SELECT id FROM facilities WHERE base_id = 1 AND type = ?", (fac_type,)).fetchone()
                 if not existing:
                     conn.execute("INSERT INTO facilities (base_id, type, slots_unlocked) VALUES (1, ?, 1)", (fac_type,))
             conn.commit()
         except Exception as e:
             print(f"[DB] Migration error seeding default facilities: {e}")
+
+        # Mirror miniboss variant is retired (no counterplay — teams died to
+        # their own comp with nothing to adjust). Re-roll any cached
+        # miniboss_mirror floors to one of the remaining variants.
+        try:
+            rows = conn.execute("SELECT floor_number FROM floor_cache WHERE floor_type = 'miniboss_mirror'").fetchall()
+            for r in rows:
+                variant = random.choice(["survival", "behemoth", "assassin", "twins"])
+                conn.execute("UPDATE floor_cache SET floor_type = ? WHERE floor_number = ?", (f"miniboss_{variant}", r["floor_number"]))
+            if rows:
+                print(f"[DB] Migrated: re-rolled {len(rows)} cached miniboss_mirror floor(s)")
+        except Exception:
+            pass
+
+        try:
+            conn.execute("ALTER TABLE heroes ADD COLUMN is_favorite INTEGER DEFAULT 0")
+            print("[DB] Migrated: added column 'is_favorite' to heroes")
+        except sqlite3.OperationalError:
+            pass
 
         # Floor type is rolled once per floor number and cached here so
         # re-entering the same floor (rerun) always gives the same floor type.

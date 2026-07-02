@@ -78,7 +78,7 @@ FRAMING = (
 # it loses its actual color (the "everyone has cyan hair" problem).
 NEGATIVE_STYLE = (
     "soft airbrushed shading, painterly, semi-realistic skin texture, photographic, 3d render, "
-    "blurred shading, soft gradient blending, watercolor, flat vector art, solid flat color fill, "
+    "blurred shading, soft gradient blending, watercolor, (flat vector art:1.2), (solid flat color fill:1.2), "
     "poster art, low contrast flat colors, muddy shading, "
     "blotchy skin discoloration, harsh shadow patches, uneven skin tone, "
     "completely black face, no facial detail, crushed blacks, underexposed face, silhouette face, "
@@ -93,7 +93,7 @@ NEGATIVE_STYLE = (
     "western comic book art style, american superhero comic style, realistic painted comic shading, "
     "glowing hair, hair glowing with light, hair made of light, hair as a light source, flaming hair, "
     "hair color washed out by glow, hair overexposed, hair blown out white, hair losing color to lighting, "
-    "halo blending into hair color, flat solid color hair, untextured hair, "
+    "halo blending into hair color, (flat solid color hair:1.3), (untextured hair:1.2), single-tone hair mass with no strand detail, "
     "skin tinted blue, unnatural skin discoloration from background lighting, "
     "huge oversized eyes, exaggerated eye proportions, disproportionate giant eyes, "
     "blurry, low quality, watermark, text, signature, bad anatomy, "
@@ -226,12 +226,19 @@ MONSTER_NEGATIVE = NEGATIVE_STYLE + (
 )
 
 def _quality_tag(birth_star: int) -> str:
-    return "detailed face, gritty realistic" if birth_star <= 1 else "highly detailed face, masterpiece"
+    """Render quality is the same at every star — rarity is expressed through
+    wardrobe/aura (TIER_FLAVOR), not through a worse drawing. The old 1★ tag
+    ("gritty realistic", no "masterpiece") both dropped the quality anchor
+    AND pulled against the cel-shaded house style, which is why low-star
+    heroes kept coming back flat/muddy while 3★+ looked fine."""
+    return "highly detailed face, masterpiece"
 
 # Escalating "epicness" by star rank — explicit rather than incidental, so
 # rarity reads as more legendary regardless of which class/race got rolled.
 TIER_FLAVOR = {
-    1: "ordinary villager, plain worn clothes, no armor, untrained civilian, no special effects",
+    # Low stars stay visually humble through WARDROBE only — "untrained
+    # civilian" used to be here and dragged whole-render quality down with it.
+    1: "ordinary villager, plain worn traveling clothes, no armor, no special effects",
     2: "novice adventurer, simple traveling clothes, lightly equipped, no special effects",
     3: "(seasoned fighter:1.1), modest gear, no special effects",
     4: "(elite warrior:1.15), ornate gear",

@@ -3,11 +3,73 @@ import { pullHeroes, getOdds, getEquipmentOdds, getBase, getPityInfo, redeemSpar
 import HeroCard from '../components/HeroCard'
 import SummoningOverlay from '../components/SummoningOverlay'
 import FairyTip from '../components/FairyTip'
+import { confirmDialog } from '../components/DialogHost'
+import { EquipmentTypeIcon } from '../components/EquipmentTypeIcon'
+import GameIcon from '../components/GameIcon'
 
 // Mirrors backend services/class_service.py's is_combat_class() exclusion
 // list — these classes can't be deployed to fight, only assigned to base
 // facilities, which isn't obvious the first time you pull one.
 const NON_COMBAT_CLASSES = ["Chef", "Blacksmith", "Quartermaster", "Alchemist", "Priest"]
+
+// One pull button with its cost and, when the player can't afford it, the
+// exact shortfall — a dead disabled button with no explanation was the old
+// behavior and it's the single most confusing state on this page.
+function SummonButton({ title, cost, currency, balance, onClick, disabled, pulling, premium }) {
+  const icon = currency === 'gem' ? '💎' : '💰'
+  const short = balance < cost
+  return (
+    <button
+      className="btn btn-gold"
+      onClick={onClick}
+      disabled={disabled}
+      style={{
+        flex: 1,
+        padding: premium ? '1.8rem 1rem' : '1.2rem 1rem',
+        fontSize: premium ? '1.5rem' : '1.25rem',
+        fontFamily: 'Cinzel, serif',
+        display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.45rem',
+        border: premium ? '2px solid var(--gold)' : '1px solid var(--border-hi)',
+        borderRadius: 8,
+        background: premium
+          ? 'linear-gradient(170deg, rgba(201,168,76,0.16), rgba(201,168,76,0.05))'
+          : 'linear-gradient(170deg, rgba(150,150,150,0.12), rgba(150,150,150,0.04))',
+        boxShadow: premium && !short ? '0 0 20px rgba(201,168,76,0.25)' : 'none',
+      }}
+    >
+      <div>{pulling ? 'Summoning…' : title}</div>
+      <div style={{ fontSize: premium ? '0.95rem' : '0.85rem', color: '#fff', opacity: 0.8, letterSpacing: '2px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.4rem' }}>
+        {cost.toLocaleString()} {currency === 'gem' ? 'GEMS' : 'GOLD'} <GameIcon name={currency === 'gem' ? 'gem' : 'coin_pouch'} size={14} />
+      </div>
+      {short && !pulling && (
+        <div style={{ fontSize: '0.72rem', color: 'var(--red)', opacity: 0.9, letterSpacing: '0.05em' }}>
+          Need {(cost - balance).toLocaleString()} more
+        </div>
+      )}
+    </button>
+  )
+}
+
+// Collapsible info card — pull-rate tables are reference material, not
+// something the player needs staring at them on every visit.
+function Collapsible({ title, children, defaultOpen = false, headerExtra }) {
+  const [open, setOpen] = useState(defaultOpen)
+  return (
+    <div className="card" style={{ marginTop: '1rem', padding: open ? '1.5rem' : '0.9rem 1.5rem' }}>
+      <div
+        style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: 'pointer', userSelect: 'none' }}
+        onClick={() => setOpen(o => !o)}
+      >
+        <div className="section-header" style={{ margin: 0, border: 'none', paddingBottom: 0 }}>{title}</div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.8rem' }}>
+          {open && headerExtra && <div onClick={e => e.stopPropagation()}>{headerExtra}</div>}
+          <span className="text-dim" style={{ fontSize: '0.8rem' }}>{open ? '▾ Hide' : '▸ Show'}</span>
+        </div>
+      </div>
+      {open && <div style={{ marginTop: '1rem' }}>{children}</div>}
+    </div>
+  )
+}
 
 export default function SummonPage({ onGoldChange }) {
   const [activeTab, setActiveTab] = useState('heroes')
@@ -28,7 +90,6 @@ export default function SummonPage({ onGoldChange }) {
   const [heroOddsCurrency, setHeroOddsCurrency] = useState('gem')
   const [equipOddsCurrency, setEquipOddsCurrency] = useState('gem')
   const [error, setError] = useState(null)
-  const [usePortrait, setUsePortrait] = useState(true)
   const [expandedId, setExpandedId] = useState(null)
   const [showAnimation, setShowAnimation] = useState(false)
   const [fairyGender, setFairyGender] = useState('female')
@@ -52,7 +113,8 @@ export default function SummonPage({ onGoldChange }) {
     setError(null)
     setHeroResults([])
     try {
-      const data = await pullHeroes(count, usePortrait, currency)
+      // Portraits are always generated — this stopped being a player choice.
+      const data = await pullHeroes(count, true, currency)
       setHeroResults(data.pulled)
       const cost = count * (currency === 'gold' ? 250 : 100)
       if (currency === 'gold') setGold(g => g - cost)
@@ -99,7 +161,7 @@ export default function SummonPage({ onGoldChange }) {
   }
 
   async function doSpark() {
-    if (!confirm(`Redeem ${pityInfo.spark_threshold} sparks for a guaranteed 5★ hero?`)) return
+    if (!(await confirmDialog(`Redeem ${pityInfo.spark_threshold} sparks for a guaranteed 5★ hero?`))) return
     setRedeeming(true)
     setError(null)
     try {
@@ -114,7 +176,7 @@ export default function SummonPage({ onGoldChange }) {
   }
 
   async function doEquipSpark() {
-    if (!confirm(`Redeem ${pityInfo.equip_spark_threshold} sparks for a guaranteed A-tier item?`)) return
+    if (!(await confirmDialog(`Redeem ${pityInfo.equip_spark_threshold} sparks for a guaranteed A-tier item?`))) return
     setRedeemingEquip(true)
     setError(null)
     try {
@@ -167,71 +229,47 @@ export default function SummonPage({ onGoldChange }) {
 
         {activeTab === 'heroes' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', marginTop: '1rem' }}>
-          <div style={{ marginBottom: '0.5rem', textAlign: 'center' }}>
-            <label style={{ display: 'inline-flex', alignItems: 'center', gap: '0.5rem', fontSize: '1rem', cursor: 'pointer' }}>
-              <input
-                type="checkbox"
-                checked={usePortrait}
-                onChange={e => setUsePortrait(e.target.checked)}
-                style={{ transform: 'scale(1.2)' }}
-              />
-              <span className="text-dim">Generate portrait (uses DALL-E API)</span>
-            </label>
+          <div className="card" style={{ padding: '1.4rem 1.5rem' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: '1rem' }}>
+              <div className="section-header" style={{ margin: 0, border: 'none', paddingBottom: 0, color: 'var(--gold)' }}>Premium Summon</div>
+              <div className="text-dim" style={{ fontSize: '0.85rem' }}>Better odds · builds Sparks · you have <span style={{ color: '#00ffff' }}>{gems.toLocaleString()} <GameIcon name="gem" size={14} /></span></div>
+            </div>
+            <div style={{ display: 'flex', gap: '1.5rem' }}>
+              <SummonButton title="Summon 1x" cost={100} currency="gem" balance={gems} premium
+                onClick={() => doPull(1, 'gem')} disabled={pulling || gems < 100} pulling={pulling} />
+              <SummonButton title="Summon 10x" cost={1000} currency="gem" balance={gems} premium
+                onClick={() => doPull(10, 'gem')} disabled={pulling || gems < 1000} pulling={pulling} />
+            </div>
+            {gems < 100 && (
+              <div className="text-dim" style={{ marginTop: '0.8rem', fontSize: '0.85rem', fontStyle: 'italic', textAlign: 'center' }}>
+                Out of gems — claim Achievement rewards and set new Tower floor records to earn more.
+              </div>
+            )}
           </div>
 
-          <div style={{ display: 'flex', gap: '1.5rem', marginTop: '0.5rem' }}>
-            <button
-              className="btn btn-gold"
-              onClick={() => doPull(1, 'gem')}
-              disabled={pulling || gems < 100}
-              style={{ flex: 1, padding: '2rem', fontSize: '1.6rem', fontFamily: 'Cinzel, serif', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.5rem', border: '2px solid var(--gold)', borderRadius: 8, background: 'rgba(201,168,76,0.1)' }}
-            >
-              <div>{pulling ? 'Summoning...' : 'Summon 1x'}</div>
-              <div style={{ fontSize: '1rem', color: '#fff', opacity: 0.8, letterSpacing: '2px' }}>100 GEMS 💎</div>
-            </button>
-
-            <button
-              className="btn btn-gold"
-              onClick={() => doPull(10, 'gem')}
-              disabled={pulling || gems < 1000}
-              style={{ flex: 1, padding: '2rem', fontSize: '1.6rem', fontFamily: 'Cinzel, serif', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.5rem', border: '2px solid var(--gold)', borderRadius: 8, background: 'rgba(201,168,76,0.15)', boxShadow: '0 0 20px rgba(201,168,76,0.3)' }}
-            >
-              <div>{pulling ? 'Summoning...' : 'Summon 10x'}</div>
-              <div style={{ fontSize: '1rem', color: '#fff', opacity: 0.8, letterSpacing: '2px' }}>1000 GEMS 💎</div>
-            </button>
-          </div>
-
-          <div style={{ display: 'flex', gap: '1.5rem', marginTop: '1rem' }}>
-            <button
-              className="btn btn-gold"
-              onClick={() => doPull(1, 'gold')}
-              disabled={pulling || gold < 250}
-              style={{ flex: 1, padding: '1.25rem', fontSize: '1.3rem', fontFamily: 'Cinzel, serif', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.4rem', border: '2px solid var(--star1)', borderRadius: 8, background: 'rgba(150,150,150,0.1)' }}
-            >
-              <div>{pulling ? 'Summoning...' : 'Summon 1x'}</div>
-              <div style={{ fontSize: '0.9rem', color: '#fff', opacity: 0.8, letterSpacing: '2px' }}>250 GOLD 💰</div>
-            </button>
-
-            <button
-              className="btn btn-gold"
-              onClick={() => doPull(10, 'gold')}
-              disabled={pulling || gold < 2500}
-              style={{ flex: 1, padding: '1.25rem', fontSize: '1.3rem', fontFamily: 'Cinzel, serif', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.4rem', border: '2px solid var(--star1)', borderRadius: 8, background: 'rgba(150,150,150,0.15)' }}
-            >
-              <div>{pulling ? 'Summoning...' : 'Summon 10x'}</div>
-              <div style={{ fontSize: '0.9rem', color: '#fff', opacity: 0.8, letterSpacing: '2px' }}>2500 GOLD 💰</div>
-            </button>
+          <div className="card" style={{ padding: '1.4rem 1.5rem' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: '1rem' }}>
+              <div className="section-header" style={{ margin: 0, border: 'none', paddingBottom: 0 }}>Standard Summon</div>
+              <div className="text-dim" style={{ fontSize: '0.85rem' }}>you have <span className="text-gold">{gold.toLocaleString()} 💰</span></div>
+            </div>
+            <div style={{ display: 'flex', gap: '1.5rem' }}>
+              <SummonButton title="Summon 1x" cost={250} currency="gold" balance={gold}
+                onClick={() => doPull(1, 'gold')} disabled={pulling || gold < 250} pulling={pulling} />
+              <SummonButton title="Summon 10x" cost={2500} currency="gold" balance={gold}
+                onClick={() => doPull(10, 'gold')} disabled={pulling || gold < 2500} pulling={pulling} />
+            </div>
           </div>
 
           {(odds || goldOdds) && (
-            <div className="card" style={{ marginTop: '1rem' }}>
-              <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '0.5rem', marginBottom: '1rem' }}>
-                <div className="section-header" style={{ margin: 0 }}>Pull Rates</div>
+            <Collapsible
+              title="Pull Rates"
+              headerExtra={
                 <div style={{ display: 'flex', gap: '0.3rem' }}>
                   <button className="btn" onClick={() => setHeroOddsCurrency('gem')} style={{ padding: '0.2rem 0.6rem', fontSize: '0.75rem', opacity: heroOddsCurrency === 'gem' ? 1 : 0.5 }}>Gem</button>
                   <button className="btn" onClick={() => setHeroOddsCurrency('gold')} style={{ padding: '0.2rem 0.6rem', fontSize: '0.75rem', opacity: heroOddsCurrency === 'gold' ? 1 : 0.5 }}>Gold</button>
                 </div>
-              </div>
+              }
+            >
               <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
                 {Object.entries((heroOddsCurrency === 'gold' ? goldOdds : odds) || {}).map(([star, data]) => {
                   const numStar = Number(star);
@@ -248,7 +286,7 @@ export default function SummonPage({ onGoldChange }) {
                   );
                 })}
               </div>
-            </div>
+            </Collapsible>
           )}
 
           {/* Pity counter is intentionally hidden from the player — showing
@@ -294,59 +332,47 @@ export default function SummonPage({ onGoldChange }) {
 
         {activeTab === 'equipment' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', marginTop: '1rem' }}>
-          <div style={{ display: 'flex', gap: '1.5rem' }}>
-            <button
-              className="btn btn-gold"
-              onClick={() => doPullEquipment(1, 'gem')}
-              disabled={pulling || gems < 150}
-              style={{ flex: 1, padding: '2rem', fontSize: '1.6rem', fontFamily: 'Cinzel, serif', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.5rem', border: '2px solid var(--gold)', borderRadius: 8, background: 'rgba(201,168,76,0.1)' }}
-            >
-              <div>{pulling ? 'Summoning...' : 'Summon 1x'}</div>
-              <div style={{ fontSize: '1rem', color: '#fff', opacity: 0.8, letterSpacing: '2px' }}>150 GEMS 💎</div>
-            </button>
-
-            <button
-              className="btn btn-gold"
-              onClick={() => doPullEquipment(10, 'gem')}
-              disabled={pulling || gems < 1500}
-              style={{ flex: 1, padding: '2rem', fontSize: '1.6rem', fontFamily: 'Cinzel, serif', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.5rem', border: '2px solid var(--gold)', borderRadius: 8, background: 'rgba(201,168,76,0.15)', boxShadow: '0 0 20px rgba(201,168,76,0.3)' }}
-            >
-              <div>{pulling ? 'Summoning...' : 'Summon 10x'}</div>
-              <div style={{ fontSize: '1rem', color: '#fff', opacity: 0.8, letterSpacing: '2px' }}>1500 GEMS 💎</div>
-            </button>
+          <div className="card" style={{ padding: '1.4rem 1.5rem' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: '1rem' }}>
+              <div className="section-header" style={{ margin: 0, border: 'none', paddingBottom: 0, color: 'var(--gold)' }}>Premium Forge</div>
+              <div className="text-dim" style={{ fontSize: '0.85rem' }}>Better odds · builds Sparks · you have <span style={{ color: '#00ffff' }}>{gems.toLocaleString()} <GameIcon name="gem" size={14} /></span></div>
+            </div>
+            <div style={{ display: 'flex', gap: '1.5rem' }}>
+              <SummonButton title="Summon 1x" cost={150} currency="gem" balance={gems} premium
+                onClick={() => doPullEquipment(1, 'gem')} disabled={pulling || gems < 150} pulling={pulling} />
+              <SummonButton title="Summon 10x" cost={1500} currency="gem" balance={gems} premium
+                onClick={() => doPullEquipment(10, 'gem')} disabled={pulling || gems < 1500} pulling={pulling} />
+            </div>
+            {gems < 150 && (
+              <div className="text-dim" style={{ marginTop: '0.8rem', fontSize: '0.85rem', fontStyle: 'italic', textAlign: 'center' }}>
+                Out of gems — claim Achievement rewards and set new Tower floor records to earn more.
+              </div>
+            )}
           </div>
 
-          <div style={{ display: 'flex', gap: '1.5rem', marginTop: '1rem' }}>
-            <button
-              className="btn btn-gold"
-              onClick={() => doPullEquipment(1, 'gold')}
-              disabled={pulling || gold < 500}
-              style={{ flex: 1, padding: '1.25rem', fontSize: '1.3rem', fontFamily: 'Cinzel, serif', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.4rem', border: '2px solid var(--star1)', borderRadius: 8, background: 'rgba(150,150,150,0.1)' }}
-            >
-              <div>{pulling ? 'Summoning...' : 'Summon 1x'}</div>
-              <div style={{ fontSize: '0.9rem', color: '#fff', opacity: 0.8, letterSpacing: '2px' }}>500 GOLD 💰</div>
-            </button>
-
-            <button
-              className="btn btn-gold"
-              onClick={() => doPullEquipment(10, 'gold')}
-              disabled={pulling || gold < 5000}
-              style={{ flex: 1, padding: '1.25rem', fontSize: '1.3rem', fontFamily: 'Cinzel, serif', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.4rem', border: '2px solid var(--star1)', borderRadius: 8, background: 'rgba(150,150,150,0.15)' }}
-            >
-              <div>{pulling ? 'Summoning...' : 'Summon 10x'}</div>
-              <div style={{ fontSize: '0.9rem', color: '#fff', opacity: 0.8, letterSpacing: '2px' }}>5000 GOLD 💰</div>
-            </button>
+          <div className="card" style={{ padding: '1.4rem 1.5rem' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: '1rem' }}>
+              <div className="section-header" style={{ margin: 0, border: 'none', paddingBottom: 0 }}>Standard Forge</div>
+              <div className="text-dim" style={{ fontSize: '0.85rem' }}>you have <span className="text-gold">{gold.toLocaleString()} 💰</span></div>
+            </div>
+            <div style={{ display: 'flex', gap: '1.5rem' }}>
+              <SummonButton title="Summon 1x" cost={500} currency="gold" balance={gold}
+                onClick={() => doPullEquipment(1, 'gold')} disabled={pulling || gold < 500} pulling={pulling} />
+              <SummonButton title="Summon 10x" cost={5000} currency="gold" balance={gold}
+                onClick={() => doPullEquipment(10, 'gold')} disabled={pulling || gold < 5000} pulling={pulling} />
+            </div>
           </div>
 
           {(equipGoldOdds || equipGemOdds) && (
-            <div className="card" style={{ marginTop: '1rem' }}>
-              <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '0.5rem', marginBottom: '1rem' }}>
-                <div className="section-header" style={{ margin: 0 }}>Equipment Rates</div>
+            <Collapsible
+              title="Equipment Rates"
+              headerExtra={
                 <div style={{ display: 'flex', gap: '0.3rem' }}>
                   <button className="btn" onClick={() => setEquipOddsCurrency('gem')} style={{ padding: '0.2rem 0.6rem', fontSize: '0.75rem', opacity: equipOddsCurrency === 'gem' ? 1 : 0.5 }}>Gem</button>
                   <button className="btn" onClick={() => setEquipOddsCurrency('gold')} style={{ padding: '0.2rem 0.6rem', fontSize: '0.75rem', opacity: equipOddsCurrency === 'gold' ? 1 : 0.5 }}>Gold</button>
                 </div>
-              </div>
+              }
+            >
               <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
                 {(equipOddsCurrency === 'gold' ? equipGoldOdds : equipGemOdds)?.map((tier, idx) => {
                   const midGrade = tier.grades[Math.floor(tier.grades.length / 2)]
@@ -363,7 +389,7 @@ export default function SummonPage({ onGoldChange }) {
                   )
                 })}
               </div>
-            </div>
+            </Collapsible>
           )}
 
           {pityInfo && (
@@ -415,8 +441,8 @@ export default function SummonPage({ onGoldChange }) {
               if (item.is_equipment) {
                 return (
                   <div key={idx} className="card" style={{ border: '1px solid var(--border)', textAlign: 'center', padding: '1.5rem', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
-                    <div style={{ fontSize: '3rem', marginBottom: '0.5rem' }}>
-                      {item.type === 'Weapon' ? '⚔️' : item.type === 'Armor' ? '🛡️' : '💍'}
+                    <div style={{ marginBottom: '0.5rem' }}>
+                      <EquipmentTypeIcon item={item} fontSize="3rem" />
                     </div>
                     <div style={{ fontSize: '1.2rem', fontFamily: 'Cinzel, serif', fontWeight: 'bold' }}>{item.name}</div>
                     <div style={{ fontSize: '1rem', marginTop: '0.5rem', color: 'var(--star5)' }}>{item.rarity} Rank</div>

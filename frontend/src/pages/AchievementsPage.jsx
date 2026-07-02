@@ -45,6 +45,30 @@ export default function AchievementsPage() {
     }
   }
 
+  async function handleClaimAll() {
+    const claimable = (achievements || []).filter(a => a.complete && !a.claimed)
+    if (claimable.length === 0) return
+    setClaiming('all')
+    // Tally the combined haul so the toast reports one total instead of
+    // flashing per-achievement.
+    const total = { gems: 0, gold: 0, summon_ticket: 0 }
+    let claimed = 0
+    try {
+      for (const a of claimable) {
+        const res = await claimAchievement(a.id)
+        claimed++
+        for (const k of Object.keys(total)) total[k] += res.reward?.[k] || 0
+      }
+      setToast(`Claimed ${claimed} achievement${claimed === 1 ? '' : 's'}! ${rewardText(total)}`)
+    } catch (e) {
+      setToast(claimed > 0 ? `Claimed ${claimed} before an error: ${e.message}` : e.message)
+    } finally {
+      setClaiming(null)
+      await refresh()
+      setTimeout(() => setToast(null), 4000)
+    }
+  }
+
   if (loading || !achievements) return <div className="page text-dim">Loading Achievements...</div>
 
   const claimedCount = achievements.filter(a => a.claimed).length
@@ -59,8 +83,23 @@ export default function AchievementsPage() {
       <div className="section-header" style={{ marginBottom: '0.5rem', fontFamily: 'Cinzel, serif', fontSize: '2rem', textShadow: '0 0 10px rgba(255,255,255,0.2)' }}>
         Achievements
       </div>
-      <div className="text-dim" style={{ marginBottom: '1.5rem' }}>
-        {claimedCount} / {achievements.length} claimed
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
+        <div className="text-dim">
+          {claimedCount} / {achievements.length} claimed
+        </div>
+        {(() => {
+          const claimableCount = achievements.filter(a => a.complete && !a.claimed).length
+          return (
+            <button
+              className="btn btn-gold"
+              disabled={claimableCount === 0 || claiming === 'all'}
+              onClick={handleClaimAll}
+              style={claimableCount > 0 ? { boxShadow: '0 0 10px rgba(201,168,76,0.3)' } : undefined}
+            >
+              {claiming === 'all' ? 'Claiming…' : `Claim All (${claimableCount})`}
+            </button>
+          )
+        })()}
       </div>
 
       {toast && (

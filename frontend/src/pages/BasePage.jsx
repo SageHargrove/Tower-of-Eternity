@@ -2,19 +2,32 @@ import React, { useState, useEffect } from 'react'
 import { getBase, getFacilities, buildFacility, upgradeFacility, assignFacility, removeFacility, restHeroes, listHeroes, configTraining, getMageTowerUpgrades, buyResearchUpgrade, craftMaterialEquipment, craftBandages, getBaseFloors, assignBaseFloor, getLegacies, getChatLogs, renameBase, upgradeBase, getMarketCatalog, purchaseMarketItem, getBaseUpgrades, buyBaseUpgrade, getMailList, claimMail } from '../api/client'
 import MirrorOfFate from '../components/MirrorOfFate'
 import LoreJournal from '../components/LoreJournal'
+import GameIcon from '../components/GameIcon'
+import { alertDialog } from '../components/DialogHost'
+
+// SQLite's CURRENT_TIMESTAMP stores UTC with no timezone marker — passing
+// the raw "YYYY-MM-DD HH:MM:SS" string to new Date() makes JS read it as
+// LOCAL time, so every chat/mail timestamp displayed hours off (confirmed:
+// chatter showing "11:59 PM" at 6:59 PM local). Append the Z so it parses
+// as the UTC instant it actually is; toLocaleTimeString then converts.
+function parseUtcTimestamp(ts) {
+  if (!ts) return new Date()
+  return new Date(ts.includes('T') || ts.endsWith('Z') ? ts : ts.replace(' ', 'T') + 'Z')
+}
 
 // Hand-painted banner art for the base-wide upgrade tree — keyed by the
 // upgrade's id (see DEFAULT_UPGRADES in routers/base.py) so a rename there
 // doesn't silently lose its art.
 const UPGRADE_BANNERS = {
-  infirmary: 'http://localhost:8000/static/facilities/Infirmary.png',
-  forge: 'http://localhost:8000/static/facilities/Forge.png',
+  infirmary: '/static/facilities/Infirmary.png',
+  forge: '/static/facilities/Forge.png',
 }
 
 // We now dynamically load banners for facilities based on their type name.
-// E.g. http://localhost:8000/static/facilities/Market.png
+// E.g. /static/facilities/Market.png
 
 const FACILITY_TOOLTIPS = {
+  "Training Grounds": "Passively trains stationed heroes, granting XP over time. Assign heroes you want to bring up to speed without risking them in the Tower.",
   "Forge": "Crafts powerful weapons, armor, and accessories. Quality is capped by your single best Blacksmith — more Blacksmiths of that same tier assigned together adds a smaller bonus on top.",
   "Infirmary": "Heals trauma passively over time and crafts Bandages (auto-used to patch up your most injured heroes before the next floor). Assign Medics and Priests for better results.",
   "Vault": "Expands equipment storage capacity. Quartermasters manage the Vault effectively.",
@@ -155,7 +168,7 @@ const handleRenameBase = async () => {
       await renameBase(newName);
       loadAll();
     } catch(e) {
-      alert(e.message || "Failed to rename base.");
+      alertDialog(e.message || "Failed to rename base.");
     }
   };
 
@@ -163,10 +176,10 @@ const handleRenameBase = async () => {
     setResting(true)
     try {
       const data = await restHeroes()
-      alert(`Rested ${data.rested} heroes — Health fully restored, morale/stress/trauma recovered. Cost: ${data.cost} supplies.`)
+      alertDialog(`Rested ${data.rested} heroes — Health fully restored, morale/stress/trauma recovered. Cost: ${data.cost} supplies.`)
       loadAll()
     } catch (e) {
-      alert(e.message || "Cannot rest.")
+      alertDialog(e.message || "Cannot rest.")
     } finally {
       setResting(false)
     }
@@ -175,10 +188,10 @@ const handleRenameBase = async () => {
   const handleUpgradeBase = async () => {
     try {
       await upgradeBase()
-      alert("Base Upgraded! Max Roster Size increased.")
+      alertDialog("Base Upgraded! Max Roster Size increased.")
       loadAll()
       if (onGoldChange) onGoldChange()
-    } catch(e) { alert(e.message || "Failed to upgrade") }
+    } catch(e) { alertDialog(e.message || "Failed to upgrade") }
   }
 
 
@@ -190,7 +203,7 @@ const handleRenameBase = async () => {
       loadAll()
       if (onGoldChange) onGoldChange()
     } catch (e) {
-      alert(e.message)
+      alertDialog(e.message)
     } finally {
       setUpgradingId(null)
     }
@@ -203,7 +216,7 @@ const handleRenameBase = async () => {
       loadAll()
       if (onGoldChange) onGoldChange()
     } catch (e) {
-      alert(e.message)
+      alertDialog(e.message)
     } finally {
       setFacilityLoading(false)
     }
@@ -216,7 +229,7 @@ const handleRenameBase = async () => {
       loadAll()
       if (onGoldChange) onGoldChange()
     } catch (e) {
-      alert(e.message)
+      alertDialog(e.message)
     } finally {
       setFacilityLoading(false)
     }
@@ -229,7 +242,7 @@ const handleRenameBase = async () => {
       if (res?.chatter_line) setMsg(res.chatter_line)
       loadAll()
     } catch (e) {
-      alert(e.message)
+      alertDialog(e.message)
     } finally {
       setFacilityLoading(false)
     }
@@ -241,7 +254,7 @@ const handleRenameBase = async () => {
       await removeFacility(heroId)
       loadAll()
     } catch (e) {
-      alert(e.message)
+      alertDialog(e.message)
     } finally {
       setFacilityLoading(false)
     }
@@ -253,7 +266,7 @@ const handleRenameBase = async () => {
       await buyResearchUpgrade(upgradeId)
       loadAll()
     } catch (e) {
-      alert(e.message)
+      alertDialog(e.message)
     } finally {
       setFacilityLoading(false)
     }
@@ -265,9 +278,9 @@ const handleRenameBase = async () => {
       await craftMaterialEquipment(heroId, slot)
       loadAll()
       if (onGoldChange) onGoldChange()
-      alert("Crafted successfully!")
+      alertDialog("Crafted successfully!")
     } catch (e) {
-      alert(e.message)
+      alertDialog(e.message)
     } finally {
       setCrafting(false)
     }
@@ -279,9 +292,9 @@ const handleRenameBase = async () => {
       const res = await craftBandages(heroId, 1)
       loadAll()
       if (onGoldChange) onGoldChange()
-      alert(`Crafted a Bandage (${res.total} in stock). Auto-used on your most injured heroes before your next floor.`)
+      alertDialog(`Crafted a Bandage (${res.total} in stock). Auto-used on your most injured heroes before your next floor.`)
     } catch (e) {
-      alert(e.message)
+      alertDialog(e.message)
     } finally {
       setCrafting(false)
     }
@@ -294,9 +307,9 @@ const handleRenameBase = async () => {
       loadAll()
       if (onGoldChange) onGoldChange()
       const detail = res.material ? `${res.amount}x ${res.material}` : res.supplies ? `${res.supplies} supplies` : ''
-      alert(`Purchased ${res.item}! +${detail}`)
+      alertDialog(`Purchased ${res.item}! +${detail}`)
     } catch (e) {
-      alert(e.message)
+      alertDialog(e.message)
     } finally {
       setPurchasing(false)
     }
@@ -308,7 +321,7 @@ const handleRenameBase = async () => {
       await assignBaseFloor(heroId, floorNum === null ? 0 : floorNum)
       loadAll()
     } catch(e) {
-      alert(e.message || e)
+      alertDialog(e.message || e)
     } finally {
       setAssigning(false)
     }
@@ -321,7 +334,7 @@ const handleRenameBase = async () => {
       loadAll()
       if (onGoldChange) onGoldChange()
     } catch(e) {
-      alert(e.message || e)
+      alertDialog(e.message || e)
     } finally {
       setClaiming(false)
     }
@@ -347,7 +360,8 @@ const handleRenameBase = async () => {
 
   const renderTabs = () => (
     <div style={{ display: 'flex', gap: '1rem', marginBottom: '1.5rem', borderBottom: '1px solid var(--border)', overflowX: 'auto' }}>
-      {['lobby', 'facilities', 'mail', 'legacy', 'floors', 'lore'].map(tab => {
+      {/* Mailbox last — least-visited tab */}
+      {['lobby', 'facilities', 'legacy', 'floors', 'lore', 'mail'].map(tab => {
         const locked = !!tourTargetSubTab && tab !== tourTargetSubTab
 
         let label = tab
@@ -498,7 +512,7 @@ const getGenRate = (fac) => {
               {chats && chats.length > 0 ? chats.map(chat => (
                 <div key={chat.id} style={{ marginBottom: '0.6rem', transition: 'background 1s ease', background: newChatIds.has(chat.id) ? 'rgba(201,168,76,0.12)' : 'transparent', borderRadius: 4, padding: newChatIds.has(chat.id) ? '0.4rem' : '0' }}>
                   <div style={{ display: 'flex', gap: '1rem', marginBottom: '0.2rem' }}>
-                    <span className="text-dim" style={{ fontSize: '0.8rem', whiteSpace: 'nowrap' }}>[{new Date(chat.created_at).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}]</span>
+                    <span className="text-dim" style={{ fontSize: '0.8rem', whiteSpace: 'nowrap' }}>[{parseUtcTimestamp(chat.created_at).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}]</span>
                     <span style={{ color: 'var(--gold)', fontSize: '0.8rem', whiteSpace: 'nowrap' }}>[{chat.location}]</span>
                   </div>
                   {(chat.messages || []).map((m, i) => (
@@ -524,7 +538,7 @@ const getGenRate = (fac) => {
             {facilitiesData.built.sort((a,b) => a.cost - b.cost).map(fac => (
               <div key={fac.id} className="card" style={{ overflow: 'hidden', padding: 0 }}>
                 <div style={{ width: '100%', aspectRatio: '3/1', overflow: 'hidden', position: 'relative' }}>
-                  <img src={`http://localhost:8000/static/facilities/${fac.type}.png`} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover', objectPosition: 'center', display: 'block' }} onError={(e) => { e.target.style.display = 'none'; e.target.nextSibling.style.display = 'none'; }} />
+                  <img src={`/static/facilities/${fac.type}.png`} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover', objectPosition: 'center', display: 'block' }} onError={(e) => { e.target.style.display = 'none'; e.target.nextSibling.style.display = 'none'; }} />
                   <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(to bottom, rgba(0,0,0,0) 50%, rgba(10,10,14,0.95) 100%)' }} />
                 </div>
                 <div style={{ padding: '1rem' }}>
@@ -551,7 +565,7 @@ const getGenRate = (fac) => {
                   {fac.heroes.map(h => (
                     <div key={h.id} style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', background: 'rgba(0,0,0,0.3)', padding: '0.5rem 0.75rem', borderRadius: 6 }}>
                       <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-                            <img src={`http://localhost:8000/${h.portrait_path}`} alt={h.name} style={{ width: 100, height: 100, borderRadius: '50%', objectFit: 'cover', objectPosition: 'center 15%', border: '1px solid var(--border)' }} />
+                            <img src={`/${h.portrait_path}`} alt={h.name} style={{ width: 100, height: 100, borderRadius: '50%', objectFit: 'cover', objectPosition: 'center 15%', border: '1px solid var(--border)' }} />
                             <div className="text-hi" style={{ fontSize: '0.8rem', marginTop: '0.3rem', textAlign: 'center' }}>{h.name}</div>
                           </div>
                       <span style={{ fontSize: '0.95rem' }}>{h.name}</span>
@@ -595,13 +609,13 @@ const getGenRate = (fac) => {
                       {Object.entries(marketCatalog).map(([itemId, item]) => (
                         <div key={itemId} className="card" style={{ padding: '0.5rem', display: 'flex', flexDirection: 'column', gap: '0.3rem' }}>
                           <div style={{ fontSize: '0.85rem', fontWeight: 'bold' }}>{item.name}</div>
-                          <button
-                            className="btn btn-gold"
-                            onClick={() => handlePurchase(itemId)}
+                          <button 
+                            className="btn btn-gold" 
+                            onClick={() => handleBuyMarketItem(item.id)} 
                             disabled={purchasing || (item.currency === 'gold' ? base.gold : base.gems) < item.cost}
-                            style={{ fontSize: '0.75rem', padding: '0.3rem' }}
+                            style={{ fontSize: '0.75rem', padding: '0.3rem', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.3rem' }}
                           >
-                            {item.cost} {item.currency === 'gold' ? 'Gold 💰' : 'Gems 💎'}
+                            {item.cost} {item.currency === 'gold' ? <span>Gold <GameIcon name="gold_coin" size={14} /></span> : <span>Gems <GameIcon name="gem" size={14} /></span>}
                           </button>
                         </div>
                       ))}
@@ -703,7 +717,7 @@ const getGenRate = (fac) => {
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '1rem' }}>
                 <div>
                   <div style={{ fontFamily: 'Cinzel, serif', fontSize: '1.2rem', color: mail.is_claimed ? 'var(--text-hi)' : 'var(--gold)' }}>{mail.subject}</div>
-                  <div className="text-dim text-sm" style={{ marginTop: '0.2rem' }}>From: {mail.sender} &nbsp;·&nbsp; {new Date(mail.created_at).toLocaleDateString()}</div>
+                  <div className="text-dim text-sm" style={{ marginTop: '0.2rem' }}>From: {mail.sender} &nbsp;·&nbsp; {parseUtcTimestamp(mail.created_at).toLocaleDateString()}</div>
                 </div>
                 {!mail.is_claimed ? (
                   <button className="btn btn-gold" onClick={() => handleClaimMail(mail.id)} disabled={claiming} style={{ padding: '0.5rem 1rem' }}>
@@ -724,7 +738,7 @@ const getGenRate = (fac) => {
                   try {
                     const rw = JSON.parse(mail.rewards_json || '{}')
                     const badges = []
-                    if (rw.gems) badges.push(<div key="gems" style={{ padding: '0.3rem 0.6rem', background: 'rgba(0,255,255,0.1)', border: '1px solid rgba(0,255,255,0.3)', borderRadius: 4, color: '#00ffff' }}>{rw.gems} 💎</div>)
+                    if (rw.gems) badges.push(<div key="gems" style={{ padding: '0.3rem 0.6rem', background: 'rgba(0,255,255,0.1)', border: '1px solid rgba(0,255,255,0.3)', borderRadius: 4, color: '#00ffff' }}>{rw.gems} <GameIcon name="gem" size={14} /></div>)
                     if (rw.gold) badges.push(<div key="gold" style={{ padding: '0.3rem 0.6rem', background: 'rgba(201,168,76,0.1)', border: '1px solid var(--gold)', borderRadius: 4, color: 'var(--gold)' }}>{rw.gold} Gold</div>)
                     if (rw.supplies) badges.push(<div key="supplies" style={{ padding: '0.3rem 0.6rem', background: 'rgba(200,200,200,0.1)', border: '1px solid #aaa', borderRadius: 4, color: 'var(--text-hi)' }}>{rw.supplies} Supplies</div>)
                     return badges
@@ -753,7 +767,7 @@ const getGenRate = (fac) => {
                      onClick={() => setExpandedLegacyId(expanded ? null : leg.id)}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
                     {leg.is_sacrifice && leg.portrait_path ? (
-                      <img src={`http://localhost:8000/${leg.portrait_path}`} alt={leg.hero_name} style={{ width: 32, height: 32, borderRadius: '50%', objectFit: 'cover', objectPosition: 'center 15%', border: '1px solid var(--gold)', flexShrink: 0 }} />
+                      <img src={`/${leg.portrait_path}`} alt={leg.hero_name} style={{ width: 32, height: 32, borderRadius: '50%', objectFit: 'cover', objectPosition: 'center 15%', border: '1px solid var(--gold)', flexShrink: 0 }} />
                     ) : (
                       <div style={{ width: 32, height: 32, borderRadius: '50%', background: '#222', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.9rem', color: '#555', flexShrink: 0 }}>
                         ✦
@@ -790,97 +804,39 @@ const getGenRate = (fac) => {
 
       {activeTab === 'floors' && floorsData && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-          <div className="card" style={{ marginBottom: '1rem' }}>
-            <div style={{ fontFamily: 'Cinzel, serif', fontSize: '1.1rem', color: 'var(--text-hi)', marginBottom: '0.5rem' }}>Base Hierarchy</div>
-            <div className="text-dim text-sm" style={{ lineHeight: 1.5 }}>
-              Assign idle heroes to protect base floors. Drag an unassigned hero onto an empty slot on a floor to assign them. Drag an assigned hero back to unassign them.
+          <div className="card" style={{ marginBottom: '1rem', padding: '1rem 1.5rem' }}>
+            <div style={{ display: 'flex', alignItems: 'baseline', gap: '1rem', flexWrap: 'wrap' }}>
+              <div style={{ fontFamily: 'Cinzel, serif', fontSize: '1.1rem', color: 'var(--text-hi)' }}>Base Hierarchy</div>
+              <div className="text-dim text-sm">
+                Drag heroes onto a floor to station them — stationed heroes get an all-stats bonus in the Tower and recover fatigue faster.
+              </div>
             </div>
-            <div className="text-dim text-sm" style={{ lineHeight: 1.5, marginTop: '0.5rem' }}>
-              <span className="text-hi">Benefit:</span> a stationed hero gets an all-stats bonus while climbing the Tower, and recovers from fatigue faster at the base. Each floor has a fixed bonus pool that's split evenly among whoever's stationed there — higher floors have a bigger pool, but spreading more heroes across one floor shrinks everyone's individual share. Check each floor's current bonus % below before assigning.
-            </div>
-            <div className="text-dim text-sm" style={{ lineHeight: 1.5, marginTop: '0.5rem', color: 'rgba(201,168,76,0.7)' }}>
-              Diminishing returns kick in fast: going from 1 to 2 heroes on a floor costs each of them far more than 2 to 3 does. The little curve under each floor's bonus % shows exactly where it sits on that drop-off.
-            </div>
+            {/* Full mechanics behind a disclosure — the three-paragraph wall
+                of text was the first thing the tab showed. */}
+            <details style={{ marginTop: '0.5rem' }}>
+              <summary className="text-sm" style={{ cursor: 'pointer', userSelect: 'none', color: 'rgba(201,168,76,0.8)' }}>
+                How the bonus math works
+              </summary>
+              <div className="text-dim text-sm" style={{ lineHeight: 1.6, marginTop: '0.5rem' }}>
+                Each floor has a fixed bonus pool that's split evenly among whoever's stationed there — higher floors have
+                a bigger pool, but spreading more heroes across one floor shrinks everyone's individual share.
+                Diminishing returns kick in fast: going from 1 to 2 heroes on a floor costs each of them far more than
+                2 to 3 does. The little curve under each floor's bonus % shows exactly where it sits on that drop-off.
+                Every hero always lives on some floor — drag them between floors to redistribute.
+              </div>
+            </details>
           </div>
           
           <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap' }}>
-            {/* Unassigned Heroes with Sorting & Filtering */}
-            <div className="card" style={{ flex: '1 1 300px', background: 'var(--bg-card)', padding: '1rem', borderRadius: '8px' }}
-                 onDragOver={(e) => e.preventDefault()}
-                 onDrop={(e) => {
-                   e.preventDefault();
-                   const heroId = e.dataTransfer.getData('heroId');
-                   if (heroId) {
-                     handleAssignFloor(heroId, null);
-                   }
-                 }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
-                <h3 style={{ fontFamily: 'Cinzel, serif', color: 'var(--gold)', margin: 0 }}>Unassigned Heroes</h3>
-              </div>
-              <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1rem' }}>
-                <select 
-                  className="input" 
-                  value={filterClass} 
-                  onChange={e => setFilterClass(e.target.value)}
-                  style={{ flex: 1, padding: '0.4rem', background: 'var(--bg-dark)', color: 'var(--text-hi)' }}>
-                  <option value="All">All Classes</option>
-                  {[...new Set(floorsData.base_heroes.map(h => h.hero_class))].map(c => (
-                    <option key={c} value={c}>{c}</option>
-                  ))}
-                </select>
-                <select 
-                  className="input" 
-                  value={sortMode} 
-                  onChange={e => setSortMode(e.target.value)}
-                  style={{ flex: 1, padding: '0.4rem', background: 'var(--bg-dark)', color: 'var(--text-hi)' }}>
-                  <option value="level-desc">Level (High-Low)</option>
-                  <option value="level-asc">Level (Low-High)</option>
-                  <option value="star-desc">Star (High-Low)</option>
-                  <option value="star-asc">Star (Low-High)</option>
-                </select>
-              </div>
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '1rem', maxHeight: '500px', overflowY: 'auto' }}>
-                {(() => {
-                  let heroes = [...floorsData.base_heroes]
-                  if (filterClass !== 'All') {
-                    heroes = heroes.filter(h => h.hero_class === filterClass)
-                  }
-                  heroes.sort((a, b) => {
-                    if (sortMode === 'level-desc') return b.level - a.level
-                    if (sortMode === 'level-asc') return a.level - b.level
-                    if (sortMode === 'star-desc') return b.birth_star - a.birth_star
-                    if (sortMode === 'star-asc') return a.birth_star - b.birth_star
-                    return 0
-                  })
-                  return heroes.map(h => (
-                    <div key={h.id} 
-                         draggable 
-                         onDragStart={(e) => e.dataTransfer.setData('heroId', h.id)}
-                         style={{ cursor: 'grab' }}>
-                      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-                        <div style={{ position: 'relative' }}>
-                          <img src={`http://localhost:8000/${h.portrait_path}`} alt={h.name} draggable={false} style={{ width: 100, height: 100, borderRadius: '50%', objectFit: 'cover', objectPosition: 'center 15%', border: '1px solid var(--border)' }} title={`${h.name} (Lv ${h.level} ${h.hero_class})`} />
-                          <div style={{ position: 'absolute', bottom: -5, right: -5, background: 'var(--bg-dark)', border: '1px solid var(--gold)', borderRadius: '50%', width: 24, height: 24, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.7rem', fontWeight: 'bold' }}>
-                            {h.birth_star}★
-                          </div>
-                        </div>
-                        <div className="text-hi" style={{ fontSize: '0.8rem', marginTop: '0.5rem', textAlign: 'center' }}>{h.name}</div>
-                        <div className="text-dim" style={{ fontSize: '0.7rem', textAlign: 'center' }}>Lv.{h.level} {h.hero_class}</div>
-                      </div>
-                    </div>
-                  ))
-                })()}
-                {floorsData.base_heroes.length === 0 && <div className="text-dim text-sm">No unassigned heroes.</div>}
-              </div>
-            </div>
-
-            {/* Floors */}
-            <div style={{ flex: '2 1 500px', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+            {/* Everyone lives on a floor (backend defaults everyone to Floor 1),
+                so there's no "unassigned" pool anymore — the floors ARE the
+                roster view; drag heroes between floors to redistribute. */}
+            <div style={{ flex: '1 1 100%', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
               <h3 style={{ fontFamily: 'Cinzel, serif', color: 'var(--gold)', marginBottom: '0.5rem' }}>Floors</h3>
               {floorsData.floors.map(f => (
-                <div key={f.floor_number} className="card" style={{ display: 'flex', alignItems: 'center', gap: '1rem', padding: '0.75rem' }}>
-                  <div style={{ width: '90px' }}>
-                    <div style={{ fontFamily: 'Cinzel, serif', color: 'var(--gold)' }}>Floor {f.floor_number}</div>
+                <div key={f.floor_number} className="card" style={{ display: 'flex', alignItems: 'center', gap: '1.2rem', padding: '0.85rem 1rem', borderLeft: '2px solid var(--gold-dim)' }}>
+                  <div style={{ width: '100px', flexShrink: 0 }}>
+                    <div style={{ fontFamily: 'Cinzel, serif', color: 'var(--gold)', fontSize: '1.05rem' }}>Floor {f.floor_number}</div>
                     <div className="text-green" style={{ fontSize: '0.75rem', fontWeight: 'bold' }} title="Stat bonus per stationed hero, and bonus fatigue recovery rate">
                       +{f.stat_bonus_pct}% stats
                     </div>
@@ -892,13 +848,13 @@ const getGenRate = (fac) => {
                       <div key={h.id}
                            draggable
                            onDragStart={(e) => e.dataTransfer.setData('heroId', h.id)}
-                           onClick={() => handleAssignFloor(h.id, null)}
-                           style={{ cursor: 'grab', position: 'relative' }} title="Click, or drag back to Unassigned, to remove">
+                           onClick={() => { if (f.floor_number !== 1) handleAssignFloor(h.id, 1) }}
+                           style={{ cursor: 'grab', position: 'relative' }}
+                           title={f.floor_number !== 1 ? `${h.name} (Lv ${h.level} ${h.hero_class}) — drag to another floor, or click to send back to Floor 1` : `${h.name} (Lv ${h.level} ${h.hero_class}) — drag to another floor`}>
                         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-                            <img src={`http://localhost:8000/${h.portrait_path}`} alt={h.name} draggable={false} style={{ width: 100, height: 100, borderRadius: '50%', objectFit: 'cover', objectPosition: 'center 15%', border: '1px solid var(--border)' }} />
+                            <img src={`/${h.portrait_path}`} alt={h.name} draggable={false} style={{ width: 100, height: 100, borderRadius: '50%', objectFit: 'cover', objectPosition: 'center 15%', border: '1px solid var(--border)' }} />
                             <div className="text-hi" style={{ fontSize: '0.8rem', marginTop: '0.3rem', textAlign: 'center' }}>{h.name}</div>
                           </div>
-                        <div style={{ position: 'absolute', top: -5, right: -5, background: 'var(--red)', color: 'white', borderRadius: '50%', width: 20, height: 20, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.7rem' }}>&times;</div>
                       </div>
                     ))}
                     {/* Render single empty drop slot */}
@@ -921,13 +877,17 @@ const getGenRate = (fac) => {
                   </div>
                 </div>
               ))}
+              <div className="text-dim text-sm" style={{ fontStyle: 'italic', marginTop: '0.3rem' }}>
+                ⛰ A new base floor unlocks every 10 Tower floors cleared. Every hero lives on a floor —
+                new arrivals settle on Floor 1; spread them out as more floors open up.
+              </div>
             </div>
           </div>
         </div>
       )}
 
       {activeTab === 'lore' && (
-        <div className="card" style={{ maxWidth: 700 }}>
+        <div className="card" style={{ maxWidth: 780, margin: '0 auto', width: '100%' }}>
           <div style={{ fontFamily: 'Cinzel, serif', fontSize: '1.2rem', color: 'var(--gold)', marginBottom: '1.2rem' }}>
             📖 Lore Journal
           </div>

@@ -180,7 +180,7 @@ function CombatUnitSprite({ unit, team, position, teamCount = 1, pos: posOverrid
       }}>
         {skillName && <SkillCallout name={skillName} />}
         {unit.portrait_path && !imgError ? (
-          <img src={`http://localhost:8000/${unit.portrait_path}`} style={{ width: '100%', height: '100%', objectFit: 'contain', objectPosition: 'center top' }} alt={unit.name} onError={() => setImgError(true)} />
+          <img src={`/${unit.portrait_path}`} style={{ width: '100%', height: '100%', objectFit: 'contain', objectPosition: 'center top' }} alt={unit.name} onError={() => setImgError(true)} />
         ) : (
           <div style={{ width: '100%', height: '100%', background: '#333', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: size.icon }}>
             {team === 'hero' ? '⚔' : '💀'}

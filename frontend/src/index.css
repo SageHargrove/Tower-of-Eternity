@@ -2,6 +2,7 @@
   --bg:        #0a0a0c;
   --bg-panel:  #111116;
   --bg-card:   #16161e;
+  --bg-hover:  #1c1c26;
   --border:    #2a2a38;
   --border-hi: #44445a;
   --text:      #c8c8d8;
@@ -9,6 +10,7 @@
   --text-hi:   #e8e8f0;
   --gold:      #c9a84c;
   --gold-dim:  #7a6030;
+  --gold-glow: rgba(201, 168, 76, 0.25);
   --red:       #c04040;
   --red-dim:   #6a2020;
   --green:     #4a9a6a;
@@ -20,13 +22,14 @@
   --star5:     #ffb300; /* Radiant Gold/Orange */
   --star6:     #ff3333; /* Crimson Red */
   --star7:     #00ffff; /* Cyan */
+  --shadow-panel: 0 4px 24px rgba(0, 0, 0, 0.45);
 }
 
 * { box-sizing: border-box; margin: 0; padding: 0; }
 
 /* No visible scrollbar anywhere — a styled bar still clashed with the rest
-   of the UI, so just hide it. Scrolling itself (wheel/touch/keyboard)
-   still works fine; this only removes the visual track/thumb. */
+   of the UI (tried thin+themed too; still looked bad), so just hide it.
+   Scrolling itself (wheel/touch/keyboard) still works fine. */
 * {
   scrollbar-width: none;
 }
@@ -36,7 +39,15 @@
 }
 
 body {
-  background: var(--bg);
+  /* Layered atmosphere instead of flat black: a faint gold glow bleeding
+     down from the top (torchlight over the gate) and a cool blue-violet
+     vignette rising from the bottom. Fixed so tab switches don't shift it. */
+  background:
+    radial-gradient(ellipse 90% 55% at 50% -15%, rgba(201, 168, 76, 0.07), transparent 60%),
+    radial-gradient(ellipse 120% 80% at 50% 115%, rgba(40, 30, 70, 0.35), transparent 65%),
+    radial-gradient(ellipse 60% 45% at 15% 105%, rgba(20, 40, 60, 0.25), transparent 70%),
+    var(--bg);
+  background-attachment: fixed;
   color: var(--text);
   font-family: 'Crimson Pro', Georgia, serif;
   font-size: 18px;
@@ -63,6 +74,7 @@ h1, h2, h3, .title-font {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  background: rgba(10, 10, 12, 0.7);
 }
 
 .app-header h1 {
@@ -87,7 +99,7 @@ h1, h2, h3, .title-font {
 .tabs {
   display: flex;
   border-bottom: 1px solid var(--border);
-  background: var(--bg-panel);
+  background: rgba(17, 17, 22, 0.85);
 }
 
 .tab-btn {
@@ -100,27 +112,93 @@ h1, h2, h3, .title-font {
   font-size: 1.2rem;
   letter-spacing: 0.05em;
   cursor: pointer;
-  transition: all 0.2s;
+  transition: color 0.2s, background 0.2s, border-color 0.2s;
 }
 
-.tab-btn:hover { color: var(--text); }
+.tab-btn:hover {
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.03);
+}
 .tab-btn.active {
   color: var(--gold);
   border-bottom-color: var(--gold);
+  background: linear-gradient(to top, rgba(201, 168, 76, 0.08), transparent 70%);
 }
 
-/* Page content */
-.page { padding: 1.5rem 2rem; flex: 1; }
+/* Page content — gentle fade/rise on every tab switch */
+.page {
+  padding: 1.5rem 2rem;
+  flex: 1;
+  animation: page-in 0.25s ease-out;
+}
+
+@keyframes page-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
 
 /* Cards */
 .card {
-  background: var(--bg-card);
+  background: linear-gradient(160deg, var(--bg-card), var(--bg-panel));
   border: 1px solid var(--border);
-  border-radius: 4px;
+  border-radius: 6px;
   padding: 1.5rem;
+  box-shadow: var(--shadow-panel);
 }
 
 .card:hover { border-color: var(--border-hi); }
+
+/* Header resource pills */
+.resource-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.45rem 1rem;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.35);
+  font-family: 'Cinzel', serif;
+  font-size: 1.05rem;
+  font-weight: bold;
+  white-space: nowrap;
+  transition: border-color 0.2s;
+}
+.resource-pill:hover { border-color: var(--border-hi); }
+.resource-pill .pill-label {
+  font-size: 0.68rem;
+  letter-spacing: 0.12em;
+  color: var(--text-dim);
+  font-weight: normal;
+}
+
+/* Empty states — shown instead of blank panels/grids */
+.empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.8rem;
+  padding: 4rem 2rem;
+  text-align: center;
+  color: var(--text-dim);
+}
+.empty-state .empty-state-icon {
+  font-size: 2.6rem;
+  opacity: 0.45;
+  filter: grayscale(0.6);
+}
+.empty-state .empty-state-title {
+  font-family: 'Cinzel', serif;
+  font-size: 1.05rem;
+  letter-spacing: 0.08em;
+  color: var(--text);
+}
+.empty-state .empty-state-hint {
+  font-style: italic;
+  font-size: 0.9rem;
+  max-width: 420px;
+  line-height: 1.6;
+}
 
 /* Hero card */
 .hero-card {
@@ -177,18 +255,29 @@ h1, h2, h3, .title-font {
   50% { opacity: 0.25; }
 }
 
-@keyframes star-rainbow {
-  0% { color: #ff0000; text-shadow: 0 0 10px #ff0000; filter: hue-rotate(0deg); }
-  50% { color: #ff0000; text-shadow: 0 0 10px #ff0000; filter: hue-rotate(180deg); }
-  100% { color: #ff0000; text-shadow: 0 0 10px #ff0000; filter: hue-rotate(360deg); }
+/* 7★ rainbow — a real spectrum sliding across the glyphs, not the old
+   hue-rotate trick (which cycles every glyph through one hue at a time and
+   visibly skips/mushes parts of the spectrum). background-clip: text paints
+   the full ROYGBIV gradient across the text and scrolls it; the drop-shadow
+   supplies the glow since text-shadow can't apply to transparent text. */
+@keyframes star-rainbow-slide {
+  from { background-position: 0% center; }
+  to   { background-position: -200% center; }
 }
 
-.birth-star-7 .star {
-  animation: star-rainbow 2s linear infinite;
-}
-
+.birth-star-7 .star,
 .rainbow-text {
-  animation: star-rainbow 2s linear infinite;
+  background-image: linear-gradient(
+    90deg,
+    #ff2020, #ff8c00, #ffe600, #30e030, #00e5ff, #4060ff, #b040ff, #ff30c0, #ff2020
+  );
+  background-size: 200% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  -webkit-text-fill-color: transparent;
+  animation: star-rainbow-slide 2.5s linear infinite;
+  filter: drop-shadow(0 0 6px rgba(255, 255, 255, 0.45));
 }
 
 @keyframes floor-tile-glow {
@@ -387,6 +476,7 @@ h1, h2, h3, .title-font {
   -webkit-user-select: none;
 }
 .btn:hover { border-color: var(--border-hi); color: var(--text-hi); }
+.btn:active:not(:disabled) { transform: translateY(1px); }
 .btn:disabled { opacity: 0.4; cursor: not-allowed; }
 
 .btn-gold {
@@ -475,7 +565,7 @@ h1, h2, h3, .title-font {
   top: 60px;
   bottom: 0;
   width: 300px;
-  background: var(--bg-dark);
+  background: var(--bg-panel);
   border-left: 1px solid var(--border);
   display: flex;
   flex-direction: column;
@@ -489,7 +579,7 @@ h1, h2, h3, .title-font {
   right: 0;
   top: 50%;
   transform: translateY(-50%);
-  background: var(--bg-dark);
+  background: var(--bg-panel);
   border: 1px solid var(--border);
   border-right: none;
   padding: 1rem 0.5rem;
@@ -499,7 +589,7 @@ h1, h2, h3, .title-font {
   transition: background 0.2s;
 }
 .hero-chat-collapsed:hover {
-  background: var(--bg-hover);
+  background: var(--bg-card);
 }
 
 .chat-header {

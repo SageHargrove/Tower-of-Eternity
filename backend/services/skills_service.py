@@ -1555,7 +1555,7 @@ WEAPON_ART_SKILLS = {
     "Spear": {"id": "art_spear", "name": "Piercing Lunge", "type": "active",
               "desc": "170% ATK, ignore 20% DEF", "cooldown": 3,
               "effect": {"dmg_pct": 1.7, "single_target": True, "ignore_def": True, "mana_cost": 25}},
-    "Staff": {"id": "art_staff", "name": "Arcane Discharge", "type": "active",
+    "Tome": {"id": "art_staff", "name": "Arcane Discharge", "type": "active",
               "desc": "190% ATK to a single target", "cooldown": 3,
               "effect": {"dmg_pct": 1.9, "single_target": True, "mana_cost": 25}},
     "Bow": {"id": "art_bow", "name": "Eagle Eye Shot", "type": "active",

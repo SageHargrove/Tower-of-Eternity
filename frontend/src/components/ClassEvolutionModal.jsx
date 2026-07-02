@@ -1,6 +1,7 @@
 import React, { useState } from 'react'
 import { evolveHero } from '../api/client'
 import { ClassBadge } from './HeroCard'
+import { alertDialog } from './DialogHost'
 
 const CLASS_LORE = {
   // Support Base Classes
@@ -99,7 +100,7 @@ export default function ClassEvolutionModal({ hero, onClose, onEvolve }) {
       onEvolve(result.new_class);
       onClose();
     } catch (e) {
-      alert(e.message || "Failed to evolve.");
+      alertDialog(e.message || "Failed to evolve.");
     } finally {
       setEvolving(false);
     }
@@ -133,7 +134,7 @@ export default function ClassEvolutionModal({ hero, onClose, onEvolve }) {
         <div style={{ display: 'flex', gap: '2rem', alignItems: 'center' }}>
           <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '1rem', minWidth: '200px' }}>
             <img 
-              src={`http://localhost:8000/${hero.portrait_path}`} 
+              src={`/${hero.portrait_path}`} 
               alt={hero.name} 
               style={{ width: '150px', height: '150px', borderRadius: '50%', objectFit: 'cover', objectPosition: 'center 15%', border: '3px solid var(--border)' }}
             />

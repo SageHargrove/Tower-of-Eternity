@@ -45,7 +45,7 @@ export default function MirrorOfFate({ upgrade, gold, onGoldChange, onUpgrade })
   return (
     <div className="card" style={{ overflow: 'hidden', padding: 0 }}>
       <div style={{ width: '100%', aspectRatio: '3/1', overflow: 'hidden', position: 'relative' }}>
-        <img src={`http://localhost:8000/static/facilities/Mirror of Fate.png`} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover', objectPosition: 'center', display: 'block' }} onError={(e) => { e.target.style.display = 'none'; e.target.nextSibling.style.display = 'none'; }} />
+        <img src={`/static/facilities/Mirror of Fate.png`} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover', objectPosition: 'center', display: 'block' }} onError={(e) => { e.target.style.display = 'none'; e.target.nextSibling.style.display = 'none'; }} />
         <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(to bottom, rgba(0,0,0,0) 50%, rgba(10,10,14,0.95) 100%)' }} />
       </div>
       <div style={{ padding: '1rem' }}>

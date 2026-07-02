@@ -6,28 +6,28 @@ import CombatArena from '../components/CombatArena'
 import FairyGuide from '../components/FairyGuide'
 import { CardFrame } from '../components/HeroCard'
 import { EquipmentTypeIcon } from '../components/EquipmentTypeIcon'
+import GameIcon from '../components/GameIcon'
 
 const FLOOR_ICONS = {
-  field_combat: '🗡️',
-  miniboss: '💀',
-  miniboss_survival: '🌊',
-  miniboss_behemoth: '🗿',
-  miniboss_assassin: '🔪',
-  miniboss_twins: '👥',
-  miniboss_mirror: '🪞',
-  boss: '👿',
-  resource: '💎',
-  event: '❓',
-  survival: '🛡️',
-  defend: '🏰',
-  explore: '🗺️',
-  escort: '🤝',
-  conquest: '🔥',
-  war: '⚜️',
-  retrieve: '📦',
-  ambush: '🌑',
-  blitz: '⚡',
-  cursed_ground: '☠️',
+  field_combat: 'class_rogue',
+  miniboss: 'boss_skull',
+  miniboss_survival: 'element_water',
+  miniboss_behemoth: 'element_earth',
+  miniboss_assassin: 'class_rogue',
+  miniboss_twins: 'class_twins',
+  boss: 'boss_demon',
+  resource: 'gem',
+  event: 'mystery_encounter',
+  survival: 'class_defender',
+  defend: 'tower',
+  explore: 'map',
+  escort: 'creature_horse',
+  conquest: 'element_fire',
+  war: 'class_warrior',
+  retrieve: 'supplies',
+  ambush: 'element_dark',
+  blitz: 'element_lightning',
+  cursed_ground: 'boss_skull',
 }
 
 // FLOOR_TYPE_INFO colors are 3-digit hex shorthand (#a44) — appending an
@@ -50,7 +50,8 @@ const FLOOR_TYPE_INFO = {
   miniboss_behemoth: { color: '#765', label: 'Miniboss: Behemoth', blurb: 'DPS check — huge HP/DEF, tiny attack.' },
   miniboss_assassin: { color: '#a13', label: 'Miniboss: Assassin', blurb: 'Tank check — blinding speed, brutal burst.' },
   miniboss_twins: { color: '#759', label: 'Miniboss: Twins', blurb: 'Comp check — one resists physical, one resists magic.' },
-  miniboss_mirror: { color: '#577', label: 'Miniboss: Mirror', blurb: 'Mirror match — shadow clones of your own team.' },
+  // miniboss_mirror retired — no counterplay; existing cached floors are
+  // re-rolled by a DB migration, so nothing renders this type anymore.
   boss: { color: '#e33', label: 'Boss', blurb: 'The floor\'s guardian.' },
   event: { color: '#86c', label: 'Event', blurb: 'A choice encounter.' },
   survival: { color: '#c44', label: 'Survival', blurb: 'A fight against a larger enemy wave.' },
@@ -177,10 +178,10 @@ function PostCombatScreen({ lastResult, combatEntities, onReturn, onRerun, busy 
                 <CardFrame birthStar={h.hero_star} status={status === 'alive' ? null : status} style={isMvp ? { boxShadow: '0 0 12px var(--star5)', border: '2px solid var(--star5)' } : undefined}>
                   {h.portrait_path ? (
                     <img
-                      src={`http://localhost:8000/heroes/${h.id}/card-image?mini=true`}
+                      src={`/heroes/${h.id}/card-image?mini=true`}
                       draggable={false}
                       style={{ width: '100%', aspectRatio: '2 / 3', height: 'auto', objectFit: 'cover', objectPosition: 'center top', borderRadius: 4 }}
-                      onError={(e) => { e.target.onerror = null; e.target.src = `http://localhost:8000/${h.portrait_path}` }}
+                      onError={(e) => { e.target.onerror = null; e.target.src = `/${h.portrait_path}` }}
                     />
                   ) : (
                     <div style={{ width: '100%', aspectRatio: '2 / 3', borderRadius: 4, background: 'var(--bg-panel)' }} />
@@ -853,12 +854,26 @@ export default function TowerPage({ onGoldChange }) {
 
         </div>
       ) : (
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 340px', gap: '2rem' }}>
-          {/* Floor Grid */}
-          <div className="card">
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 340px', gap: '2rem', alignItems: 'start' }}>
+          {/* Floor Grid — the tower itself looms faintly behind the floor map.
+              Fills the remaining viewport height so the art reads at full
+              size on big screens instead of leaving a black void below. */}
+          <div className="card" style={{
+            backgroundImage: 'linear-gradient(rgba(12,12,16,0.82), rgba(10,10,12,0.94)), url(/tower_limitless_wide.png)',
+            backgroundSize: 'cover',
+            backgroundPosition: 'center 25%',
+            minHeight: 'calc(100vh - 265px)',
+            display: 'flex',
+            flexDirection: 'column',
+          }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.2rem' }}>
-              <div className="text-gold" style={{ fontFamily: 'Cinzel, serif', fontSize: '1.2rem' }}>
-                Zone {selectedZone + 1} Floors
+              <div>
+                <div className="text-gold" style={{ fontFamily: 'Cinzel, serif', fontSize: '1.35rem' }}>
+                  Zone {selectedZone + 1}
+                </div>
+                <div className="text-dim" style={{ fontSize: '0.8rem', marginTop: '0.15rem' }}>
+                  Highest floor reached: <span style={{ color: 'var(--text-hi)' }}>{highestFloor}</span>
+                </div>
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: '0.8rem' }}>
                 <div className="text-dim" style={{ fontSize: '0.75rem' }}>
@@ -878,8 +893,12 @@ export default function TowerPage({ onGoldChange }) {
                     <div onClick={() => setShowLegend(false)} style={{
                       position: 'fixed', inset: 0, zIndex: 50,
                     }}>
+                      {/* The panel used to be absolute top:110% INSIDE this
+                          full-viewport fixed backdrop — 110% of the viewport
+                          put it entirely below the screen. Anchor it to the
+                          viewport's top-right instead. */}
                       <div onClick={e => e.stopPropagation()} style={{
-                        position: 'absolute', right: 0, top: '110%',
+                        position: 'absolute', right: '2rem', top: '10rem',
                         background: 'var(--bg-panel)', border: '1px solid var(--border)',
                         borderRadius: 8, padding: '1rem', zIndex: 51,
                         minWidth: 240, maxHeight: '70vh', overflowY: 'auto',
@@ -916,7 +935,7 @@ export default function TowerPage({ onGoldChange }) {
                 // Only reveal floor type/colour once the player has actually entered it
                 const visited = preview?.visited
                 const typeInfo = visited ? FLOOR_TYPE_INFO[preview.floor_type] : null
-                const icon = isBoss ? '👿' : (visited ? FLOOR_ICONS[preview.floor_type] : null)
+                const icon = isBoss ? 'boss_demon' : (visited ? FLOOR_ICONS[preview.floor_type] : null)
 
                 let bg = 'rgba(255,255,255,0.05)'
                 let border = '1px solid rgba(255,255,255,0.12)'
@@ -960,28 +979,28 @@ export default function TowerPage({ onGoldChange }) {
                   >
                     {isBoss && <div className="floor-tile-boss-stripe" />}
                     <div className="floor-tile-icon" style={{ fontSize: '1.4rem' }}>
-                      {isLocked ? '🔒' : (icon || '?')}
+                      <GameIcon name={isLocked ? 'locked_padlock' : (icon || 'question_mark')} size={32} />
                     </div>
                     <div className="floor-tile-num" style={{ fontSize: '1.1rem', fontWeight: 600 }}>{floorNum}</div>
                     {isNext && <span className="floor-tile-tag" style={{ background: 'rgba(201,168,76,0.3)', color: 'var(--gold)' }}>Next</span>}
                     {!isLocked && !isNext && <span className="floor-tile-tag" style={{ background: 'rgba(80,200,120,0.2)', color: 'var(--green)' }}>
-                      {typeInfo ? typeInfo.label : 'Cleared'}
+                      ✓ {typeInfo ? typeInfo.label : 'Cleared'}
                     </span>}
                   </button>
                 )
               })}
             </div>
 
-            <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '1.5rem' }}>
-              <button 
-                className="btn" 
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 'auto', paddingTop: '1.5rem' }}>
+              <button
+                className="btn"
                 disabled={selectedZone === 0}
                 onClick={() => setSelectedZone(z => z - 1)}
               >
                 ← Prev Zone
               </button>
-              <button 
-                className="btn" 
+              <button
+                className="btn"
                 disabled={selectedZone >= maxZone}
                 onClick={() => setSelectedZone(z => z + 1)}
               >

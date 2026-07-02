@@ -231,9 +231,13 @@ export default function ArenaPage() {
         here ever touches your save — your local stats are snapshotted once when you submit a team.
       </div>
 
-      <div className="card" style={{ marginBottom: '1rem', padding: '1rem' }}>
-        <div className="text-dim text-sm" style={{ marginBottom: '0.5rem' }}>Arena Server</div>
-        <div style={{ display: 'flex', gap: '0.5rem' }}>
+      {/* Server config is a one-time setup detail, not the page's headline —
+          collapsed unless no server is configured yet. */}
+      <details className="card" open={!serverUrl} style={{ marginBottom: '1rem', padding: '0.8rem 1rem' }}>
+        <summary className="text-dim text-sm" style={{ cursor: 'pointer', userSelect: 'none' }}>
+          ⚙ Arena Server {serverUrl ? <span style={{ color: 'var(--green)' }}>· connected to {serverUrl}</span> : <span style={{ color: 'var(--red)' }}>· not configured</span>}
+        </summary>
+        <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.8rem' }}>
           <input
             type="text"
             className="input"
@@ -244,7 +248,7 @@ export default function ArenaPage() {
           />
           <button className="btn" onClick={handleSaveUrl}>Save</button>
         </div>
-      </div>
+      </details>
 
       {msg && <div className="text-sm" style={{ marginBottom: '1rem', color: 'var(--gold)' }}>{msg}</div>}
 

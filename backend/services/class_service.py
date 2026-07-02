@@ -347,7 +347,7 @@ def can_pilot(hero_class: str) -> bool:
 # *typed* weapon (weapon_type is not None) that's in its affinity list.
 # Untyped legacy weapons (pre-dating this system) are grandfathered in —
 # equippable by anyone, just never grant an Art.
-WEAPON_TYPES = ["Sword", "Spear", "Staff", "Bow", "Dagger"]
+WEAPON_TYPES = ["Sword", "Spear", "Tome", "Bow", "Dagger"]
 
 # Keyed by BASE LINEAGE (same lineages skills_service.py builds kits for)
 # — evolutions resolve back to their lineage's affinity the same way they
@@ -360,11 +360,11 @@ CLASS_WEAPON_AFFINITY = {
     "Spearman": ["Spear"],
     "Thief": ["Dagger"],
     "Archer": ["Bow"],
-    "Mage": ["Staff"],
-    "Acolyte": ["Staff"],
-    "Magic Engineer": ["Staff"],
-    "Spellsword": ["Sword", "Staff"],
-    "Medic": ["Staff"],
+    "Mage": ["Tome"],
+    "Acolyte": ["Tome"],
+    "Magic Engineer": ["Tome"],
+    "Spellsword": ["Sword", "Tome"],
+    "Medic": ["Tome"],
     "Scout": ["Dagger"],
     # Classless intentionally omitted — no weapon identity yet (they
     # haven't specialized), so they can equip any weapon type with no

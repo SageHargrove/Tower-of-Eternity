@@ -417,20 +417,17 @@ def synthesize_hero(data: SynthesizeRequest):
         target_dict = dict(target)
         sacrifice_dict = dict(sacrifice)
 
-        # Calculate stat gains: 10-20% of sacrifice's stats based on rarity
-        transfer_pct = 0.10 + (sacrifice_dict["birth_star"] * 0.015)
-        hp_gain = int(sacrifice_dict["max_health"] * transfer_pct)
-        atk_gain = max(1, int(sacrifice_dict["strength"] * transfer_pct))
-        def_gain = max(1, int(sacrifice_dict["intelligence"] * transfer_pct))
-        spd_gain = max(1, int(sacrifice_dict["agility"] * transfer_pct))
+        # Synthesis grants XP, not raw stats — raw stat transfer stacked
+        # outside the level system and made synthesized heroes permanently
+        # off-curve. XP flows through the same leveling pipeline as combat:
+        # half the sacrifice's own earned XP, plus a base worth scaled by
+        # their star and level, so higher-invested sacrifices are worth more.
+        xp_gain = int(sacrifice_dict.get("xp", 0) * 0.5) + 30 * sacrifice_dict["birth_star"] * sacrifice_dict["level"]
 
         is_resonant = (target_dict["hero_class"] == sacrifice_dict["hero_class"] and target_dict["hero_class"] != "Classless")
         msg_suffix = ""
         if is_resonant:
-            hp_gain *= 2
-            atk_gain *= 2
-            def_gain *= 2
-            spd_gain *= 2
+            xp_gain *= 2
             conn.execute("UPDATE heroes SET ego_type = 'Resonant' WHERE id = ?", (data.target_id,))
             msg_suffix += " EGO RESONANCE TRIGGERED!"
             
@@ -451,13 +448,20 @@ def synthesize_hero(data: SynthesizeRequest):
                     conn.execute("UPDATE heroes SET traits = ? WHERE id = ?", (json.dumps(a_traits), data.target_id))
                 msg_suffix += f" Inherited {inherited['name']}!"
 
-        # Apply gains to target
-        conn.execute("""
-            UPDATE heroes SET
-                max_health = max_health + ?, health = health + ?,
-                strength = strength + ?, intelligence = intelligence + ?, agility = agility + ?
-            WHERE id = ?
-        """, (hp_gain, hp_gain, atk_gain, def_gain, spd_gain, data.target_id))
+        # Apply XP to target and recalculate their level through the normal
+        # leveling pipeline (same flow as tower floor clears).
+        from services.level_service import recalculate_hero_level
+        conn.execute("UPDATE heroes SET xp = xp + ? WHERE id = ?", (xp_gain, data.target_id))
+        t_row = conn.execute("SELECT * FROM heroes WHERE id = ?", (data.target_id,)).fetchone()
+        levels_gained = 0
+        if t_row:
+            t_dict = dict(t_row)
+            old_level = t_dict.get("level", 1)
+            new_level = recalculate_hero_level(t_dict)
+            if new_level != old_level:
+                conn.execute("UPDATE heroes SET level = ? WHERE id = ?", (new_level, data.target_id))
+                levels_gained = new_level - old_level
+                msg_suffix += f" {target_dict['name']} reached level {new_level}!"
 
         # Mark sacrifice as dead/synthesized
         conn.execute("""
@@ -523,11 +527,27 @@ def synthesize_hero(data: SynthesizeRequest):
         "target": dict(updated),
         "sacrifice_name": sacrifice_dict["name"],
         "sacrifice_star": sacrifice_dict["birth_star"],
-        "gains": {"health": hp_gain, "strength": atk_gain, "intelligence": def_gain, "agility": spd_gain},
+        "xp_gained": xp_gain,
+        "levels_gained": levels_gained,
         "roster_trauma": trauma_gain,
         "roster_stress": stress_gain,
-        "message": f"{sacrifice_dict['name']} was consumed. {target_dict['name']} grows stronger.{msg_suffix}",
+        "message": f"{sacrifice_dict['name']} was consumed. {target_dict['name']} absorbs {xp_gain:,} XP.{msg_suffix}",
     }
+
+
+# ─── Favorites ──────────────────────────────────────────────────────
+
+@router.post("/{hero_id}/favorite")
+def toggle_favorite(hero_id: int):
+    """Flip a hero's favorite flag — purely a player-side bookmark used by
+    the Heroes tab's Favorites filter."""
+    with db() as conn:
+        row = conn.execute("SELECT is_favorite FROM heroes WHERE id = ?", (hero_id,)).fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="Hero not found")
+        new_val = 0 if row["is_favorite"] else 1
+        conn.execute("UPDATE heroes SET is_favorite = ? WHERE id = ?", (new_val, hero_id))
+        return {"id": hero_id, "is_favorite": bool(new_val)}
 
 
 # ─── Ascension endpoint ─────────────────────────────────────────────

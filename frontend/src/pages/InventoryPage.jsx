@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react'
 import { getInventory, listEquipment, getFacilities, listHeroes, useItem, useSummonTicket, scrapEquipment } from '../api/client'
 import { EquipmentTypeIcon } from '../components/EquipmentTypeIcon'
+import GameIcon from '../components/GameIcon'
+import { confirmDialog, alertDialog } from '../components/DialogHost'
 
 const CONSUMABLE_ICONS = { potion: '🧪', scroll: '📜', summon_ticket: '🎫' }
 const CONSUMABLE_COLORS = { potion: 'var(--green)', scroll: '#a83dff', summon_ticket: 'var(--gold)' }
@@ -21,6 +23,16 @@ const RARITY_COLORS = {
 }
 function rarityColor(rarity) {
   return RARITY_COLORS[rarity] || '#ffffff'
+}
+
+// Worst → best, used for grouping/sorting the grid.
+const RARITY_SORT = ['F-', 'F', 'F+', 'E-', 'E', 'E+', 'D-', 'D', 'D+', 'C-', 'C', 'C+', 'B-', 'B', 'B+', 'A-', 'A', 'A+', 'S-', 'S', 'S+', 'SS', 'SSS', 'Z']
+
+// One decimal for sub-10% values — toFixed(0) rendered small (but real)
+// rolls like 1.4% crit as a meaningless "+0%".
+function formatPct(v) {
+  const pct = v * 100
+  return `+${pct < 10 ? pct.toFixed(1).replace(/\.0$/, '') : pct.toFixed(0)}%`
 }
 
 export default function InventoryPage() {
@@ -100,6 +112,9 @@ export default function InventoryPage() {
     equipment.equipped.forEach(eq => allItems.push({ ...eq, typeId: 'eq_' + eq.id, itemType: 'equipment', isEquipped: true }))
   }
 
+  // Real occupancy (pre-filter) for the capacity readout.
+  const totalItemCount = allItems.length
+
   allItems = allItems.filter(item => {
     let typeMatch = false;
     if (filter === 'All') typeMatch = true;
@@ -119,6 +134,26 @@ export default function InventoryPage() {
     return true;
   });
 
+  // Group like items together instead of insertion order (a pile of Cracked
+  // Tomes used to be scattered all over the grid): equipment first
+  // (type → sub-type → rarity desc → name), then materials, then
+  // consumables, each alphabetical.
+  const kindRank = { equipment: 0, material: 1, consumable: 2 }
+  allItems.sort((a, b) => {
+    if (kindRank[a.itemType] !== kindRank[b.itemType]) return kindRank[a.itemType] - kindRank[b.itemType]
+    if (a.itemType === 'equipment') {
+      const typeCmp = (a.type || '').localeCompare(b.type || '')
+      if (typeCmp) return typeCmp
+      const sub = (x) => x.weapon_type || x.armor_type || x.accessory_type || ''
+      const subCmp = sub(a).localeCompare(sub(b))
+      if (subCmp) return subCmp
+      const rarityCmp = RARITY_SORT.indexOf(b.rarity) - RARITY_SORT.indexOf(a.rarity)
+      if (rarityCmp) return rarityCmp
+      return (a.name || '').localeCompare(b.name || '')
+    }
+    return (a.item_name || '').localeCompare(b.item_name || '')
+  })
+
   // Select first item by default if none selected
   useEffect(() => {
     if (!loading && !selectedItem && allItems.length > 0) {
@@ -136,7 +171,7 @@ export default function InventoryPage() {
   }
 
   const handleBulkScrap = async () => {
-    if (!window.confirm(`Are you sure you want to scrap ALL UNEQUIPPED ${filter === 'All' ? 'Equipment' : filter}? This cannot be undone.`)) return;
+    if (!(await confirmDialog(`Are you sure you want to scrap ALL UNEQUIPPED ${filter === 'All' ? 'Equipment' : filter}? This cannot be undone.`))) return;
     setBulkScrapping(true);
     try {
       const toScrap = allItems.filter(i => i.itemType === 'equipment' && !i.isEquipped);
@@ -147,7 +182,7 @@ export default function InventoryPage() {
       setSelectedItem(null);
     } catch (e) {
       console.error(e);
-      alert('Error during bulk scrap: ' + e.message);
+      alertDialog('Error during bulk scrap: ' + e.message);
     } finally {
       setBulkScrapping(false);
     }
@@ -155,7 +190,15 @@ export default function InventoryPage() {
 
   return (
     <div className="page" style={{ height: 'calc(100vh - 100px)', display: 'flex', flexDirection: 'column' }}>
-      <div className="section-header" style={{ marginBottom: '1.5rem', fontFamily: 'Cinzel, serif', fontSize: '2rem', textShadow: '0 0 10px rgba(255,255,255,0.2)' }}>Vault</div>
+      <div className="section-header" style={{ marginBottom: '1.5rem', fontFamily: 'Cinzel, serif', fontSize: '2rem', textShadow: '0 0 10px rgba(255,255,255,0.2)', display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
+        <span>Vault</span>
+        <span
+          style={{ fontSize: '1rem', letterSpacing: '0.05em', color: totalItemCount >= vaultCapacity ? 'var(--red)' : 'var(--text-dim)' }}
+          title="Build or upgrade the Vault facility at your Base to expand storage."
+        >
+          {totalItemCount} / {vaultCapacity} slots
+        </span>
+      </div>
       
       <div style={{ display: 'flex', gap: '1rem', marginBottom: '1rem', alignItems: 'center' }}>
         {['All', 'Equipment', 'Weapon', 'Armor', 'Accessory', 'Materials', 'Consumables'].map(f => (
@@ -190,7 +233,7 @@ export default function InventoryPage() {
             style={{ background: 'var(--red)', color: 'white' }}
             disabled={bulkScrapping}
             onClick={async () => {
-              if (!window.confirm(`Scrap ${selectedItems.size} selected items?`)) return;
+              if (!(await confirmDialog(`Scrap ${selectedItems.size} selected items?`))) return;
               setBulkScrapping(true);
               try {
                 const toScrap = allItems.filter(i => selectedItems.has(i.typeId) && i.itemType === 'equipment' && !i.isEquipped);
@@ -201,7 +244,7 @@ export default function InventoryPage() {
                 setSelectedItems(new Set());
               } catch (e) {
                 console.error(e);
-                alert('Error: ' + e.message);
+                alertDialog('Error: ' + e.message);
               } finally {
                 setBulkScrapping(false);
               }
@@ -243,7 +286,20 @@ export default function InventoryPage() {
         
         {/* Left Side: The Grid */}
         <div className="card" style={{ flex: 2, display: 'flex', flexDirection: 'column', background: 'rgba(0,0,0,0.4)', border: '1px solid var(--border)', padding: '1.5rem', overflowY: 'auto' }}>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(64px, 1fr))', gap: '8px', alignContent: 'start' }}>
+          {allItems.length === 0 && (
+            <div className="empty-state">
+              <div className="empty-state-icon">🗝️</div>
+              <div className="empty-state-title">
+                {filter === 'All' && rarityFilter.size === 0 ? 'The Vault Is Empty' : 'Nothing Matches These Filters'}
+              </div>
+              <div className="empty-state-hint">
+                {filter === 'All' && rarityFilter.size === 0
+                  ? 'Climb the Tower to earn loot, or pull equipment from the Summoning Gate. Everything you collect is stored here.'
+                  : 'Try clearing the rarity or type filters to see the rest of your collection.'}
+              </div>
+            </div>
+          )}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(132px, 1fr))', gap: '12px', alignContent: 'start' }}>
             {slots.map((item, index) => {
               const isSelected = item && (multiSelectMode ? selectedItems.has(item.typeId) : (selectedItem && item.typeId === selectedItem.typeId));
               const isEmpty = !item;
@@ -254,14 +310,14 @@ export default function InventoryPage() {
               if (item) {
                 if (item.itemType === 'material') {
                   borderColor = 'var(--border-hi)'
-                  content = <span style={{ fontSize: '1.5rem' }}>📦</span>
+                  content = <GameIcon name="supplies" size={60} />
                 } else if (item.itemType === 'consumable') {
                   borderColor = CONSUMABLE_COLORS[item.item_type]
-                  content = <span style={{ fontSize: '1.5rem' }}>{CONSUMABLE_ICONS[item.item_type]}</span>
+                  content = <span style={{ fontSize: '3rem' }}>{CONSUMABLE_ICONS[item.item_type]}</span>
                 } else if (item.itemType === 'equipment') {
                   borderColor = rarityColor(item.rarity)
                   bgColor = `rgba(255,255,255,0.05)`
-                  content = <EquipmentTypeIcon item={item} fontSize="1.5rem" glow={rarityColor(item.rarity)} />
+                  content = <EquipmentTypeIcon item={item} fontSize="3rem" glow={rarityColor(item.rarity)} />
                 }
               }
 
@@ -303,7 +359,7 @@ export default function InventoryPage() {
                   
                   {/* Quantity Badge */}
                   {item && (item.itemType === 'material' || item.itemType === 'consumable') && (
-                    <div style={{ position: 'absolute', bottom: -2, right: -2, background: 'var(--bg)', border: '1px solid var(--border-hi)', fontSize: '0.7rem', padding: '0 4px', borderRadius: 4, fontFamily: 'monospace', fontWeight: 'bold' }}>
+                    <div style={{ position: 'absolute', bottom: -2, right: -2, background: 'var(--bg)', border: '1px solid var(--border-hi)', fontSize: '0.85rem', padding: '0 6px', borderRadius: 4, fontFamily: 'monospace', fontWeight: 'bold' }}>
                       {item.quantity}
                     </div>
                   )}
@@ -315,10 +371,10 @@ export default function InventoryPage() {
                     </div>
                   )}
 
-                  {/* Weapon/Armor type badge on card */}
-                  {item && item.itemType === 'equipment' && (item.weapon_type || item.armor_type) && (
-                    <div style={{ position: 'absolute', bottom: -4, left: '50%', transform: 'translateX(-50%)', background: 'rgba(0,0,0,0.85)', border: '1px solid rgba(201,168,76,0.5)', borderRadius: 3, padding: '0 4px', fontSize: '0.6rem', color: 'var(--gold)', whiteSpace: 'nowrap' }}>
-                      {item.weapon_type || item.armor_type}
+                  {/* Weapon/Armor/Accessory type badge on card */}
+                  {item && item.itemType === 'equipment' && (item.weapon_type || item.armor_type || item.accessory_type) && (
+                    <div style={{ position: 'absolute', bottom: -6, left: '50%', transform: 'translateX(-50%)', background: 'rgba(0,0,0,0.85)', border: '1px solid rgba(201,168,76,0.5)', borderRadius: 3, padding: '0 6px', fontSize: '0.72rem', color: 'var(--gold)', whiteSpace: 'nowrap' }}>
+                      {item.weapon_type || item.armor_type || item.accessory_type}
                     </div>
                   )}
                 </div>
@@ -337,7 +393,9 @@ export default function InventoryPage() {
             <>
               {selectedItem.itemType === 'material' && (
                 <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
-                  <div style={{ fontSize: '4rem', textAlign: 'center', marginBottom: '1rem', filter: 'drop-shadow(0 0 20px rgba(255,255,255,0.2))' }}>📦</div>
+                  <div style={{ textAlign: 'center', marginBottom: '1rem', filter: 'drop-shadow(0 0 20px rgba(255,255,255,0.2))' }}>
+                    <GameIcon name="supplies" size={64} />
+                  </div>
                   <div style={{ fontFamily: 'Cinzel, serif', fontSize: '1.8rem', textAlign: 'center', color: 'var(--text-hi)', textTransform: 'capitalize', borderBottom: '1px solid var(--border)', paddingBottom: '1rem', marginBottom: '1rem' }}>
                     {selectedItem.item_name.replace('_', ' ')}
                   </div>
@@ -463,10 +521,10 @@ export default function InventoryPage() {
                   <div style={{ textAlign: 'center', color: 'var(--text-dim)', textTransform: 'uppercase', letterSpacing: '3px', fontSize: '0.9rem', marginBottom: '0.4rem' }}>
                     {selectedItem.rarity}★ {selectedItem.type}
                   </div>
-                  {((selectedItem.type === 'Weapon' && selectedItem.weapon_type) || (selectedItem.type === 'Armor' && selectedItem.armor_type)) && (
+                  {(selectedItem.weapon_type || selectedItem.armor_type || selectedItem.accessory_type) && (
                     <div style={{ textAlign: 'center', marginBottom: '1.2rem' }}>
                       <span style={{ background: 'rgba(201,168,76,0.15)', border: '1px solid rgba(201,168,76,0.4)', borderRadius: 4, padding: '0.2rem 0.7rem', fontSize: '0.8rem', color: 'var(--gold)', letterSpacing: '1px' }}>
-                        {selectedItem.weapon_type || selectedItem.armor_type}
+                        {selectedItem.weapon_type || selectedItem.armor_type || selectedItem.accessory_type}
                       </span>
                     </div>
                   )}
@@ -480,14 +538,14 @@ export default function InventoryPage() {
                       ['Agility', selectedItem.base_agi, v => `+${v}`],
                       ['Willpower', selectedItem.base_wil, v => `+${v}`],
                       ['Luck', selectedItem.base_luck, v => `+${v}`],
-                      ['Strength %', selectedItem.str_pct, v => `+${(v * 100).toFixed(0)}%`],
-                      ['Intelligence %', selectedItem.int_pct, v => `+${(v * 100).toFixed(0)}%`],
-                      ['Max Health %', selectedItem.hlt_pct, v => `+${(v * 100).toFixed(0)}%`],
-                      ['Agility %', selectedItem.agi_pct, v => `+${(v * 100).toFixed(0)}%`],
-                      ['Crit Chance', selectedItem.crit_chance, v => `+${(v * 100).toFixed(0)}%`],
-                      ['Dodge Chance', selectedItem.dodge_chance, v => `+${(v * 100).toFixed(0)}%`],
-                      ['Armor Penetration', selectedItem.armor_pen, v => `+${(v * 100).toFixed(0)}%`],
-                      ['Damage Reduction', selectedItem.dmg_reduction_pct, v => `+${(v * 100).toFixed(0)}%`],
+                      ['Strength %', selectedItem.str_pct, formatPct],
+                      ['Intelligence %', selectedItem.int_pct, formatPct],
+                      ['Max Health %', selectedItem.hlt_pct, formatPct],
+                      ['Agility %', selectedItem.agi_pct, formatPct],
+                      ['Crit Chance', selectedItem.crit_chance, formatPct],
+                      ['Dodge Chance', selectedItem.dodge_chance, formatPct],
+                      ['Armor Penetration', selectedItem.armor_pen, formatPct],
+                      ['Damage Reduction', selectedItem.dmg_reduction_pct, formatPct],
                     ].filter(([, val]) => val > 0).map(([label, val, fmt]) => (
                       <div key={label} style={{ display: 'flex', justifyContent: 'space-between', background: 'rgba(201,168,76,0.1)', padding: '0.8rem 1rem', borderRadius: 4 }}>
                         <span className="text-dim">{label}</span>
@@ -518,14 +576,14 @@ export default function InventoryPage() {
                           style={{ width: '100%', padding: '0.6rem', border: '1px solid #c87030', color: '#c87030', background: 'rgba(200,112,48,0.08)' }}
                           disabled={scrapping}
                           onClick={async () => {
-                            if (!confirm(`Scrap ${selectedItem.name}? This destroys the item permanently in exchange for crafting materials.`)) return
+                            if (!(await confirmDialog(`Scrap ${selectedItem.name}? This destroys the item permanently in exchange for crafting materials.`))) return
                             setScrapping(true)
                             try {
                               await scrapEquipment(selectedItem.id)
                               setSelectedItem(null)
                               await refresh()
                             } catch (e) {
-                              alert(e.message)
+                              alertDialog(e.message)
                             } finally {
                               setScrapping(false)
                             }

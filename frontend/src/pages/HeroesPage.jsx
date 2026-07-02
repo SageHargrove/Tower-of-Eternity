@@ -1,9 +1,19 @@
 import React, { useState, useEffect } from 'react'
-import { listHeroes, setTeam, removeHeroFromTeam, reorderTeam, dismissHero, dismissHeroesBulk, synthesizeHero, ascendHero, getAscensionInfo, promoteHero, getEvolutionInfo, regeneratePortraits, evolveHero, listEquipment, equipItem, unequipItem, autoEquipHero, unequipAllHero, egoAutoTeam, getEgoRecommendation, assignTeamLeader, getBonds, equipConsumable, getInventory, getBase } from '../api/client'
+import { listHeroes, setTeam, removeHeroFromTeam, reorderTeam, dismissHero, dismissHeroesBulk, synthesizeHero, ascendHero, getAscensionInfo, promoteHero, getEvolutionInfo, regeneratePortraits, evolveHero, listEquipment, equipItem, unequipItem, autoEquipHero, unequipAllHero, egoAutoTeam, getEgoRecommendation, assignTeamLeader, getBonds, equipConsumable, getInventory, getBase, toggleFavorite } from '../api/client'
 import { emitToast } from '../toastBus'
 import HeroCard from '../components/HeroCard'
 import ClassEvolutionModal from '../components/ClassEvolutionModal'
 import { HeroCompareModal, TeamCompareModal } from '../components/CompareModal'
+import { confirmDialog } from '../components/DialogHost'
+import SynthesisChamber from '../components/SynthesisChamber'
+
+// Small % rolls are real now (a D-tier ring's 1.4% crit matters at that
+// level) — toFixed(0) rendered anything under 0.5% as a nonsense "+0%",
+// so keep one decimal for sub-10% values.
+function formatPct(v) {
+  const pct = v * 100
+  return `+${pct < 10 ? pct.toFixed(1).replace(/\.0$/, '') : pct.toFixed(0)}%`
+}
 
 function formatEquipmentStats(eq) {
   const parts = []
@@ -14,21 +24,24 @@ function formatEquipmentStats(eq) {
   if (eq.base_agi > 0) parts.push(`AGI +${eq.base_agi}`)
   if (eq.base_wil > 0) parts.push(`WIL +${eq.base_wil}`)
   if (eq.base_luck > 0) parts.push(`Luck +${eq.base_luck}`)
-  if (eq.str_pct > 0) parts.push(`STR +${(eq.str_pct * 100).toFixed(0)}%`)
-  if (eq.int_pct > 0) parts.push(`INT +${(eq.int_pct * 100).toFixed(0)}%`)
-  if (eq.hlt_pct > 0) parts.push(`Health +${(eq.hlt_pct * 100).toFixed(0)}%`)
-  if (eq.agi_pct > 0) parts.push(`AGI +${(eq.agi_pct * 100).toFixed(0)}%`)
-  if (eq.crit_chance > 0) parts.push(`Crit +${(eq.crit_chance * 100).toFixed(0)}%`)
-  if (eq.dodge_chance > 0) parts.push(`Dodge +${(eq.dodge_chance * 100).toFixed(0)}%`)
-  if (eq.armor_pen > 0) parts.push(`ArmorPen +${(eq.armor_pen * 100).toFixed(0)}%`)
-  if (eq.dmg_reduction_pct > 0) parts.push(`DR +${(eq.dmg_reduction_pct * 100).toFixed(0)}%`)
+  if (eq.str_pct > 0) parts.push(`STR ${formatPct(eq.str_pct)}`)
+  if (eq.int_pct > 0) parts.push(`INT ${formatPct(eq.int_pct)}`)
+  if (eq.hlt_pct > 0) parts.push(`Health ${formatPct(eq.hlt_pct)}`)
+  if (eq.agi_pct > 0) parts.push(`AGI ${formatPct(eq.agi_pct)}`)
+  if (eq.crit_chance > 0) parts.push(`Crit ${formatPct(eq.crit_chance)}`)
+  if (eq.dodge_chance > 0) parts.push(`Dodge ${formatPct(eq.dodge_chance)}`)
+  if (eq.armor_pen > 0) parts.push(`ArmorPen ${formatPct(eq.armor_pen)}`)
+  if (eq.dmg_reduction_pct > 0) parts.push(`DR ${formatPct(eq.dmg_reduction_pct)}`)
   return parts.length ? parts.join(' ') : 'No bonus stats'
 }
 
 export default function HeroesPage() {
   const [heroes, setHeroes] = useState([])
   const [selected, setSelected] = useState(new Set())
-  const [activeTab, setActiveTab] = useState('all') // 'all' | 1 | 2 | ... | 10
+  const [activeTab, setActiveTab] = useState('all') // 'all' | 'favorites' | 1 | 2 | ... | 10
+  // Team tabs get drag-reorder, frontline badges, and leader crowns;
+  // 'all' and 'favorites' are plain roster views.
+  const isTeamTab = typeof activeTab === 'number'
   const [assignTargetTeam, setAssignTargetTeam] = useState(1)
   const [searchQuery, setSearchQuery] = useState('')
   
@@ -46,7 +59,10 @@ export default function HeroesPage() {
   const [consModal, setConsModal] = useState(null)
   const [consOptions, setConsOptions] = useState([])
 
-  // Synthesis state
+  // Synthesis state — synthChamberOpen drives the new full-screen chamber;
+  // the older in-grid synthMode plumbing below is retained but no longer
+  // has an entry point.
+  const [synthChamberOpen, setSynthChamberOpen] = useState(false)
   const [synthMode, setSynthMode] = useState(false)
   const [synthTarget, setSynthTarget] = useState(null)
   const [synthSacrifice, setSynthSacrifice] = useState(null)
@@ -170,7 +186,7 @@ export default function HeroesPage() {
 
   async function handleDismiss(id, e) {
     e.stopPropagation()
-    if (!confirm('Dismiss this hero permanently?')) return
+    if (!(await confirmDialog('Dismiss this hero permanently?'))) return
     try {
       await dismissHero(id)
       setSelected(prev => { const n = new Set(prev); n.delete(id); return n })
@@ -191,11 +207,11 @@ export default function HeroesPage() {
     const highestStar = Math.max(...selectedHeroes.map(h => h.current_star || h.birth_star))
     
     if (highestStar >= 6) {
-      if (!confirm(`CRITICAL WARNING: You have selected a ${highestStar}★ hero for dismissal! This action is PERMANENT. Are you absolutely sure?`)) return
+      if (!(await confirmDialog(`CRITICAL WARNING: You have selected a ${highestStar}★ hero for dismissal! This action is PERMANENT. Are you absolutely sure?`))) return
     } else if (highestStar >= 4) {
-      if (!confirm(`Warning: You have selected a high rank (${highestStar}★) hero for dismissal. Are you sure?`)) return
+      if (!(await confirmDialog(`Warning: You have selected a high rank (${highestStar}★) hero for dismissal. Are you sure?`))) return
     } else {
-      if (!confirm(`Dismiss ${selected.size} selected heroes permanently?`)) return
+      if (!(await confirmDialog(`Dismiss ${selected.size} selected heroes permanently?`))) return
     }
     
     setSaving(true)
@@ -220,11 +236,11 @@ export default function HeroesPage() {
     const highestStar = Math.max(...displayHeroes.map(h => h.current_star || h.birth_star))
     
     if (highestStar >= 6) {
-      if (!confirm(`CRITICAL WARNING: The current filter includes a ${highestStar}★ hero! This action will dismiss ALL ${displayHeroes.length} heroes displayed. This is PERMANENT. Are you absolutely sure?`)) return
+      if (!(await confirmDialog(`CRITICAL WARNING: The current filter includes a ${highestStar}★ hero! This action will dismiss ALL ${displayHeroes.length} heroes displayed. This is PERMANENT. Are you absolutely sure?`))) return
     } else if (highestStar >= 4) {
-      if (!confirm(`Warning: The current filter includes a high rank (${highestStar}★) hero. Are you sure you want to dismiss ALL ${displayHeroes.length} displayed heroes?`)) return
+      if (!(await confirmDialog(`Warning: The current filter includes a high rank (${highestStar}★) hero. Are you sure you want to dismiss ALL ${displayHeroes.length} displayed heroes?`))) return
     } else {
-      if (!confirm(`Dismiss ALL ${displayHeroes.length} currently displayed heroes permanently?`)) return
+      if (!(await confirmDialog(`Dismiss ALL ${displayHeroes.length} currently displayed heroes permanently?`))) return
     }
     
     setSaving(true)
@@ -243,7 +259,7 @@ export default function HeroesPage() {
 
   // --- Clear portrait cache ---
   async function handleClearCache() {
-    if (!confirm('Clear all cached portraits? New ones will regenerate automatically.')) return
+    if (!(await confirmDialog('Clear all cached portraits? New ones will regenerate automatically.'))) return
     try {
       const result = await regeneratePortraits()
       setMsg(result.message || 'Portrait cache cleared.')
@@ -310,7 +326,7 @@ export default function HeroesPage() {
       const info = await getAscensionInfo(heroId)
       const costStr = Object.entries(info.materials_required || {}).map(([m, q]) => `${q} ${m}`).join(', ')
       const pct = Math.round((info.fail_chance || 0) * 100)
-      if (!confirm(`Ascend this hero? Costs ${costStr}.\nThis ritual has a ${pct}% chance to fail — materials are consumed either way.`)) return
+      if (!(await confirmDialog(`Ascend this hero? Costs ${costStr}.\nThis ritual has a ${pct}% chance to fail — materials are consumed either way.`))) return
     } catch (e) {
       // If the info lookup fails, fall through to attempting the ascend anyway — the
       // endpoint itself validates materials/level and will surface a clear error.
@@ -339,7 +355,7 @@ export default function HeroesPage() {
     try {
       const info = await getEvolutionInfo(heroId)
       const costStr = Object.entries(info.materials_required || {}).map(([m, q]) => `${q} ${m}`).join(', ')
-      if (!confirm(`Evolve this hero to ${info.current_star + 1}★? Costs ${info.gold_cost} gold + ${costStr}.`)) return
+      if (!(await confirmDialog(`Evolve this hero to ${info.current_star + 1}★? Costs ${info.gold_cost} gold + ${costStr}.`))) return
     } catch (e) {
       // If the info lookup fails, fall through to attempting the promote anyway — the
       // endpoint itself validates floor gate/materials/level and will surface a clear error.
@@ -372,19 +388,19 @@ export default function HeroesPage() {
   const [dragOverHeroId, setDragOverHeroId] = useState(null)
 
   function handleDragStart(e, heroId) {
-    if (activeTab === 'all' || synthMode) return;
+    if (!isTeamTab || synthMode) return;
     setDraggedHeroId(heroId);
   }
 
   function handleDragOver(e, heroId) {
     e.preventDefault();
-    if (activeTab === 'all' || synthMode || heroId === draggedHeroId) return;
+    if (!isTeamTab || synthMode || heroId === draggedHeroId) return;
     setDragOverHeroId(heroId);
   }
 
   async function handleDrop(e, targetHeroId) {
     e.preventDefault();
-    if (activeTab === 'all' || synthMode) return;
+    if (!isTeamTab || synthMode) return;
     if (draggedHeroId && draggedHeroId !== targetHeroId) {
       const currentTeam = [...displayHeroes];
       const draggedIdx = currentTeam.findIndex(h => h.id === draggedHeroId);
@@ -408,7 +424,7 @@ export default function HeroesPage() {
   // --- Evolution ---
   async function handleEvolve(heroId, targetClass, e) {
     e.stopPropagation()
-    if (!confirm(`Evolve to ${targetClass}? This change is permanent!`)) return
+    if (!(await confirmDialog(`Evolve to ${targetClass}? This change is permanent!`))) return
     setEvolving(true)
     try {
       const result = await evolveHero(heroId, targetClass)
@@ -427,8 +443,10 @@ export default function HeroesPage() {
   
   // Filter by Tab
   let displayHeroes = baseHeroes
-  if (activeTab !== 'all') {
+  if (isTeamTab) {
     displayHeroes = displayHeroes.filter(h => h.is_on_team === activeTab)
+  } else if (activeTab === 'favorites') {
+    displayHeroes = displayHeroes.filter(h => h.is_favorite)
   }
   
   // Apply visual filters
@@ -449,7 +467,7 @@ export default function HeroesPage() {
   }
 
   // Sort
-  if (activeTab !== 'all') {
+  if (isTeamTab) {
     displayHeroes.sort((a, b) => (a.team_position || 0) - (b.team_position || 0))
   } else {
     displayHeroes.sort((a, b) => {
@@ -472,31 +490,38 @@ export default function HeroesPage() {
     }
     return {}
   }
+  async function handleToggleFavorite(heroId, e) {
+    e.stopPropagation()
+    // Optimistic flip — the roster reload would make the heart feel laggy.
+    setHeroes(hs => hs.map(h => h.id === heroId ? { ...h, is_favorite: h.is_favorite ? 0 : 1 } : h))
+    try { await toggleFavorite(heroId) } catch { load() }
+  }
+
   const renderHeroCard = (hero, index) => {
     return (
       <div key={hero.id}
            style={{
              position: 'relative',
-             width: activeTab !== 'all' ? '260px' : '220px',
+             width: isTeamTab ? '260px' : '220px',
              height: '100%',
              display: 'flex',
              flexDirection: 'column',
              ...getSynthBorderStyle(hero.id),
              borderRadius: 6,
-             cursor: activeTab !== 'all' && !synthMode && hero.condition !== 'Retired' ? 'grab' : 'pointer',
+             cursor: isTeamTab && !synthMode && hero.condition !== 'Retired' ? 'grab' : 'pointer',
              opacity: hero.is_alive ? 1 : 0.6,
              filter: synthMode && !selectedForSynth.includes(hero.id) && !hero.is_on_team && hero.birth_star !== 7 ? 'grayscale(0.6)' : 'none',
              transform: dragOverHeroId === hero.id ? 'scale(1.05)' : 'scale(1)',
              transition: 'transform 0.1s ease',
              boxShadow: dragOverHeroId === hero.id ? '0 0 15px rgba(200,160,48,0.8)' : 'none'
            }}
-           draggable={activeTab !== 'all' && !synthMode && hero.condition !== 'Retired'}
+           draggable={isTeamTab && !synthMode && hero.condition !== 'Retired'}
            onDragStart={(e) => handleDragStart(e, hero.id)}
            onDragOver={(e) => handleDragOver(e, hero.id)}
            onDrop={(e) => handleDrop(e, hero.id)}
            onDragEnd={() => { setDraggedHeroId(null); setDragOverHeroId(null); }}
       >
-        {activeTab !== 'all' && (
+        {isTeamTab && (
           <div style={{
             position: 'absolute', top: -10, left: '50%', transform: 'translateX(-50%)',
             background: index < 2 ? 'rgba(201, 168, 76, 0.9)' : 'rgba(74, 154, 106, 0.9)',
@@ -508,7 +533,24 @@ export default function HeroesPage() {
             {index < 2 ? 'FRONTLINE' : 'BACKLINE'}
           </div>
         )}
-        {activeTab !== 'all' && hero.is_alive && (
+        {hero.is_alive && (
+          <button
+            title={hero.is_favorite ? 'Remove from Favorites' : 'Add to Favorites'}
+            onClick={(e) => handleToggleFavorite(hero.id, e)}
+            style={{
+              position: 'absolute', top: -10, right: isTeamTab ? 44 : 8,
+              background: 'rgba(20,20,24,0.9)',
+              border: hero.is_favorite ? '1px solid #e06080' : '1px solid var(--border)',
+              color: hero.is_favorite ? '#e06080' : 'var(--text-dim)',
+              padding: '2px 6px', borderRadius: 12, fontSize: '0.75rem',
+              zIndex: 10, cursor: 'pointer',
+              boxShadow: hero.is_favorite ? '0 0 8px rgba(224,96,128,0.5)' : 'none',
+            }}
+          >
+            {hero.is_favorite ? '♥' : '♡'}
+          </button>
+        )}
+        {isTeamTab && hero.is_alive && (
           <button
             title={hero.is_team_leader ? 'Team Leader' : 'Make Team Leader'}
             onClick={(e) => handleAssignLeader(hero.id, e)}
@@ -537,7 +579,7 @@ export default function HeroesPage() {
           }}
           onToggleSelect={!synthMode ? () => toggleSelect(hero.id) : undefined}
           showFull={false}
-          scale={activeTab !== 'all' ? 1.15 : 1}
+          scale={isTeamTab ? 1.15 : 1}
           onRegenerateProfile={() => load()}
           onManageEquipment={(h, s, e) => setEqModal({ hero: h, slot: s, currentEq: e })}
           onManageConsumable={(h) => setConsModal({ hero: h })}
@@ -552,7 +594,7 @@ export default function HeroesPage() {
           }}
           actions={!synthMode && hero.is_alive && (
             <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'flex-end', alignItems: 'center' }}>
-              {activeTab !== 'all' && (
+              {isTeamTab && (
                 <button
                   className="btn"
                   style={{
@@ -611,21 +653,27 @@ export default function HeroesPage() {
           Heroes — {heroes.length} alive
         </div>
         <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
-          {!synthMode ? (
-            <button
-              className="btn"
-              onClick={enterSynthMode}
-              style={{ padding: '0.3rem 0.8rem', fontSize: '0.72rem', border: '1px solid #8030c8', color: '#8030c8' }}
-            >
-              ⚗ Synthesis
-            </button>
-          ) : (
-            <button className="btn btn-gold" onClick={exitSynthMode} style={{ padding: '0.3rem 0.8rem', fontSize: '0.72rem' }}>
-              Cancel Synthesis
-            </button>
-          )}
+          <button
+            className="btn"
+            onClick={() => setSynthChamberOpen(true)}
+            style={{
+              padding: '0.5rem 1.2rem', fontSize: '0.8rem', fontFamily: 'Cinzel, serif',
+              border: '1px solid #b06aff', color: '#d0a0ff', borderRadius: 6,
+              background: 'rgba(80,30,130,0.2)', boxShadow: '0 0 10px rgba(160,80,255,0.25)',
+            }}
+          >
+            ⚗ Synthesis Chamber
+          </button>
         </div>
       </div>
+
+      {synthChamberOpen && (
+        <SynthesisChamber
+          heroes={heroes}
+          onClose={() => setSynthChamberOpen(false)}
+          onComplete={() => load()}
+        />
+      )}
 
       {expandedId && (
         <div style={{
@@ -719,23 +767,25 @@ export default function HeroesPage() {
               not folded into the crowded filter row below (that's where they
               lived before; got reported as impossible to find). */}
           <div style={{
-            display: 'flex', alignItems: 'center', gap: '1rem', flexWrap: 'wrap',
-            background: 'rgba(201,168,76,0.08)', border: '1px solid rgba(201,168,76,0.3)',
-            borderRadius: 6, padding: '0.6rem 1rem', marginBottom: '1rem',
+            display: 'flex', alignItems: 'center', gap: '0.8rem', flexWrap: 'wrap',
+            borderRadius: 6, padding: '0.3rem 0', marginBottom: '0.8rem',
           }}>
-            <span style={{ fontFamily: 'Cinzel, serif', color: 'var(--gold)' }}>⚖ Compare</span>
-            <span className="text-dim text-sm">
-              Click the circle in a hero's top-left corner to select 2-4, then compare.
+            <span
+              style={{ fontFamily: 'Cinzel, serif', color: 'var(--gold)', fontSize: '0.9rem', cursor: 'help' }}
+              title="Click the circle in a hero's top-left corner to select 2-4 heroes, then compare them side by side."
+            >
+              ⚖ Compare <span className="text-dim" style={{ fontSize: '0.75rem' }}>[?]</span>
             </span>
             <button
               className="btn btn-gold"
-              style={{ marginLeft: 'auto' }}
+              style={{ marginLeft: 'auto', padding: '0.35rem 0.9rem', fontSize: '0.72rem' }}
               onClick={() => setCompareHeroesOpen(true)}
-              disabled={selected.size < 2 || selected.size > 4}
+              disabled={selected.size !== 2}
+              title={selected.size !== 2 ? 'Select exactly 2 heroes (circle in each card\'s top-left corner)' : undefined}
             >
-              Compare Selected Heroes ({selected.size})
+              Compare Selected ({selected.size}/2)
             </button>
-            <button className="btn btn-gold" onClick={() => setCompareTeamsOpen(true)}>
+            <button className="btn btn-gold" style={{ padding: '0.35rem 0.9rem', fontSize: '0.72rem' }} onClick={() => setCompareTeamsOpen(true)}>
               Compare Teams
             </button>
           </div>
@@ -744,6 +794,13 @@ export default function HeroesPage() {
           <div style={{ display: 'flex', gap: '0.25rem', overflowX: 'auto', marginBottom: '1rem', paddingBottom: '0.5rem', borderBottom: '1px solid rgba(255,255,255,0.1)' }}>
             <button className={`btn ${activeTab === 'all' ? 'btn-gold' : ''}`} onClick={() => { setActiveTab('all'); setSelected(new Set()) }}>
               All Heroes
+            </button>
+            <button
+              className={`btn ${activeTab === 'favorites' ? 'btn-gold' : ''}`}
+              style={activeTab === 'favorites' ? undefined : { color: '#e06080' }}
+              onClick={() => { setActiveTab('favorites'); setSelected(new Set()) }}
+            >
+              ♥ Favorites
             </button>
             {[1, 2, 3, 4, 5].map(t => (
               <button key={t} className={`btn ${activeTab === t ? 'btn-gold' : ''}`} onClick={() => { setActiveTab(t); setSelected(new Set()) }}>
@@ -781,7 +838,7 @@ export default function HeroesPage() {
               </select>
             </div>
 
-            {activeTab === 'all' ? (
+            {!isTeamTab ? (
               <div style={{ marginLeft: 'auto', display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
                 <span className="text-dim text-sm">Assign {selected.size} heroes to:</span>
                 <select value={assignTargetTeam} onChange={e => setAssignTargetTeam(Number(e.target.value))} style={{ background: 'var(--bg)', color: '#fff', border: '1px solid var(--gold)', padding: '0.4rem 0.8rem', borderRadius: 4 }}>
@@ -849,23 +906,33 @@ export default function HeroesPage() {
 
 
 
-      {activeTab !== 'all' && !synthMode && displayHeroes.length > 0 && (
+      {isTeamTab && !synthMode && displayHeroes.length > 0 && (
         <div className="text-gold" style={{ background: 'rgba(201,168,76,0.1)', border: '1px solid var(--gold-dim)', padding: '0.75rem', borderRadius: 4, marginBottom: '1rem', textAlign: 'center', fontFamily: 'Cinzel, serif' }}>
           ✥ Drag and drop hero cards to rearrange your Frontline and Backline! ✥
         </div>
       )}
 
-      {activeTab === 'all' || synthMode ? (
+      {!isTeamTab || synthMode ? (
         <div className="hero-grid">
-          {displayHeroes.length === 0 && activeTab !== 'all' && (
+          {displayHeroes.length === 0 && isTeamTab && (
             <div className="text-dim" style={{ padding: '2rem', fontStyle: 'italic', gridColumn: '1 / -1', textAlign: 'center' }}>
               No heroes on Team {activeTab}.<br/>
               To add heroes, switch to the "All" tab, click the checkmarks on your desired heroes, and use the "Assign" button at the top right.
             </div>
           )}
-          {displayHeroes.length === 0 && activeTab === 'all' && (
-            <div className="text-dim" style={{ padding: '2rem 0' }}>
-              No heroes found for the current filter.
+          {displayHeroes.length === 0 && !isTeamTab && (
+            <div className="empty-state" style={{ gridColumn: '1 / -1' }}>
+              <div className="empty-state-icon">{activeTab === 'favorites' ? '♡' : '🕯️'}</div>
+              <div className="empty-state-title">
+                {activeTab === 'favorites' ? 'No Favorites Yet' : heroes.length === 0 ? 'No Heroes Yet' : 'No Heroes Match These Filters'}
+              </div>
+              <div className="empty-state-hint">
+                {activeTab === 'favorites'
+                  ? "Click the ♡ on any hero's card to pin them here."
+                  : heroes.length === 0
+                    ? 'Visit the Summoning Gate to call your first heroes into the Tower.'
+                    : 'Try clearing the search, star, or class filters.'}
+              </div>
             </div>
           )}
           {displayHeroes.map((hero, index) => renderHeroCard(hero, index))}
@@ -906,13 +973,9 @@ export default function HeroesPage() {
             <button className="btn btn-danger" onClick={handleDismissFiltered} disabled={displayHeroes.length === 0 || saving} style={{ fontSize: '0.72rem' }}>
               ✕ Dismiss All Filtered ({displayHeroes.length})
             </button>
-            <button className="btn" onClick={handleClearCache} style={{ fontSize: '0.72rem', border: '1px solid var(--blue)', color: 'var(--blue)' }}>
-              🔄 Clear Portrait Cache
-            </button>
           </div>
           <div className="text-dim text-sm" style={{ marginTop: '0.5rem' }}>
             Select heroes by clicking them, then dismiss them in bulk.
-            "Clear Portrait Cache" deletes old cached portraits — new diverse ones regenerate automatically.
           </div>
         </div>
       )}

@@ -1,12 +1,14 @@
 import React, { useState, useEffect } from 'react'
 
 export const EQUIPMENT_ICONS = { Weapon: '⚔️', Armor: '🛡️', Accessory: '💍' }
-export const WEAPON_TYPE_ICONS = { Sword: '⚔️', Spear: '🔱', Staff: '🪄', Bow: '🏹', Dagger: '🗡️' }
+export const WEAPON_TYPE_ICONS = { Sword: '⚔️', Spear: '🔱', Tome: '📖', Staff: '📖', Bow: '🏹', Dagger: '🗡️' }
 export const ARMOR_TYPE_ICONS = { 'Heavy Armor': '🛡️', 'Brigandine': '🦺', 'Light Armor': '🧥', 'Robe': '👘' }
+export const ACCESSORY_TYPE_ICONS = { Ring: '💍', Amulet: '📿', Charm: '🍀' }
 
 export function equipmentIcon(item) {
   if (item.type === 'Weapon' && item.weapon_type) return WEAPON_TYPE_ICONS[item.weapon_type] || EQUIPMENT_ICONS.Weapon
   if (item.type === 'Armor' && item.armor_type) return ARMOR_TYPE_ICONS[item.armor_type] || EQUIPMENT_ICONS.Armor
+  if (item.type === 'Accessory' && item.accessory_type) return ACCESSORY_TYPE_ICONS[item.accessory_type] || EQUIPMENT_ICONS.Accessory
   return EQUIPMENT_ICONS[item.type] || '❓'
 }
 
@@ -23,12 +25,15 @@ const RARITY_ART_TIER = {
   'SSS': 'legendary', 'Z': 'legendary',
 }
 
-// Staff weapon type uses "tome" art (mage grimoire aesthetic)
-const WEAPON_TYPE_SLUG = { Sword: 'sword', Spear: 'spear', Staff: 'tome', Bow: 'bow', Dagger: 'dagger' }
+// Legacy "Staff" rows map to the same tome art as the renamed Tome type.
+const WEAPON_TYPE_SLUG = { Sword: 'sword', Spear: 'spear', Tome: 'tome', Staff: 'tome', Bow: 'bow', Dagger: 'dagger' }
 
 function typeSlug(item) {
   if (item.type === 'Weapon' && item.weapon_type) return `weapons/${WEAPON_TYPE_SLUG[item.weapon_type] || item.weapon_type.toLowerCase()}`
   if (item.type === 'Armor' && item.armor_type) return `armor/${item.armor_type.toLowerCase().replace(/ /g, '_')}`
+  // Art doesn't exist yet for accessories (falls through to the emoji), but
+  // the hook is in place: drop ring/amulet/charm PNGs into static/icons/accessories/.
+  if (item.type === 'Accessory' && item.accessory_type) return `accessories/${item.accessory_type.toLowerCase()}`
   return null
 }
 
@@ -39,8 +44,8 @@ function candidateSrcs(item) {
   const srcs = []
   // rarity-tiered commissioned art first, then the flat (no-tier) ComfyUI
   // generation as a fallback, then the caller falls back to the emoji.
-  if (tier) srcs.push(`http://localhost:8000/static/icons/${slug}_${tier}.png`)
-  srcs.push(`http://localhost:8000/static/icons/${slug}.png`)
+  if (tier) srcs.push(`/static/icons/${slug}_${tier}.png`)
+  srcs.push(`/static/icons/${slug}.png`)
   return srcs
 }
 
@@ -58,7 +63,12 @@ export function EquipmentTypeIcon({ item, fontSize = '1.5rem', glow }) {
       <img
         src={srcs[idx]}
         onError={() => setIdx(i => i + 1)}
-        style={{ width: fontSize === '1.5rem' ? '28px' : '64px', height: fontSize === '1.5rem' ? '28px' : '64px', objectFit: 'contain', filter: glow ? `drop-shadow(0 0 4px ${glow})` : undefined }}
+        style={{
+          width: fontSize === '1.5rem' ? '28px' : fontSize === '3rem' ? '88px' : '64px',
+          height: fontSize === '1.5rem' ? '28px' : fontSize === '3rem' ? '88px' : '64px',
+          objectFit: 'contain',
+          filter: glow ? `drop-shadow(0 0 4px ${glow})` : undefined,
+        }}
         alt=""
       />
     )

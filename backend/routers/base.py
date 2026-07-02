@@ -248,19 +248,18 @@ def get_base_floors():
         # Get hero assignments (all alive heroes)
         heroes = conn.execute("SELECT id, name, base_floor, hero_class, portrait_path, is_alive, level, birth_star, current_star FROM heroes WHERE is_alive = 1").fetchall()
         
+        # Everyone lives SOMEWHERE — unassigned (0) or invalid-floor heroes
+        # are housed on Floor 1 automatically. The strategy is how you
+        # spread them once more floors unlock, not whether to assign at all.
         base_heroes = []
         for h in heroes:
             f = h["base_floor"]
-            if f == 0:
-                base_heroes.append(dict(h))
-                continue
             if f not in floors:
-                # If they are on a floor that is no longer unlocked or invalid, move them to unassigned (0)
-                conn.execute("UPDATE heroes SET base_floor = 0 WHERE id = ?", (h["id"],))
-                f = 0
-                base_heroes.append(dict(h))
-                continue
-            floors[f]["heroes"].append(dict(h))
+                conn.execute("UPDATE heroes SET base_floor = 1 WHERE id = ?", (h["id"],))
+                f = 1
+            hero_dict = dict(h)
+            hero_dict["base_floor"] = f
+            floors[f]["heroes"].append(hero_dict)
             
         # Calculate math — must match get_floor_lp() in base_service.py
         # exactly, since that's what combat_service.py actually applies as
@@ -289,10 +288,13 @@ def assign_base_floor(req: AssignFloorRequest):
         highest_tower_floor = base["highest_floor"]
         unlocked_floors = max(1, highest_tower_floor // 10)
         
-        if req.floor > unlocked_floors or req.floor < 0:
-            raise HTTPException(status_code=400, detail=f"Floor {req.floor} is invalid.")
-            
-        conn.execute("UPDATE heroes SET base_floor = ? WHERE id = ?", (req.floor, req.hero_id))
+        # Floor 0 (unassigned) is no longer a valid destination — every hero
+        # lives on a floor; "removing" someone just sends them back to Floor 1.
+        floor = req.floor if req.floor >= 1 else 1
+        if floor > unlocked_floors:
+            raise HTTPException(status_code=400, detail=f"Floor {floor} is invalid.")
+
+        conn.execute("UPDATE heroes SET base_floor = ? WHERE id = ?", (floor, req.hero_id))
     return {"ok": True}
 
 # ─── Daily Dungeon endpoints ────────────────────────────────────────

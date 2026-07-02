@@ -6,7 +6,7 @@ import React from 'react'
 export default function FairyTip({ show, message, fairyGender, onDismiss }) {
   if (!show) return null
 
-  const fairyImg = `http://localhost:8000/static/portraits/fairy/${fairyGender === 'male' ? 'male' : 'female'}.png`
+  const fairyImg = `/static/portraits/fairy/${fairyGender === 'male' ? 'male' : 'female'}.png`
 
   return (
     <div style={{

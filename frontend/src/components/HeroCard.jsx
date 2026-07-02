@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react'
 import { regenerateProfile, getHeroAptitudes } from '../api/client'
 import { EquipmentTypeIcon } from './EquipmentTypeIcon'
-
+import GameIcon from './GameIcon'
 const RARITY_COLORS = {
   'D-': '#3ddb3d', 'D': '#4dff4d', 'D+': '#6bff6b',
   'C-': '#1e90ff', 'C': '#3aa0ff', 'C+': '#5cb3ff',
@@ -25,25 +25,25 @@ const MORALE_STATE_LABEL = {
 // one icon + color — new evolutions just need a one-line addition to a list,
 // not a whole new icon/color decision.
 const CLASS_FAMILIES = {
-  'Warrior': { icon: '⚔', color: '#c87830', members: ['Warrior', 'Knight', 'Berserker', 'Paladin', 'Aegis', 'Templar', 'Bloodrager', 'Juggernaut', 'Crusader', 'Divine Sentinel'] },
-  'Spearman': { icon: '🔱', color: '#c8a030', members: ['Spearman', 'Lancer', 'Halberdier', 'Dragoon', 'Pikemaster', 'Vanguard', 'Glaive Lord', 'Warlord', 'Wyvern Rider', 'Dragon Knight'] },
-  'Thief': { icon: '🗡', color: '#7030c8', members: ['Thief', 'Assassin', 'Rogue', 'Ninja', 'Shadowblade', 'Nightstalker', 'Trickster', 'Shinobi', 'Shadowmaster', 'Infiltrator'] },
-  'Archer': { icon: '🏹', color: '#30a030', members: ['Archer', 'Sniper', 'Ranger', 'Crossbowman', 'Marksman', 'Deadeye', 'Beastmaster', 'Warden', 'Arbalist', 'Siege Master'] },
-  'Mage': { icon: '🔮', color: '#4060c8', members: ['Mage', 'Sorcerer', 'Warlock', 'Necromancer', 'Summoner', 'Archmage', 'Elementalist', 'Demonologist', 'Voidwalker', 'Lich', 'Deathcaller', 'Grand Summoner', 'Conjurer'] },
-  'Spellsword': { icon: '🗲', color: '#5040d0', members: ['Spellsword', 'Eldritch Knight', 'Rune Blade', 'Arcane Lord', 'Mystic Vanguard', 'Rune Master', 'Spellweaver'] },
-  'Acolyte': { icon: '☀', color: '#c0c0e0', members: ['Acolyte', 'Cleric', 'Bard', 'Druid', 'Monk', 'High Priest', 'Bishop', 'Maestro', 'Troubadour', 'Archdruid', 'Hierophant', 'Grandmaster', 'Zenith'] },
-  'Priest': { icon: '✝', color: '#d8d8f0', members: ['Priest', 'Chaplain', 'Confessor', 'High Confessor', 'Oracle', 'Prophet', 'Saint'] },
-  'Tactician': { icon: '♔', color: '#8030c8', members: ['Tactician', 'Strategist', 'Grand Strategist', 'War Master'] },
-  'Scout': { icon: '🦅', color: '#a8c830', members: ['Scout', 'Pathfinder', 'Trailblazer', 'Void Walker'] },
-  'Blacksmith': { icon: '⚒', color: '#888888', members: ['Blacksmith', 'Master Smith', 'Runesmith', 'Weaponsmith', 'Armorer', 'Artificer', 'Forge Lord'] },
-  'Chef': { icon: '🍳', color: '#c85030', members: ['Chef', 'Head Chef', 'Culinary Master', 'Brewmaster', 'Iron Chef', 'Sous Chef', 'Gourmet', 'Master Chef', 'Butcher'] },
-  'Medic': { icon: '✚', color: '#30c870', members: ['Medic', 'Field Medic', 'Surgeon', 'Miracle Worker', 'Chief Medical Officer'] },
-  'Quartermaster': { icon: '⚖', color: '#c8c030', members: ['Quartermaster', 'Logistics Officer', 'Guild Treasurer', 'Trade Baron', 'Advisor', 'General', 'Commander'] },
-  'Farmer': { icon: '🌾', color: '#9aaa30', members: ['Farmer', 'Master Farmer', 'Harvest Lord', 'Beast Tamer', 'Apex Predator', 'Wild Master', 'Forager', 'Scavenger', 'Hoarder', 'Tracker'] },
-  'Merchant': { icon: '💰', color: '#d4af37', members: ['Merchant', 'Trader', 'Guild Master', 'Trade Prince', 'Smuggler', 'Black Market Baron', 'Spy', 'Spymaster', 'Tycoon', 'Guildmaster'] },
-  'Alchemist': { icon: '⚗', color: '#30c8a0', members: ['Alchemist', 'Master Alchemist', 'Transmuter', 'Philosopher', 'Apothecary', 'Grand Alchemist', 'Herbalist', 'Poisoner', 'Plague Doctor'] },
-  'Magic Engineer': { icon: '⚙', color: '#30b8c8', members: ['Magic Engineer'] },
-  'Classless': { icon: '✦', color: '#888899', members: ['Classless', 'Adventurer', 'Veteran', 'Mercenary', 'Bounty Hunter', 'Hero', 'Champion'] },
+  'Warrior': { icon: 'class_warrior', color: '#c87830', members: ['Warrior', 'Knight', 'Berserker', 'Paladin', 'Aegis', 'Templar', 'Bloodrager', 'Juggernaut', 'Crusader', 'Divine Sentinel'] },
+  'Spearman': { icon: 'class_dragoon', color: '#c8a030', members: ['Spearman', 'Lancer', 'Halberdier', 'Dragoon', 'Pikemaster', 'Vanguard', 'Glaive Lord', 'Warlord', 'Wyvern Rider', 'Dragon Knight'] },
+  'Thief': { icon: 'class_rogue', color: '#7030c8', members: ['Thief', 'Assassin', 'Rogue', 'Ninja', 'Shadowblade', 'Nightstalker', 'Trickster', 'Shinobi', 'Shadowmaster', 'Infiltrator'] },
+  'Archer': { icon: 'class_ranger', color: '#30a030', members: ['Archer', 'Sniper', 'Ranger', 'Crossbowman', 'Marksman', 'Deadeye', 'Beastmaster', 'Warden', 'Arbalist', 'Siege Master'] },
+  'Mage': { icon: 'element_arcane', color: '#4060c8', members: ['Mage', 'Sorcerer', 'Warlock', 'Necromancer', 'Summoner', 'Archmage', 'Elementalist', 'Demonologist', 'Voidwalker', 'Lich', 'Deathcaller', 'Grand Summoner', 'Conjurer'] },
+  'Spellsword': { icon: 'element_lightning', color: '#5040d0', members: ['Spellsword', 'Eldritch Knight', 'Rune Blade', 'Arcane Lord', 'Mystic Vanguard', 'Rune Master', 'Spellweaver'] },
+  'Acolyte': { icon: 'element_sun', color: '#c0c0e0', members: ['Acolyte', 'Cleric', 'Bard', 'Druid', 'Monk', 'High Priest', 'Bishop', 'Maestro', 'Troubadour', 'Archdruid', 'Hierophant', 'Grandmaster', 'Zenith'] },
+  'Priest': { icon: 'element_holy', color: '#d8d8f0', members: ['Priest', 'Chaplain', 'Confessor', 'High Confessor', 'Oracle', 'Prophet', 'Saint'] },
+  'Tactician': { icon: 'class_leader', color: '#8030c8', members: ['Tactician', 'Strategist', 'Grand Strategist', 'War Master'] },
+  'Scout': { icon: 'creature_eagle', color: '#a8c830', members: ['Scout', 'Pathfinder', 'Trailblazer', 'Void Walker'] },
+  'Blacksmith': { icon: 'class_smith', color: '#888888', members: ['Blacksmith', 'Master Smith', 'Runesmith', 'Weaponsmith', 'Armorer', 'Artificer', 'Forge Lord'] },
+  'Chef': { icon: 'class_cook', color: '#c85030', members: ['Chef', 'Head Chef', 'Culinary Master', 'Brewmaster', 'Iron Chef', 'Sous Chef', 'Gourmet', 'Master Chef', 'Butcher'] },
+  'Medic': { icon: 'class_healer', color: '#30c870', members: ['Medic', 'Field Medic', 'Surgeon', 'Miracle Worker', 'Chief Medical Officer'] },
+  'Quartermaster': { icon: 'class_paladin', color: '#c8c030', members: ['Quartermaster', 'Logistics Officer', 'Guild Treasurer', 'Trade Baron', 'Advisor', 'General', 'Commander'] },
+  'Farmer': { icon: 'element_nature', color: '#9aaa30', members: ['Farmer', 'Master Farmer', 'Harvest Lord', 'Beast Tamer', 'Apex Predator', 'Wild Master', 'Forager', 'Scavenger', 'Hoarder', 'Tracker'] },
+  'Merchant': { icon: 'coin_pouch', color: '#d4af37', members: ['Merchant', 'Trader', 'Guild Master', 'Trade Prince', 'Smuggler', 'Black Market Baron', 'Spy', 'Spymaster', 'Tycoon', 'Guildmaster'] },
+  'Alchemist': { icon: 'alchemy_flask', color: '#30c8a0', members: ['Alchemist', 'Master Alchemist', 'Transmuter', 'Philosopher', 'Apothecary', 'Grand Alchemist', 'Herbalist', 'Poisoner', 'Plague Doctor'] },
+  'Magic Engineer': { icon: 'class_engineer', color: '#30b8c8', members: ['Magic Engineer'] },
+  'Classless': { icon: 'classless_runestone', color: '#888899', members: ['Classless', 'Adventurer', 'Veteran', 'Mercenary', 'Bounty Hunter', 'Hero', 'Champion'] },
 }
 
 const CLASS_ICONS = {}
@@ -189,7 +189,7 @@ export function ClassBadge({ heroClass }) {
       marginTop: '0.3em',
       cursor: 'help',
     }}>
-      {icon} {heroClass}
+      {icon !== '?' ? <GameIcon name={icon} size={14} /> : '?'} {heroClass}
     </span>
   )
 }
@@ -424,8 +424,8 @@ export default function HeroCard({ hero, onAssign, onManageEquipment, onManageCo
           <img
             key={retryKey}
             src={cardImgError
-              ? `http://localhost:8000/${hero.portrait_path}?t=${new Date().getTime()}`
-              : `http://localhost:8000/heroes/${hero.id}/card-image?mini=${!showFull}&t=${new Date().getTime()}`}
+              ? `/${hero.portrait_path}?t=${new Date().getTime()}`
+              : `/heroes/${hero.id}/card-image?mini=${!showFull}&t=${new Date().getTime()}`}
             alt={hero.name}
             className="hero-portrait"
             draggable={false}
@@ -457,9 +457,9 @@ export default function HeroCard({ hero, onAssign, onManageEquipment, onManageCo
             position: 'relative',
             overflow: 'hidden'
           }}>
-            <span style={{ fontSize: showFull ? '4em' : '2.5em', opacity: 0.5, marginBottom: '20px' }}>
-              {CLASS_ICONS[hero.hero_class] || '⚔'}
-            </span>
+          <div style={{ opacity: 0.5, marginBottom: '20px' }}>
+            <GameIcon name={CLASS_ICONS[hero.hero_class] || 'class_warrior'} size={showFull ? 64 : 40} />
+          </div>
             <div style={{
               position: 'absolute', bottom: '15px', left: 0, right: 0,
               textAlign: 'center', background: 'rgba(200, 50, 50, 0.8)',
@@ -715,10 +715,14 @@ export default function HeroCard({ hero, onAssign, onManageEquipment, onManageCo
                   )}
                 </div>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '0.3em' }}>
-                  {['weapon', 'armor', 'accessory'].map(slot => {
-                    const eq = hero.equipment ? hero.equipment.find(e => e.type?.toLowerCase() === slot) : null;
+                  {/* Heroes wear two accessories now — each accessory row
+                      shows the nth equipped accessory independently. */}
+                  {[['weapon', 0], ['armor', 0], ['accessory', 0], ['accessory', 1]].map(([slot, slotIdx]) => {
+                    const matches = hero.equipment ? hero.equipment.filter(e => e.type?.toLowerCase() === slot) : [];
+                    const eq = matches[slotIdx] || null;
+                    const slotLabel = slot === 'accessory' ? `accessory ${slotIdx + 1}` : slot;
                     return (
-                      <div key={slot} style={{
+                      <div key={`${slot}-${slotIdx}`} style={{
                         padding: '0.3rem 0.5em',
                         background: 'rgba(255,255,255,0.02)',
                         borderLeft: `2px solid ${eq ? rarityColor(eq.rarity) : '#444'}`,
@@ -730,7 +734,7 @@ export default function HeroCard({ hero, onAssign, onManageEquipment, onManageCo
                         <div style={{ display: 'flex', alignItems: 'center', gap: '0.4em', flex: 1, marginRight: '0.5em', minWidth: 0 }}>
                           {eq && <EquipmentTypeIcon item={eq} fontSize="1rem" glow={rarityColor(eq.rarity)} />}
                           <div style={{ minWidth: 0 }}>
-                          <div style={{ fontSize: '0.65em', color: 'var(--text-dim)', textTransform: 'capitalize', marginBottom: '0.1em' }}>{slot}</div>
+                          <div style={{ fontSize: '0.65em', color: 'var(--text-dim)', textTransform: 'capitalize', marginBottom: '0.1em' }}>{slotLabel}</div>
                           {eq ? (
                             <>
                               <div style={{ fontSize: '0.75em', color: 'var(--text-hi)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{eq.name}</div>

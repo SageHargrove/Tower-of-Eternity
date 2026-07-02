@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react'
+import GameIcon from './components/GameIcon'
 import SummonPage from './pages/SummonPage'
 import HeroesPage from './pages/HeroesPage'
 import TowerPage from './pages/TowerPage'
@@ -12,7 +13,8 @@ import HeroChat from './components/HeroChat'
 import ToastContainer from './components/ToastContainer'
 import TutorialOverlay from './components/TutorialOverlay'
 import TabTourOverlay from './components/TabTourOverlay'
-import { getBase, listProfiles, grantResources, clearDevInventory, setDevLevel, grantInventoryItem, listHeroes } from './api/client'
+import { getBase, grantResources, clearDevInventory, setDevLevel, grantInventoryItem, listHeroes } from './api/client'
+import { confirmDialog, alertDialog } from './components/DialogHost'
 import { initAudio, setSoundEnabled, isSoundEnabled, playClick, setBgmVolume, setSfxVolume } from './audio'
 
 const TABS = [
@@ -70,9 +72,7 @@ export default function App() {
   const [tourTabEntered, setTourTabEntered] = useState(false)
   const [baseSubTab, setBaseSubTab] = useState('lobby')
 
-  useEffect(() => { 
-    checkProfile()
-    
+  useEffect(() => {
     // Global click listener for buttons to play sound
     const handleGlobalClick = (e) => {
       if (e.target.closest('button')) {
@@ -82,12 +82,6 @@ export default function App() {
     document.addEventListener('click', handleGlobalClick)
     return () => document.removeEventListener('click', handleGlobalClick)
   }, [])
-
-  async function checkProfile() {
-    try {
-      const data = await listProfiles()
-    } catch {}
-  }
 
   async function refreshResources() {
     if (!activeProfile) return
@@ -152,12 +146,12 @@ export default function App() {
   }, [activeProfile])
 
   async function handleDevClearInventory() {
-    if (!confirm('Wipe all equipment, materials, potions, and scrolls on this profile?')) return
+    if (!(await confirmDialog('Wipe all equipment, materials, potions, and scrolls on this profile?'))) return
     setDevBusy(true)
     try {
       await clearDevInventory()
-      alert('Inventory cleared.')
-    } catch (e) { alert(e.message) } finally { setDevBusy(false) }
+      alertDialog('Inventory cleared.')
+    } catch (e) { alertDialog(e.message) } finally { setDevBusy(false) }
   }
 
   async function handleDevSetLevel() {
@@ -165,8 +159,8 @@ export default function App() {
     setDevBusy(true)
     try {
       const res = await setDevLevel(Number(devHeroId), Number(devLevel))
-      alert(`Set to level ${res.level}${res.capped ? ' (capped by star)' : ''}.`)
-    } catch (e) { alert(e.message) } finally { setDevBusy(false) }
+      alertDialog(`Set to level ${res.level}${res.capped ? ' (capped by star)' : ''}.`)
+    } catch (e) { alertDialog(e.message) } finally { setDevBusy(false) }
   }
 
   async function handleDevGrantItem() {
@@ -174,8 +168,8 @@ export default function App() {
     setDevBusy(true)
     try {
       await grantInventoryItem(devItemName.trim(), devItemType, Number(devItemQty))
-      alert(`Granted ${devItemQty}x ${devItemName}.`)
-    } catch (e) { alert(e.message) } finally { setDevBusy(false) }
+      alertDialog(`Granted ${devItemQty}x ${devItemName}.`)
+    } catch (e) { alertDialog(e.message) } finally { setDevBusy(false) }
   }
 
   async function handleGrantResources(gold, gems, supplies) {
@@ -183,7 +177,7 @@ export default function App() {
       await grantResources(gold, gems, supplies)
       refreshResources()
     } catch (e) {
-      alert(e.message)
+      alertDialog(e.message)
     }
   }
 
@@ -216,26 +210,37 @@ export default function App() {
   return (
     <div className="app">
       <header className="app-header" style={{ display: 'flex', justifyContent: 'space-between', width: '100%', padding: '1rem 2rem' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '2rem' }}>
-          <h1 style={{ fontSize: '2.5rem', margin: 0, display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-            <span style={{ color: 'var(--gold)', fontSize: '1.8rem', textShadow: '0 0 8px rgba(201,168,76,0.5)' }}>⬡</span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '1.5rem' }}>
+          <h1 style={{ fontSize: '2.2rem', margin: 0, display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+            <span style={{ color: 'var(--gold)', fontSize: '1.7rem', textShadow: '0 0 8px rgba(201,168,76,0.5)' }}>⬡</span>
             Tower of Eternity
           </h1>
-          <div className="text-dim" style={{ borderLeft: '2px solid var(--border)', paddingLeft: '2rem', fontSize: '1.6rem' }}>
-            Profile: <span className="text-gold" style={{ fontSize: '2.2rem', fontWeight: 'bold' }}>{activeProfile}</span>
+          <div className="text-dim" style={{ borderLeft: '1px solid var(--border)', paddingLeft: '1.5rem', fontSize: '0.85rem', textTransform: 'uppercase', letterSpacing: '0.1em' }}>
+            Profile<br />
+            <span className="text-gold" style={{ fontSize: '1.25rem', fontFamily: 'Cinzel, serif', letterSpacing: '0.03em', textTransform: 'none' }}>{activeProfile}</span>
           </div>
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '3rem' }}>
-          <button className="btn" style={{ padding: '0.8rem 1.5rem', fontSize: '1.2rem' }} onClick={() => setShowSettings(true)}>
-            ⚙️ Settings
-          </button>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '1.5rem' }}>
           {gold !== null && (
-            <div className="gold-display" style={{ display: 'flex', gap: '2rem', fontSize: '1.4rem' }}>
-              <span style={{ color: 'var(--gold)', fontWeight: 'bold' }}>🪙 {gold.toLocaleString()} GOLD</span>
-              {gems !== null && <span style={{ color: '#00ffff', fontWeight: 'bold', textShadow: '0 0 5px rgba(0,255,255,0.5)' }}>💎 {gems.toLocaleString()} GEMS</span>}
-              {supplies !== null && <span style={{ color: 'var(--subtext)', fontWeight: 'bold' }}>📦 {supplies.toLocaleString()} SUPPLIES</span>}
+            <div style={{ display: 'flex', gap: '0.8rem' }}>
+              <span className="resource-pill" style={{ color: 'var(--gold)' }}>
+                <GameIcon name="gold_coin" size={18} /> {gold.toLocaleString()} <span className="pill-label">GOLD</span>
+              </span>
+              {gems !== null && (
+                <span className="resource-pill" style={{ color: '#00ffff', textShadow: '0 0 5px rgba(0,255,255,0.4)' }}>
+                  <GameIcon name="gem" size={18} /> {gems.toLocaleString()} <span className="pill-label">GEMS</span>
+                </span>
+              )}
+              {supplies !== null && (
+                <span className="resource-pill" style={{ color: '#d3b890' }}>
+                  <GameIcon name="supplies" size={18} /> {supplies.toLocaleString()} <span className="pill-label">SUPPLIES</span>
+                </span>
+              )}
             </div>
           )}
+          <button className="btn" style={{ padding: '0.7rem 1.3rem', fontSize: '1rem' }} onClick={() => setShowSettings(true)}>
+            ⚙️ Settings
+          </button>
         </div>
       </header>
 

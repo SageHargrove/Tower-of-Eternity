@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react'
 import { listProfiles, switchProfile, renameProfile, deleteProfile } from '../api/client'
+import { confirmDialog } from './DialogHost'
 
 const DIFFICULTY_OPTIONS = [
   { id: 'easy', label: 'Easy', desc: 'Weaker enemies, +25% gold. Rare drops are less common.', note: 'Easy mode profiles are not eligible for leaderboard rankings.' },
@@ -72,7 +73,7 @@ export default function ProfileSelect({ onSelect }) {
 
   async function handleDelete() {
     if (!selectedProfile) return
-    if (!window.confirm(`Permanently delete "${selectedProfile}"?`)) return
+    if (!(await confirmDialog(`Permanently delete "${selectedProfile}"?`))) return
     try {
       setLoading(true)
       await deleteProfile(selectedProfile)
