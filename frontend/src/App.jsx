@@ -356,7 +356,7 @@ export default function App() {
                 setShowSettings(false)
                 setActiveProfile(null)
               }}>
-                🔄 Main Menu
+                <GameIcon name="compass" size={16} /> Main Menu
               </button>
               
               <button className="btn" style={{ marginTop: '1rem', background: 'var(--border)' }} onClick={() => setShowSettings(false)}>

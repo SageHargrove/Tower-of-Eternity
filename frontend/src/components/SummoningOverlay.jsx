@@ -1,6 +1,77 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useCallback } from 'react'
 import HeroCard from './HeroCard'
 import { playClick } from '../audio'
+
+// Star rarity -> glow color for the card back / burst (mirrors index.css
+// --star* vars; 7★ gets white-hot since the rainbow lives on the card itself).
+const STAR_GLOW = {
+  1: '#ffffff', 2: '#4dff4d', 3: '#1e90ff', 4: '#b84dff',
+  5: '#ffb300', 6: '#ff3333', 7: '#f0f0ff',
+}
+
+// One hero's tarot-flip reveal: a face-down card floats and sways in 3D,
+// then flips (click, or auto after a beat) with a star-colored burst to
+// reveal the real HeroCard. Static art + CSS transforms only.
+// Card-back art hook: drop frontend/public/icons/card_back.png and it
+// replaces the CSS-drawn ornate back automatically.
+function TarotReveal({ hero, onDone }) {
+  const [flipped, setFlipped] = useState(false)
+  const glow = STAR_GLOW[hero.birth_star] || '#ffffff'
+  const high = hero.birth_star >= 4
+
+  const flip = useCallback(() => {
+    setFlipped(f => {
+      if (!f) playClick()
+      return true
+    })
+  }, [])
+
+  // Auto-flip if the player doesn't click, then advance after a viewing beat.
+  useEffect(() => {
+    if (!flipped) {
+      const t = setTimeout(flip, 2600)
+      return () => clearTimeout(t)
+    }
+    const t = setTimeout(onDone, high ? 3200 : 2200)
+    return () => clearTimeout(t)
+  }, [flipped, flip, onDone, high])
+
+  return (
+    <div style={{ perspective: '1400px', margin: 'auto', cursor: flipped ? 'default' : 'pointer' }} onClick={flip}>
+      <div
+        className={`tarot-card ${flipped ? 'tarot-flipped' : ''}`}
+        style={{ '--glow': glow }}
+      >
+        {/* Back face (what you see before the flip) */}
+        <div className="tarot-face tarot-front">
+          <div className="tarot-back-art">
+            <img
+              src="/icons/card_back.png"
+              alt=""
+              draggable={false}
+              onError={(e) => { e.target.style.display = 'none' }}
+              style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover', borderRadius: 10 }}
+            />
+            {/* CSS-drawn ornate fallback beneath the (optional) art */}
+            <div className="tarot-back-fallback">
+              <div className="tarot-back-border" />
+              <img src="/icons/magic_synthesis.png" alt="" draggable={false} style={{ width: 110, height: 110, opacity: 0.9 }}
+                onError={(e) => { e.target.style.display = 'none' }} />
+            </div>
+          </div>
+          {!flipped && <div className="tarot-hint">Click to reveal</div>}
+        </div>
+
+        {/* Front face (the hero) */}
+        <div className="tarot-face tarot-backside">
+          <HeroCard hero={hero} showFull={false} />
+        </div>
+      </div>
+
+      {flipped && <div className="tarot-burst" style={{ '--glow': glow }} />}
+    </div>
+  )
+}
 
 export default function SummoningOverlay({ results, onComplete }) {
   const [phase, setPhase] = useState('rift') // 'rift' -> 'reveal'
@@ -21,24 +92,11 @@ export default function SummoningOverlay({ results, onComplete }) {
   }, [riftType])
 
   useEffect(() => {
-    if (phase === 'reveal' && currentIndex < results.length) {
-      const hero = results[currentIndex]
-      const isHighRarity = hero.birth_star >= 4
-      
-      playClick() // Click sound on reveal
-
-      const timer = setTimeout(() => {
-        setCurrentIndex(c => c + 1)
-      }, isHighRarity ? 2500 : 2000) // Pause longer on high rarity
-      return () => clearTimeout(timer)
-    } else if (phase === 'reveal' && currentIndex >= results.length) {
-      // Done revealing
-      const timer = setTimeout(() => {
-        onComplete()
-      }, 2500)
+    if (phase === 'reveal' && currentIndex >= results.length) {
+      const timer = setTimeout(onComplete, 400)
       return () => clearTimeout(timer)
     }
-  }, [phase, currentIndex, results, onComplete])
+  }, [phase, currentIndex, results.length, onComplete])
 
   const handleSkip = () => {
     onComplete()
@@ -53,13 +111,19 @@ export default function SummoningOverlay({ results, onComplete }) {
       padding: '2rem 0'
     }}>
       {/* Skip Button */}
-      <button 
-        className="btn" 
+      <button
+        className="btn"
         onClick={handleSkip}
         style={{ position: 'absolute', top: 20, right: 20, zIndex: 10000, background: 'rgba(0,0,0,0.5)', border: '1px solid var(--border)' }}
       >
         Skip All ⏭
       </button>
+
+      {phase === 'reveal' && results.length > 1 && (
+        <div style={{ position: 'absolute', top: 24, left: 24, zIndex: 10000, fontFamily: 'Cinzel, serif', color: 'var(--text-dim)', letterSpacing: '0.15em' }}>
+          {Math.min(currentIndex + 1, results.length)} / {results.length}
+        </div>
+      )}
 
       {phase === 'rift' && (
         <div style={{ position: 'relative', width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
@@ -70,28 +134,123 @@ export default function SummoningOverlay({ results, onComplete }) {
             {riftType === 'epic' && <div className="rift-lightning-gold" />}
             {riftType === 'apocalyptic' && <div className="rift-lightning-red" />}
           </div>
-          
+
           <div style={{ position: 'absolute', bottom: '20%', fontFamily: 'Cinzel, serif', fontSize: '2rem', letterSpacing: '8px', color: '#fff', animation: 'pulse 1s infinite' }}>
             {riftType === 'apocalyptic' ? 'A CALAMITY APPROACHES...' : riftType === 'epic' ? 'A GREAT POWER STIRS...' : 'SUMMONING...'}
           </div>
         </div>
       )}
 
-      {phase === 'reveal' && (
-        <div style={{ animation: 'zoomIn 0.3s ease-out', margin: 'auto' }} key={Math.min(currentIndex, results.length - 1)}>
-          <HeroCard 
-            hero={results[Math.min(currentIndex, results.length - 1)]} 
-            showFull={results[Math.min(currentIndex, results.length - 1)].birth_star >= 4} 
-          />
-        </div>
+      {phase === 'reveal' && currentIndex < results.length && (
+        <TarotReveal
+          key={results[currentIndex].id ?? currentIndex}
+          hero={results[currentIndex]}
+          onDone={() => setCurrentIndex(c => c + 1)}
+        />
       )}
 
-      {/* Global styles for rift animations */}
+      {/* Global styles for rift + tarot animations */}
       <style>{`
         @keyframes zoomIn {
           from { transform: scale(0.5); opacity: 0; }
           to { transform: scale(1); opacity: 1; }
         }
+
+        /* ── Tarot flip ─────────────────────────────────────────── */
+        @keyframes tarot-idle {
+          0%   { transform: rotateY(-14deg) translateY(0); }
+          25%  { transform: rotateY(0deg) translateY(-8px); }
+          50%  { transform: rotateY(14deg) translateY(0); }
+          75%  { transform: rotateY(0deg) translateY(8px); }
+          100% { transform: rotateY(-14deg) translateY(0); }
+        }
+        @keyframes tarot-burst-anim {
+          0%   { opacity: 0.9; transform: scale(0.3); }
+          100% { opacity: 0; transform: scale(3.2); }
+        }
+        @keyframes tarot-hint-pulse {
+          0%, 100% { opacity: 0.5; }
+          50% { opacity: 1; }
+        }
+
+        .tarot-card {
+          position: relative;
+          width: 300px;
+          transform-style: preserve-3d;
+          animation: tarot-idle 4.5s ease-in-out infinite;
+          transition: transform 0.75s cubic-bezier(0.3, 0, 0.2, 1);
+          filter: drop-shadow(0 0 25px var(--glow));
+        }
+        .tarot-card.tarot-flipped {
+          animation: none;
+          transform: rotateY(180deg);
+          filter: drop-shadow(0 0 18px var(--glow));
+        }
+
+        .tarot-face {
+          backface-visibility: hidden;
+          -webkit-backface-visibility: hidden;
+        }
+        .tarot-front {
+          position: absolute;
+          inset: 0;
+          z-index: 2;
+          border-radius: 10px;
+          overflow: hidden;
+        }
+        .tarot-backside {
+          transform: rotateY(180deg);
+        }
+
+        .tarot-back-art {
+          position: absolute;
+          inset: 0;
+          border-radius: 10px;
+        }
+        .tarot-back-fallback {
+          position: absolute;
+          inset: 0;
+          border-radius: 10px;
+          background:
+            radial-gradient(ellipse 80% 60% at 50% 40%, rgba(80, 30, 130, 0.55), transparent 75%),
+            linear-gradient(160deg, #14101e 0%, #0a0812 60%, #16112a 100%);
+          border: 2px solid var(--glow);
+          display: flex;
+          align-items: center;
+          justify-content: center;
+        }
+        .tarot-back-border {
+          position: absolute;
+          inset: 10px;
+          border: 1px solid rgba(201, 168, 76, 0.5);
+          border-radius: 6px;
+          pointer-events: none;
+        }
+
+        .tarot-hint {
+          position: absolute;
+          bottom: 14px;
+          left: 0; right: 0;
+          text-align: center;
+          font-family: 'Cinzel', serif;
+          font-size: 0.75rem;
+          letter-spacing: 0.2em;
+          color: rgba(255, 255, 255, 0.75);
+          animation: tarot-hint-pulse 1.6s ease-in-out infinite;
+          z-index: 3;
+        }
+
+        .tarot-burst {
+          position: absolute;
+          inset: -40px;
+          border-radius: 50%;
+          pointer-events: none;
+          background: radial-gradient(circle, var(--glow) 0%, transparent 65%);
+          animation: tarot-burst-anim 0.8s ease-out forwards;
+          z-index: 1;
+        }
+
+        /* ── Rift (pre-reveal buildup) ──────────────────────────── */
         @keyframes shakeEpic {
           0% { transform: translate(1px, 1px) rotate(0deg); }
           10% { transform: translate(-1px, -2px) rotate(-1deg); }

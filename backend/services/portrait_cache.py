@@ -78,7 +78,8 @@ FRAMING = (
 # it loses its actual color (the "everyone has cyan hair" problem).
 NEGATIVE_STYLE = (
     "soft airbrushed shading, painterly, semi-realistic skin texture, photographic, 3d render, "
-    "blurred shading, soft gradient blending, watercolor, (flat vector art:1.2), (solid flat color fill:1.2), "
+    "blurred shading, soft gradient blending, watercolor, (flat vector art:1.3), (solid flat color fill:1.3), "
+    "(face painted in one flat color:1.3), skin rendered as a single flat tone, no shadow tones on face, "
     "poster art, low contrast flat colors, muddy shading, "
     "blotchy skin discoloration, harsh shadow patches, uneven skin tone, "
     "completely black face, no facial detail, crushed blacks, underexposed face, silhouette face, "

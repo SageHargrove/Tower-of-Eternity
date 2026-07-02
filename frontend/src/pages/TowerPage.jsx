@@ -979,12 +979,9 @@ export default function TowerPage({ onGoldChange }) {
                   >
                     {isBoss && <div className="floor-tile-boss-stripe" />}
                     <div className="floor-tile-icon" style={{ fontSize: '1.4rem' }}>
-                      {/* Unvisited floors show a literal '?' — there's no
-                          question-mark art, and GameIcon hides itself on a
-                          missing file, leaving the tile blank. */}
                       {isLocked
                         ? <GameIcon name="locked_padlock" size={32} />
-                        : icon ? <GameIcon name={icon} size={32} /> : '?'}
+                        : <GameIcon name={icon || 'mystery_encounter'} size={32} />}
                     </div>
                     <div className="floor-tile-num" style={{ fontSize: '1.1rem', fontWeight: 600 }}>{floorNum}</div>
                     {isNext && <span className="floor-tile-tag" style={{ background: 'rgba(201,168,76,0.3)', color: 'var(--gold)' }}>Next</span>}

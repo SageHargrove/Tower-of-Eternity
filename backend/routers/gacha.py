@@ -152,17 +152,23 @@ def finalize_hero_async(hero_id: int, birth_star: int, aptitudes: dict, extra_pr
                         suffix += 1
                 claimed_name = profile.name
 
+            # The portrait's gender is the visible ground truth — the LLM's
+            # claimed gender must never overwrite it (confirmed mismatch:
+            # feminine names written onto male portraits and vice versa).
+            # When the hero was created from a cached portrait,
+            # fallback_gender IS that portrait's gender.
+            final_gender = fallback_gender if fallback_gender in ("male", "female") else getattr(profile, "gender", "unknown")
             with db() as conn:
                 conn.execute("""
                     UPDATE heroes SET name=?, title=?, backstory=?, personality=?, gender=?, ego_type=?, battle_tendency=?
                     WHERE id=?
                 """, (
                     profile.name, profile.title, profile.backstory, profile.personality,
-                    getattr(profile, "gender", "unknown"), getattr(profile, "ego_type", None),
+                    final_gender, getattr(profile, "ego_type", None),
                     getattr(profile, "battle_tendency", None), hero_id
                 ))
             if needs_custom_portrait:
-                queue_custom_portrait(hero_id, profile.portrait_prompt, profile.name, getattr(profile, "gender", "unknown"))
+                queue_custom_portrait(hero_id, profile.portrait_prompt, profile.name, final_gender)
         except Exception as e:
             print(f"[Gacha] Background LLM profile failed for hero {hero_id}: {e}")
             if needs_custom_portrait:
@@ -279,7 +285,7 @@ def _create_one_hero(birth_star: int, is_synergy: bool = False, is_leader: bool 
     if p_class:
         extra_prompt += f" This hero's class is {p_class}."
     if p_gender and p_gender != "unknown":
-        extra_prompt += f" This hero is {p_gender}."
+        extra_prompt += f" This hero is {p_gender} — their NAME must be an unmistakably {p_gender} name, and the gender field must be \"{p_gender}\"."
 
     profile = build_instant_profile(birth_star, p_gender, synergy_theme_desc if is_synergy else None)
 
@@ -646,7 +652,7 @@ def spark_redeem():
     if p_class:
         extra_prompt += f" This hero's class is {p_class}."
     if p_gender and p_gender != "unknown":
-        extra_prompt += f" This hero is {p_gender}."
+        extra_prompt += f" This hero is {p_gender} — their NAME must be an unmistakably {p_gender} name, and the gender field must be \"{p_gender}\"."
     profile = build_instant_profile(birth_star, p_gender)
 
     if old_path:

@@ -264,6 +264,41 @@ def _fit_name_font(draw: ImageDraw.ImageDraw, name: str, max_width: int, max_siz
     return _name_font(min_size)
 
 
+# Class-family icon art for the card's top medallion — mirrors the frontend's
+# CLASS_FAMILIES mapping in HeroCard.jsx exactly, so the medallion on the
+# card matches the class badge icon shown next to the class name in the UI.
+# Files live in static/icons/classes/ (copied from frontend/public/icons).
+_CLASS_ICON_FAMILIES = {
+    'class_warrior': ['Warrior', 'Knight', 'Berserker', 'Paladin', 'Aegis', 'Templar', 'Bloodrager', 'Juggernaut', 'Crusader', 'Divine Sentinel'],
+    'class_dragoon': ['Spearman', 'Lancer', 'Halberdier', 'Dragoon', 'Pikemaster', 'Vanguard', 'Glaive Lord', 'Warlord', 'Wyvern Rider', 'Dragon Knight'],
+    'class_rogue': ['Thief', 'Assassin', 'Rogue', 'Ninja', 'Shadowblade', 'Nightstalker', 'Trickster', 'Shinobi', 'Shadowmaster', 'Infiltrator'],
+    'class_ranger': ['Archer', 'Sniper', 'Ranger', 'Crossbowman', 'Marksman', 'Deadeye', 'Beastmaster', 'Warden', 'Arbalist', 'Siege Master'],
+    'element_arcane': ['Mage', 'Sorcerer', 'Warlock', 'Necromancer', 'Summoner', 'Archmage', 'Elementalist', 'Demonologist', 'Voidwalker', 'Lich', 'Deathcaller', 'Grand Summoner', 'Conjurer'],
+    'element_lightning': ['Spellsword', 'Eldritch Knight', 'Rune Blade', 'Arcane Lord', 'Mystic Vanguard', 'Rune Master', 'Spellweaver'],
+    'element_sun': ['Acolyte', 'Cleric', 'Bard', 'Druid', 'Monk', 'High Priest', 'Bishop', 'Maestro', 'Troubadour', 'Archdruid', 'Hierophant', 'Grandmaster', 'Zenith'],
+    'element_holy': ['Priest', 'Chaplain', 'Confessor', 'High Confessor', 'Oracle', 'Prophet', 'Saint'],
+    'class_leader': ['Tactician', 'Strategist', 'Grand Strategist', 'War Master'],
+    'creature_eagle': ['Scout', 'Pathfinder', 'Trailblazer', 'Void Walker'],
+    'class_smith': ['Blacksmith', 'Master Smith', 'Runesmith', 'Weaponsmith', 'Armorer', 'Artificer', 'Forge Lord'],
+    'class_cook': ['Chef', 'Head Chef', 'Culinary Master', 'Brewmaster', 'Iron Chef', 'Sous Chef', 'Gourmet', 'Master Chef', 'Butcher'],
+    'class_healer': ['Medic', 'Field Medic', 'Surgeon', 'Miracle Worker', 'Chief Medical Officer'],
+    'class_paladin': ['Quartermaster', 'Logistics Officer', 'Guild Treasurer', 'Trade Baron', 'Advisor', 'General', 'Commander'],
+    'element_nature': ['Farmer', 'Master Farmer', 'Harvest Lord', 'Beast Tamer', 'Apex Predator', 'Wild Master', 'Forager', 'Scavenger', 'Hoarder', 'Tracker'],
+    'coin_pouch': ['Merchant', 'Trader', 'Guild Master', 'Trade Prince', 'Smuggler', 'Black Market Baron', 'Spy', 'Spymaster', 'Tycoon', 'Guildmaster'],
+    'alchemy_flask': ['Alchemist', 'Master Alchemist', 'Transmuter', 'Philosopher', 'Apothecary', 'Grand Alchemist', 'Herbalist', 'Poisoner', 'Plague Doctor'],
+    'class_engineer': ['Magic Engineer'],
+    'classless_runestone': ['Classless', 'Adventurer', 'Veteran', 'Mercenary', 'Bounty Hunter', 'Hero', 'Champion'],
+}
+CLASS_ICON_FILES = {}
+for _icon, _members in _CLASS_ICON_FAMILIES.items():
+    for _m in _members:
+        CLASS_ICON_FILES.setdefault(_m, _icon)
+
+# Bump when the card drawing itself changes — invalidates every cached
+# composite without touching portraits/names (the other cache-key inputs).
+CARD_STYLE_VERSION = 2
+
+
 def composite_card(hero_id: int, portrait_path: str, birth_star: int, hero_name: str = "", crop_face: bool = False, hero_class: str = "") -> str:
     """Builds (or returns the cached) composited card image path for a hero.
     Cache key includes the portrait file's mtime (so a regenerated/rerolled
@@ -283,7 +318,7 @@ def composite_card(hero_id: int, portrait_path: str, birth_star: int, hero_name:
     mtime = int(os.path.getmtime(portrait_path))
     name_hash = abs(hash((hero_name, hero_class))) % 100000
     variant = "mini" if crop_face else "full"
-    out_path = os.path.join(CARD_CACHE_DIR, f"{hero_id}_{variant}_{tier}_{mtime}_{name_hash}.png")
+    out_path = os.path.join(CARD_CACHE_DIR, f"{hero_id}_{variant}_{tier}_{mtime}_{name_hash}_v{CARD_STYLE_VERSION}.png")
     if os.path.exists(out_path):
         return out_path
 
@@ -325,26 +360,25 @@ def composite_card(hero_id: int, portrait_path: str, birth_star: int, hero_name:
 
     cx = w // 2
 
-    # Class icon medallion at the top — the class's actual emoji icon
-    # (services.class_service.CLASS_ICONS, already used elsewhere in the
-    # app for this exact purpose) instead of a 2-letter abbreviation, which
-    # read as flat/placeholder-ish next to everything else on the card.
-    from services.class_service import get_class_icon
+    # Class icon medallion at the top — the SAME PNG class-family art the
+    # frontend's ClassBadge shows next to the class name, so the medallion
+    # and the badge always match (the old emoji glyphs did not). Falls back
+    # to the emoji glyph path only if the icon file is somehow missing.
     icon_y = margin + 38
     icon_color = _tier_color_at(tier, 0.6)
     draw.ellipse([cx - 32, icon_y - 32, cx + 32, icon_y + 32], fill=(20, 20, 24, 255), outline=(*icon_color, 255), width=4)
-    if hero_class == "Classless":
-        # "Classless" has no real emoji glyph in this font (renders as a
-        # tofu box) — hand-drawn sparkle instead, same approach as
-        # _draw_star for exactly this kind of glyph-coverage gap.
+    icon_file = CLASS_ICON_FILES.get(hero_class)
+    icon_path = os.path.join("static", "icons", "classes", f"{icon_file}.png") if icon_file else None
+    if icon_path and os.path.exists(icon_path):
+        icon_img = Image.open(icon_path).convert("RGBA")
+        icon_img.thumbnail((46, 46), Image.LANCZOS)
+        iw, ih = icon_img.size
+        canvas.alpha_composite(icon_img, (int(cx - iw / 2), int(icon_y - ih / 2)))
+    elif hero_class == "Classless":
         _draw_sparkle(draw, cx, icon_y, 16, icon_color)
     else:
-        icon_glyph = get_class_icon(hero_class)
-        # Rendered+cropped to its own true ink bbox rather than drawn
-        # directly with anchor="mm" — font-reported metrics for color
-        # emoji glyphs don't match where they actually paint, which left
-        # icons (the Acolyte cross especially) visibly off-center.
-        glyph_img = _render_emoji_glyph(icon_glyph, 34)
+        from services.class_service import get_class_icon
+        glyph_img = _render_emoji_glyph(get_class_icon(hero_class), 34)
         gw, gh = glyph_img.size
         canvas.alpha_composite(glyph_img, (int(cx - gw / 2), int(icon_y - gh / 2)))
 

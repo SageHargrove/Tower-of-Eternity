@@ -6,6 +6,7 @@ import ClassEvolutionModal from '../components/ClassEvolutionModal'
 import { HeroCompareModal, TeamCompareModal } from '../components/CompareModal'
 import { confirmDialog } from '../components/DialogHost'
 import SynthesisChamber from '../components/SynthesisChamber'
+import GameIcon from '../components/GameIcon'
 
 // Small % rolls are real now (a D-tier ring's 1.4% crit matters at that
 // level) — toFixed(0) rendered anything under 0.5% as a nonsense "+0%",
@@ -922,7 +923,7 @@ export default function HeroesPage() {
           )}
           {displayHeroes.length === 0 && !isTeamTab && (
             <div className="empty-state" style={{ gridColumn: '1 / -1' }}>
-              <div className="empty-state-icon">{activeTab === 'favorites' ? '♡' : '🕯️'}</div>
+              <div className="empty-state-icon">{activeTab === 'favorites' ? '♡' : <GameIcon name="classless_runestone" size={52} />}</div>
               <div className="empty-state-title">
                 {activeTab === 'favorites' ? 'No Favorites Yet' : heroes.length === 0 ? 'No Heroes Yet' : 'No Heroes Match These Filters'}
               </div>
