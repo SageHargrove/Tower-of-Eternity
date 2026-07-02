@@ -14,6 +14,7 @@ FACILITY_TYPES = {
     "Alchemist Lab": {"cost": 8000, "unlock_floor": 20, "max_level": 50},
     "Tavern": {"cost": 7000, "unlock_floor": 25, "max_level": 50},
     "Skydock": {"cost": 10000, "unlock_floor": 30, "max_level": 50},
+    "Wall": {"cost": 9000, "unlock_floor": 35, "max_level": 50},
     # Everything is obtainable by floor 50 — the game's hard enough that
     # late facilities need to arrive while they can still help.
     "Bastion": {"cost": 12000, "unlock_floor": 40, "max_level": 50},

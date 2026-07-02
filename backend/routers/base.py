@@ -300,6 +300,35 @@ def assign_base_floor(req: AssignFloorRequest):
         conn.execute("UPDATE heroes SET base_floor = ? WHERE id = ?", (floor, req.hero_id))
     return {"ok": True}
 
+# ─── Skydock: magic battleships ─────────────────────────────────────
+
+class RenameShipRequest(BaseModel):
+    name: str
+
+@router.get("/ship")
+def get_ship():
+    from services.ship_service import get_ship_status, get_base_defense
+    status = get_ship_status()
+    with db() as conn:
+        status["defense"] = get_base_defense(conn)
+    return status
+
+@router.post("/ship/build")
+def build_ship():
+    from services.ship_service import build_next_tier
+    try:
+        return build_next_tier()
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+@router.post("/ship/rename")
+def rename_ship_endpoint(req: RenameShipRequest):
+    from services.ship_service import rename_ship
+    try:
+        return rename_ship(req.name)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
 # ─── Daily Dungeon endpoints ────────────────────────────────────────
 
 @router.post("/daily_dungeon/{dungeon_type}")

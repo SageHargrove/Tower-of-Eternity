@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react'
-import { getBase, getFacilities, buildFacility, upgradeFacility, assignFacility, removeFacility, restHeroes, listHeroes, configTraining, getMageTowerUpgrades, buyResearchUpgrade, craftMaterialEquipment, craftBandages, getBaseFloors, assignBaseFloor, getLegacies, getChatLogs, renameBase, upgradeBase, getMarketCatalog, purchaseMarketItem, getBaseUpgrades, buyBaseUpgrade, getMailList, claimMail } from '../api/client'
+import { getBase, getFacilities, buildFacility, upgradeFacility, assignFacility, removeFacility, restHeroes, listHeroes, configTraining, getMageTowerUpgrades, buyResearchUpgrade, craftMaterialEquipment, craftBandages, getBaseFloors, assignBaseFloor, getLegacies, getChatLogs, renameBase, upgradeBase, getMarketCatalog, purchaseMarketItem, getBaseUpgrades, buyBaseUpgrade, getMailList, claimMail, getShip, buildShip, renameShip } from '../api/client'
 import MirrorOfFate from '../components/MirrorOfFate'
 import LoreJournal from '../components/LoreJournal'
 import GameIcon from '../components/GameIcon'
@@ -40,7 +40,8 @@ const FACILITY_TOOLTIPS = {
   "Alchemist Lab": "Brews potions passively over time. Alchemists and Mages brew dramatically faster; high Mental aptitude helps too.",
   "Tavern": "Assigned hosts take the edge off — passively reduces STRESS for the entire living roster. Bards and Chefs make the best hosts.",
   "Skydock": "Discounts the gold cost of upgrading every OTHER facility (up to 50% off), scaling with Skydock level — Magic Engineers triple their contribution. This is where magic battleships will be built: Magic Engineers craft the greatest hulls, but any high-Mental hero can apprentice here for a basic vessel.",
-  "Bastion": "Your base's defenses for the coming Raid system (raiding is opt-in — build this if you choose to play for raid stakes). Garrison heroes to raise your defense rating; the Magic Engineer's arcane cannons let even 1★ heroes hold a wall.",
+  "Wall": "The outer fortification — every level adds flat defense rating for the coming Raid system (opt-in). The anchor of your defenses: raiders must breach the Wall before the Bastion's garrison ever engages.",
+  "Bastion": "Your garrison for the coming Raid system (raiding is opt-in). Stationed heroes contribute their strength behind the Wall's cover — and a Magic Engineer's arcane cannons DOUBLE the whole garrison, letting even 1★ heroes hold the line.",
   "Shrine": "Assigned clergy slowly deepen the whole roster's LOYALTY (affinity) — the same track gifts raise, and the one that decides whether a captured hero stays yours. Priests and Acolytes are twice as effective.",
   "Mage Tower": "Conducts magical research for permanent upgrades. Magic Engineers are the most effective researchers, then Mages, then Spellswords."
 }
@@ -119,6 +120,9 @@ export default function BasePage({ onGoldChange, onSubTabChange, tourTargetSubTa
   
   const [sortMode, setSortMode] = useState('level-desc')
   const [filterClass, setFilterClass] = useState('All')
+  const [ship, setShip] = useState(null)
+  const [shipBusy, setShipBusy] = useState(false)
+  const [shipNameDraft, setShipNameDraft] = useState('')
   
   useEffect(() => { loadAll() }, [])
 
@@ -156,6 +160,7 @@ export default function BasePage({ onGoldChange, onSubTabChange, tourTargetSubTa
       setMarketCatalog(catalog)
       setBaseUpgrades(upgrades)
       setMailList(mail)
+      getShip().then(setShip).catch(() => {})
       
       const hasMage = fac.built?.some(f => f.type === 'Mage Tower')
       if (hasMage) {
@@ -541,6 +546,94 @@ const getGenRate = (fac) => {
         <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap' }}>
           {/* Left Column: Built Facilities */}
           <div style={{ flex: '2 1 500px', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+            {/* ── Shipyard — magic battleship, docked at the Skydock ── */}
+            {facilitiesData.built?.some(f => f.type === 'Skydock') && ship && (
+              <div className="card" style={{ overflow: 'hidden', padding: 0, border: '1px solid rgba(160,80,255,0.4)' }}>
+                <div style={{ width: '100%', aspectRatio: '21/9', overflow: 'hidden', position: 'relative', background: 'radial-gradient(ellipse at 50% 80%, rgba(60,30,100,0.4), #08060e)' }}>
+                  {ship.tier > 0 ? (
+                    <img src={`/images/battleships/ship_${ship.tier}.png`} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover', objectPosition: 'center' }} />
+                  ) : (
+                    <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: '0.4rem' }}>
+                      <div style={{ fontFamily: 'Cinzel, serif', letterSpacing: '0.2em', color: 'var(--text-dim)' }}>THE DRYDOCK IS EMPTY</div>
+                      <div className="text-dim" style={{ fontSize: '0.8rem', fontStyle: 'italic' }}>Lay a keel below.</div>
+                    </div>
+                  )}
+                  <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(to bottom, rgba(0,0,0,0) 55%, rgba(10,10,14,0.95) 100%)' }} />
+                </div>
+                <div style={{ padding: '1rem' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.5rem' }}>
+                    <div>
+                      <h3 style={{ fontFamily: 'Cinzel, serif', color: '#b06aff', margin: 0 }}>
+                        ⚓ {ship.tier > 0 ? (ship.ship_name || ship.ship.name) : 'Shipyard'}
+                        {ship.tier > 0 && <span className="text-dim" style={{ fontSize: '0.8rem', marginLeft: '0.6rem' }}>{ship.ship.name} · Tier {ship.tier}/5</span>}
+                      </h3>
+                      {ship.tier > 0 && (
+                        <div className="text-dim" style={{ fontSize: '0.82rem', fontStyle: 'italic', marginTop: '0.3rem', maxWidth: 560 }}>{ship.ship.desc}</div>
+                      )}
+                    </div>
+                    {ship.defense && (
+                      <div title="Base defense rating for the coming Raid system: Wall + Bastion garrison + docked ship."
+                        style={{ fontFamily: 'Cinzel, serif', fontSize: '0.8rem', color: 'var(--text-dim)', textAlign: 'right', cursor: 'help' }}>
+                        Defense <span style={{ color: 'var(--gold)', fontSize: '1.1rem' }}>{ship.defense.total}</span>
+                        <div style={{ fontSize: '0.65rem' }}>Wall {ship.defense.wall} · Garrison {ship.defense.garrison} · Ship {ship.defense.ship}</div>
+                      </div>
+                    )}
+                  </div>
+
+                  {ship.tier > 0 && (
+                    <div style={{ display: 'flex', gap: '1.2rem', marginTop: '0.6rem', fontSize: '0.8rem' }}>
+                      <span className="text-dim">Crew capacity <span style={{ color: 'var(--text-hi)' }}>{ship.ship.crew}</span></span>
+                      <span className="text-dim">Firepower <span style={{ color: 'var(--text-hi)' }}>{ship.ship.defense}</span></span>
+                      <form style={{ marginLeft: 'auto', display: 'flex', gap: '0.4rem' }} onSubmit={async (e) => {
+                        e.preventDefault()
+                        if (!shipNameDraft.trim()) return
+                        try { await renameShip(shipNameDraft); setShipNameDraft(''); getShip().then(setShip) } catch (err) { alertDialog(err.message) }
+                      }}>
+                        <input className="input" placeholder="Name your ship…" value={shipNameDraft} onChange={e => setShipNameDraft(e.target.value)}
+                          style={{ background: 'rgba(0,0,0,0.3)', border: '1px solid var(--border)', padding: '0.25rem 0.5rem', color: '#fff', borderRadius: 4, fontSize: '0.78rem', width: 160 }} />
+                        <button className="btn" type="submit" style={{ fontSize: '0.7rem', padding: '0.25rem 0.6rem' }} disabled={!shipNameDraft.trim()}>Christen</button>
+                      </form>
+                    </div>
+                  )}
+
+                  {ship.next ? (
+                    <div style={{ marginTop: '0.9rem', borderTop: '1px solid var(--border)', paddingTop: '0.8rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.6rem' }}>
+                      <div>
+                        <div style={{ fontFamily: 'Cinzel, serif', fontSize: '0.85rem', color: 'var(--text-hi)' }}>
+                          {ship.tier > 0 ? 'Next hull' : 'Lay a keel'}: {ship.next.name} <span className="text-gold">({ship.next.cost.toLocaleString()}g)</span>
+                        </div>
+                        <div className="text-dim" style={{ fontSize: '0.72rem', marginTop: '0.2rem' }}>
+                          {ship.next.requires === 'engineer'
+                            ? 'Requires a Magic Engineer assigned to the Skydock.'
+                            : 'Requires a Magic Engineer — or any hero with 70+ Mental aptitude — assigned to the Skydock.'}
+                        </div>
+                        {ship.blocker && <div style={{ fontSize: '0.72rem', color: 'var(--red)', marginTop: '0.2rem' }}>{ship.blocker}</div>}
+                      </div>
+                      <button
+                        className="btn"
+                        disabled={!ship.can_build || shipBusy}
+                        onClick={async () => {
+                          setShipBusy(true)
+                          try {
+                            const res = await buildShip()
+                            alertDialog(`The ${res.name} takes to the sky! (Tier ${res.tier})`)
+                            getShip().then(setShip)
+                            getBase().then(setBase)
+                          } catch (err) { alertDialog(err.message) } finally { setShipBusy(false) }
+                        }}
+                        style={{ border: '1px solid #b06aff', color: '#d0a0ff', background: 'rgba(80,30,130,0.2)', padding: '0.5rem 1.2rem' }}
+                      >
+                        {shipBusy ? 'Building…' : ship.tier > 0 ? 'Refit Hull' : 'Build Ship'}
+                      </button>
+                    </div>
+                  ) : (
+                    <div style={{ marginTop: '0.9rem', fontFamily: 'Cinzel, serif', fontSize: '0.8rem', color: '#b06aff', textAlign: 'center' }}>
+                      ✦ The greatest hull the Skydock can produce. The sky is yours. ✦
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
             {facilitiesData.built.sort((a,b) => a.cost - b.cost).map(fac => (
               <div key={fac.id} className="card" style={{ overflow: 'hidden', padding: 0 }}>
                 <div style={{ width: '100%', aspectRatio: '3/1', overflow: 'hidden', position: 'relative' }}>
