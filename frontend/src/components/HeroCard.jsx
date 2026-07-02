@@ -2,13 +2,17 @@ import React, { useState, useEffect } from 'react'
 import { regenerateProfile, getHeroAptitudes } from '../api/client'
 import { EquipmentTypeIcon } from './EquipmentTypeIcon'
 import GameIcon from './GameIcon'
+// Keep in sync with InventoryPage's ladder: common gray -> uncommon green ->
+// rare blue -> epic purple -> legendary orange -> red/cyan/magenta top end.
 const RARITY_COLORS = {
-  'D-': '#3ddb3d', 'D': '#4dff4d', 'D+': '#6bff6b',
-  'C-': '#1e90ff', 'C': '#3aa0ff', 'C+': '#5cb3ff',
-  'B-': '#a83dff', 'B': '#b84dff', 'B+': '#c66bff',
-  'A-': '#ffb300', 'A': '#ffc733', 'A+': '#ffd966',
-  'S-': '#ff3333', 'S': '#ff5555', 'S+': '#ff7777',
-  'SS': '#00ffff', 'SSS': '#66ffff', 'Z': '#ff00ff',
+  'F-': '#6e6e6e', 'F': '#787878', 'F+': '#828282',
+  'E-': '#969696', 'E': '#a2a2a2', 'E+': '#aeaeae',
+  'D-': '#c8c8c8', 'D': '#d8d8d8', 'D+': '#e8e8e8',
+  'C-': '#3fae5a', 'C': '#4dc06a', 'C+': '#63d97f',
+  'B-': '#3f7fd0', 'B': '#4f92e8', 'B+': '#6ba6f2',
+  'A-': '#8e44dd', 'A': '#a05aee', 'A+': '#b476f7',
+  'S-': '#e0912b', 'S': '#f2a63c', 'S+': '#ffc25e',
+  'SS': '#ff4444', 'SSS': '#00e5ff', 'Z': '#ff30dd',
 }
 function rarityColor(rarity) { return RARITY_COLORS[rarity] || '#888' }
 

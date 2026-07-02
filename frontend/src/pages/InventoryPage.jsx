@@ -12,15 +12,17 @@ const CONSUMABLE_COLORS = { potion: 'var(--green)', scroll: '#a83dff', summon_ti
 // different scale than hero star rarity (1-7) — the old code reused
 // var(--star${rarity}) here, which doesn't exist for a string like "C-"
 // and silently fell back to an almost-invisible default color.
+// Standard loot-color ladder (common gray -> uncommon green -> rare blue ->
+// epic purple -> legendary orange), brightening within each letter family.
 const RARITY_COLORS = {
-  'F-': '#888888', 'F': '#999999', 'F+': '#aaaaaa',
-  'E-': '#cccccc', 'E': '#dddddd', 'E+': '#eeeeee',
-  'D-': '#3ddb3d', 'D': '#4dff4d', 'D+': '#6bff6b',
-  'C-': '#1e90ff', 'C': '#3aa0ff', 'C+': '#5cb3ff',
-  'B-': '#a83dff', 'B': '#b84dff', 'B+': '#c66bff',
-  'A-': '#ffb300', 'A': '#ffc733', 'A+': '#ffd966',
-  'S-': '#ff3333', 'S': '#ff5555', 'S+': '#ff7777',
-  'SS': '#00ffff', 'SSS': '#66ffff', 'Z': '#ff00ff',
+  'F-': '#6e6e6e', 'F': '#787878', 'F+': '#828282',
+  'E-': '#969696', 'E': '#a2a2a2', 'E+': '#aeaeae',
+  'D-': '#c8c8c8', 'D': '#d8d8d8', 'D+': '#e8e8e8',
+  'C-': '#3fae5a', 'C': '#4dc06a', 'C+': '#63d97f',
+  'B-': '#3f7fd0', 'B': '#4f92e8', 'B+': '#6ba6f2',
+  'A-': '#8e44dd', 'A': '#a05aee', 'A+': '#b476f7',
+  'S-': '#e0912b', 'S': '#f2a63c', 'S+': '#ffc25e',
+  'SS': '#ff4444', 'SSS': '#00e5ff', 'Z': '#ff30dd',
 }
 function rarityColor(rarity) {
   return RARITY_COLORS[rarity] || '#ffffff'
@@ -318,7 +320,10 @@ export default function InventoryPage() {
                 } else if (item.itemType === 'equipment') {
                   borderColor = rarityColor(item.rarity)
                   bgColor = `rgba(255,255,255,0.05)`
-                  content = <EquipmentTypeIcon item={item} fontSize="3rem" glow={rarityColor(item.rarity)} />
+                  // No glow — the drop-shadow hugs the art's alpha edges,
+                  // which lights up every hole/crack in damaged-tier art.
+                  // Rarity reads from the border color instead.
+                  content = <EquipmentTypeIcon item={item} fontSize="3rem" />
                 }
               }
 
@@ -349,7 +354,7 @@ export default function InventoryPage() {
                     justifyContent: 'center',
                     position: 'relative',
                     cursor: isEmpty ? 'default' : 'pointer',
-                    boxShadow: item ? `inset 0 0 15px ${borderColor}20` : 'none',
+                    boxShadow: item ? `inset 0 0 24px ${borderColor}0d` : 'none',
                     transition: 'all 0.1s ease',
                     opacity: isEmpty ? 0.3 : 1
                   }}
@@ -513,7 +518,7 @@ export default function InventoryPage() {
               {selectedItem.itemType === 'equipment' && (
                 <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
                   <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '1rem' }}>
-                    <EquipmentTypeIcon item={selectedItem} fontSize="4rem" glow={rarityColor(selectedItem.rarity)} />
+                    <EquipmentTypeIcon item={selectedItem} fontSize="4rem" />
                   </div>
                   
                   <div style={{ fontFamily: 'Cinzel, serif', fontSize: '1.8rem', textAlign: 'center', color: rarityColor(selectedItem.rarity), borderBottom: `1px solid ${rarityColor(selectedItem.rarity)}`, paddingBottom: '0.5rem', marginBottom: '0.2rem', textShadow: `0 0 10px ${rarityColor(selectedItem.rarity)}` }}>
