@@ -670,6 +670,14 @@ WHERE NOT EXISTS (SELECT 1 FROM recipes WHERE name = 'Void Ring');
         except sqlite3.OperationalError:
             pass
 
+        # Gifting/loyalty track (0-100) — raised by gifts (services/
+        # gift_service.py), consumed by upcoming loyalty/raid mechanics.
+        try:
+            conn.execute("ALTER TABLE heroes ADD COLUMN affinity INTEGER DEFAULT 0")
+            print("[DB] Migrated: added column 'affinity' to heroes")
+        except sqlite3.OperationalError:
+            pass
+
         # Floor type is rolled once per floor number and cached here so
         # re-entering the same floor (rerun) always gives the same floor type.
         conn.execute("""

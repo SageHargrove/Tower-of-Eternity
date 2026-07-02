@@ -302,7 +302,7 @@ export default function InventoryPage() {
         <div className="card" style={{ flex: 2, display: 'flex', flexDirection: 'column', background: 'rgba(0,0,0,0.4)', border: '1px solid var(--border)', padding: '1.5rem', overflowY: 'auto' }}>
           {allItems.length === 0 && (
             <div className="empty-state">
-              <div className="empty-state-icon"><GameIcon name="locked_padlock" size={52} /></div>
+              <div className="empty-state-icon"><GameIcon name="empty_vault" size={72} /></div>
               <div className="empty-state-title">
                 {filter === 'All' && rarityFilter.size === 0 ? 'The Vault Is Empty' : 'Nothing Matches These Filters'}
               </div>

@@ -46,11 +46,17 @@ export default function ArenaPage() {
     if (serverUrl) refreshLeaderboard()
   }, [serverUrl])
 
+  // null = still trying, true = reachable, false = unreachable. The page
+  // renders its full layout regardless — sections just get a "Connecting…"
+  // veil while this isn't true.
+  const [serverOnline, setServerOnline] = useState(null)
+
   function refreshLeaderboard() {
     arenaLeaderboard().then(data => {
       setLeaderboard(data.leaderboard)
       setPveLeaderboard(data.pve_leaderboard || [])
-    }).catch(() => {})
+      setServerOnline(true)
+    }).catch(() => setServerOnline(false))
     arenaMarketGet().then(data => {
       setMarketListings(data.listings || [])
     }).catch(() => {})
@@ -224,37 +230,47 @@ export default function ArenaPage() {
 
   const teamEntries = Object.entries(teams).filter(([, heroes]) => heroes.length > 0)
 
+  // Veils a section with a "Connecting…" overlay while the server isn't
+  // reachable — the layout stays fully visible either way.
+  const SectionVeil = ({ children }) => (
+    <div style={{ position: 'relative' }}>
+      {children}
+      {serverOnline !== true && (
+        <div style={{
+          position: 'absolute', inset: 0, zIndex: 5, borderRadius: 6,
+          background: 'rgba(5,5,8,0.72)', backdropFilter: 'blur(1.5px)',
+          display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '0.4rem',
+        }}>
+          <div style={{ fontFamily: 'Cinzel, serif', letterSpacing: '0.2em', color: 'var(--text-dim)', animation: 'pulse-live 1.6s ease-in-out infinite' }}>
+            {serverOnline === null ? 'CONNECTING…' : 'SERVER OFFLINE'}
+          </div>
+          {serverOnline === false && (
+            <div className="text-dim" style={{ fontSize: '0.72rem' }}>Set the World Server address below to go online.</div>
+          )}
+        </div>
+      )}
+    </div>
+  )
+
   return (
     <div className="page">
-      <div className="section-header">Arena</div>
+      <div className="section-header" style={{ fontSize: '1.4rem' }}>World</div>
       <div className="text-dim text-sm" style={{ marginBottom: '1rem' }}>
-        PvP combat against other players' submitted teams. Heroes never die here and nothing
-        here ever touches your save — your local stats are snapshotted once when you submit a team.
+        Everything beyond your Tower: PvP arenas, leaderboards, raids, and server-wide tournaments.
+        Nothing here ever touches your save — heroes never truly die in the World.
       </div>
-
-      {/* Server config is a one-time setup detail, not the page's headline —
-          collapsed unless no server is configured yet. */}
-      <details className="card" open={!serverUrl} style={{ marginBottom: '1rem', padding: '0.8rem 1rem' }}>
-        <summary className="text-dim text-sm" style={{ cursor: 'pointer', userSelect: 'none' }}>
-          ⚙ Arena Server {serverUrl ? <span style={{ color: 'var(--green)' }}>· connected to {serverUrl}</span> : <span style={{ color: 'var(--red)' }}>· not configured</span>}
-        </summary>
-        <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.8rem' }}>
-          <input
-            type="text"
-            className="input"
-            placeholder="http://your-server-address:8001"
-            value={serverUrl}
-            onChange={e => setServerUrl(e.target.value)}
-            style={{ flex: 1, background: 'rgba(0,0,0,0.3)', border: '1px solid var(--border)', padding: '0.5rem', color: '#fff', borderRadius: 4 }}
-          />
-          <button className="btn" onClick={handleSaveUrl}>Save</button>
-        </div>
-      </details>
 
       {msg && <div className="text-sm" style={{ marginBottom: '1rem', color: 'var(--gold)' }}>{msg}</div>}
 
+      <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1.4fr) minmax(0, 1fr)', gap: '1.2rem', alignItems: 'start' }}>
+        {/* ── Left column: Arena (live PvP) ── */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '1.2rem' }}>
+          <SectionVeil>
+          <div className="card" style={{ padding: '1rem' }}>
+            <div className="section-header">⚔ Arena</div>
+
       {!token ? (
-        <div className="card" style={{ padding: '1rem', maxWidth: 400 }}>
+        <div style={{ maxWidth: 400 }}>
           <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1rem' }}>
             <button className={`btn ${authMode === 'login' ? 'btn-gold' : ''}`} onClick={() => setAuthMode('login')}>Login</button>
             <button className={`btn ${authMode === 'register' ? 'btn-gold' : ''}`} onClick={() => setAuthMode('register')}>Register</button>
@@ -321,7 +337,60 @@ export default function ArenaPage() {
               </div>
             </div>
           )}
+        </>
+      )}
+          </div>
+          </SectionVeil>
 
+          {/* ── Raids — coming soon ── */}
+          <div className="card" style={{ padding: '1rem', position: 'relative', overflow: 'hidden' }}>
+            <div className="section-header">🏰 Raids</div>
+            <div className="text-dim text-sm" style={{ lineHeight: 1.6 }}>
+              Every base has coordinates on the World map. Raid other players to steal resources —
+              or their heroes. Build defensive facilities (the Magic Engineer's arcane cannons let even
+              1★ heroes hold a wall), and keep your roster loyal: a captured hero with low affinity
+              may not stay yours for long.
+            </div>
+            {/* Placeholder map grid */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(8, 1fr)', gap: 3, marginTop: '0.9rem', opacity: 0.5 }}>
+              {Array.from({ length: 24 }).map((_, i) => (
+                <div key={i} style={{
+                  aspectRatio: '1', borderRadius: 3,
+                  background: i === 11 ? 'rgba(201,168,76,0.4)' : 'rgba(255,255,255,0.04)',
+                  border: i === 11 ? '1px solid var(--gold)' : '1px solid rgba(255,255,255,0.06)',
+                }} title={i === 11 ? 'Your base' : undefined} />
+              ))}
+            </div>
+            <div style={{ position: 'absolute', top: '0.9rem', right: '1rem', fontFamily: 'Cinzel, serif', fontSize: '0.68rem', letterSpacing: '0.15em', color: '#b06aff', border: '1px solid rgba(160,80,255,0.5)', borderRadius: 999, padding: '0.15rem 0.7rem' }}>
+              COMING SOON
+            </div>
+          </div>
+
+          {/* ── Tournaments — coming soon ── */}
+          <div className="card" style={{ padding: '1rem', position: 'relative' }}>
+            <div className="section-header">🏆 Tournaments & Events</div>
+            <div className="text-dim text-sm" style={{ lineHeight: 1.6, marginBottom: '0.8rem' }}>
+              Server-wide event cycles across four brackets. Placements earn points; the cycle's top
+              scorers take home massive rewards.
+            </div>
+            <div style={{ display: 'flex', gap: '0.6rem', flexWrap: 'wrap' }}>
+              {['1v1 Duels', '2v2 Pairs', '4v4 Warbands', 'Battle Royale'].map(b => (
+                <span key={b} style={{
+                  fontFamily: 'Cinzel, serif', fontSize: '0.75rem', letterSpacing: '0.08em',
+                  border: '1px solid var(--border-hi)', borderRadius: 999, padding: '0.3rem 0.9rem',
+                  color: 'var(--text-dim)', background: 'rgba(255,255,255,0.03)',
+                }}>{b}</span>
+              ))}
+            </div>
+            <div style={{ position: 'absolute', top: '0.9rem', right: '1rem', fontFamily: 'Cinzel, serif', fontSize: '0.68rem', letterSpacing: '0.15em', color: '#b06aff', border: '1px solid rgba(160,80,255,0.5)', borderRadius: 999, padding: '0.15rem 0.7rem' }}>
+              COMING SOON
+            </div>
+          </div>
+        </div>
+
+        {/* ── Right column: leaderboards/market + server config ── */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '1.2rem' }}>
+          <SectionVeil>
           <div className="card" style={{ padding: '1rem' }}>
             <div style={{ display: 'flex', gap: '1rem', marginBottom: '1rem', overflowX: 'auto' }}>
               <button className={`btn ${activeTab === 'pvp' ? 'btn-gold' : ''}`} onClick={() => setActiveTab('pvp')}>PvP Leaderboard</button>
@@ -408,8 +477,31 @@ export default function ArenaPage() {
               </div>
             )}
           </div>
-        </>
-      )}
+          </SectionVeil>
+
+          {/* Server config — setup detail, lives at the bottom of the column */}
+          <details className="card" open={!serverUrl} style={{ padding: '0.8rem 1rem' }}>
+            <summary className="text-dim text-sm" style={{ cursor: 'pointer', userSelect: 'none' }}>
+              ⚙ World Server {serverOnline === true
+                ? <span style={{ color: 'var(--green)' }}>· online — {serverUrl}</span>
+                : serverUrl
+                  ? <span style={{ color: 'var(--red)' }}>· unreachable — {serverUrl}</span>
+                  : <span style={{ color: 'var(--red)' }}>· not configured</span>}
+            </summary>
+            <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.8rem' }}>
+              <input
+                type="text"
+                className="input"
+                placeholder="http://your-server-address:8001"
+                value={serverUrl}
+                onChange={e => setServerUrl(e.target.value)}
+                style={{ flex: 1, background: 'rgba(0,0,0,0.3)', border: '1px solid var(--border)', padding: '0.5rem', color: '#fff', borderRadius: 4 }}
+              />
+              <button className="btn" onClick={handleSaveUrl}>Save</button>
+            </div>
+          </details>
+        </div>
+      </div>
     </div>
   )
 }

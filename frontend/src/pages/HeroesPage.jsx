@@ -6,6 +6,7 @@ import ClassEvolutionModal from '../components/ClassEvolutionModal'
 import { HeroCompareModal, TeamCompareModal } from '../components/CompareModal'
 import { confirmDialog } from '../components/DialogHost'
 import SynthesisChamber from '../components/SynthesisChamber'
+import GiftModal from '../components/GiftModal'
 import GameIcon from '../components/GameIcon'
 
 // Small % rolls are real now (a D-tier ring's 1.4% crit matters at that
@@ -64,6 +65,7 @@ export default function HeroesPage() {
   // the older in-grid synthMode plumbing below is retained but no longer
   // has an entry point.
   const [synthChamberOpen, setSynthChamberOpen] = useState(false)
+  const [giftHero, setGiftHero] = useState(null)
   const [synthMode, setSynthMode] = useState(false)
   const [synthTarget, setSynthTarget] = useState(null)
   const [synthSacrifice, setSynthSacrifice] = useState(null)
@@ -534,6 +536,20 @@ export default function HeroesPage() {
             {index < 2 ? 'FRONTLINE' : 'BACKLINE'}
           </div>
         )}
+        {hero.is_alive && !synthMode && (
+          <button
+            title={`Give ${hero.name} a gift`}
+            onClick={(e) => { e.stopPropagation(); setGiftHero(hero) }}
+            style={{
+              position: 'absolute', top: -10, right: isTeamTab ? 80 : 44,
+              background: 'rgba(20,20,24,0.9)', border: '1px solid var(--border)',
+              color: 'var(--text-dim)', padding: '2px 6px', borderRadius: 12,
+              fontSize: '0.75rem', zIndex: 10, cursor: 'pointer',
+            }}
+          >
+            🎁
+          </button>
+        )}
         {hero.is_alive && (
           <button
             title={hero.is_favorite ? 'Remove from Favorites' : 'Add to Favorites'}
@@ -673,6 +689,14 @@ export default function HeroesPage() {
           heroes={heroes}
           onClose={() => setSynthChamberOpen(false)}
           onComplete={() => load()}
+        />
+      )}
+
+      {giftHero && (
+        <GiftModal
+          hero={giftHero}
+          onClose={() => setGiftHero(null)}
+          onGifted={() => load()}
         />
       )}
 

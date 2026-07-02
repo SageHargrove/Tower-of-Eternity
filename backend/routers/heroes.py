@@ -564,6 +564,25 @@ def synthesize_hero(data: SynthesizeRequest):
     }
 
 
+# ─── Gifting ────────────────────────────────────────────────────────
+
+class GiftRequest(BaseModel):
+    gift_id: str
+
+@router.get("/gifts/catalog")
+def gift_catalog():
+    from services.gift_service import get_catalog
+    return {"gifts": get_catalog()}
+
+@router.post("/{hero_id}/gift")
+def give_hero_gift(hero_id: int, data: GiftRequest):
+    from services.gift_service import give_gift
+    try:
+        return give_gift(hero_id, data.gift_id)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
 # ─── Favorites ──────────────────────────────────────────────────────
 
 @router.post("/{hero_id}/favorite")
