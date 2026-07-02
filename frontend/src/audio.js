@@ -127,6 +127,134 @@ export function playHitSound(kind, isCrit = false) {
   }
 }
 
+// ─── Summoning / ritual SFX kit ─────────────────────────────────────
+// All synthesized in WebAudio (same approach as playHitSound) — zero asset
+// files, ships instantly, respects the SFX volume slider. If real samples
+// arrive later, each of these is one function-body swap.
+
+function _ready() {
+  if (!soundEnabled || !audioCtx || globalSfxVolume === 0) return false
+  if (audioCtx.state === 'suspended') audioCtx.resume()
+  return true
+}
+
+let _noiseBuf = null
+function _noise() {
+  if (!_noiseBuf) {
+    _noiseBuf = audioCtx.createBuffer(1, audioCtx.sampleRate * 0.5, audioCtx.sampleRate)
+    const d = _noiseBuf.getChannelData(0)
+    for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1
+  }
+  const src = audioCtx.createBufferSource()
+  src.buffer = _noiseBuf
+  return src
+}
+
+function _tone(freq, { type = 'sine', vol = 0.03, at = 0, dur = 0.15, slideTo = null } = {}) {
+  const now = audioCtx.currentTime + at
+  const osc = audioCtx.createOscillator()
+  const gain = audioCtx.createGain()
+  osc.type = type
+  osc.frequency.setValueAtTime(freq, now)
+  if (slideTo) osc.frequency.exponentialRampToValueAtTime(slideTo, now + dur)
+  gain.gain.setValueAtTime(vol * globalSfxVolume, now)
+  gain.gain.exponentialRampToValueAtTime(0.0008, now + dur)
+  osc.connect(gain); gain.connect(audioCtx.destination)
+  osc.start(now); osc.stop(now + dur)
+}
+
+// Card flip: a short air-whoosh (band-passed noise sweep) + a paper snap.
+export function playFlip() {
+  if (!_ready()) return
+  const now = audioCtx.currentTime
+  const noise = _noise()
+  const bp = audioCtx.createBiquadFilter()
+  bp.type = 'bandpass'
+  bp.frequency.setValueAtTime(600, now)
+  bp.frequency.exponentialRampToValueAtTime(2600, now + 0.16)
+  bp.Q.value = 1.2
+  const g = audioCtx.createGain()
+  g.gain.setValueAtTime(0.05 * globalSfxVolume, now)
+  g.gain.exponentialRampToValueAtTime(0.001, now + 0.18)
+  noise.connect(bp); bp.connect(g); g.connect(audioCtx.destination)
+  noise.start(now); noise.stop(now + 0.2)
+  _tone(1900, { type: 'triangle', vol: 0.025, at: 0.14, dur: 0.05 })
+}
+
+// Rarity stinger, played on top of the flip. Escalates with impact tier
+// (hero birth star / equipment tier bucket): 1-3 a soft pluck, 4-5 a gold
+// two-note chime, 6+ a rising three-note arpeggio with shimmer.
+export function playRevealStinger(tier = 1) {
+  if (!_ready()) return
+  if (tier >= 6) {
+    _tone(523, { vol: 0.05, at: 0.10, dur: 0.35 })
+    _tone(784, { vol: 0.05, at: 0.24, dur: 0.35 })
+    _tone(1046, { vol: 0.06, at: 0.38, dur: 0.6 })
+    _tone(2093, { type: 'triangle', vol: 0.02, at: 0.38, dur: 0.8 })
+    _tone(3136, { type: 'sine', vol: 0.012, at: 0.5, dur: 0.9 })
+  } else if (tier >= 4) {
+    _tone(659, { vol: 0.045, at: 0.10, dur: 0.3 })
+    _tone(988, { vol: 0.05, at: 0.26, dur: 0.5 })
+    _tone(1976, { type: 'triangle', vol: 0.015, at: 0.26, dur: 0.6 })
+  } else {
+    _tone(740, { type: 'triangle', vol: 0.03, at: 0.10, dur: 0.22 })
+  }
+}
+
+// Heavy thud when the summoning array slams in under the spread.
+export function playArrayThud() {
+  if (!_ready()) return
+  const now = audioCtx.currentTime
+  _tone(120, { type: 'sine', vol: 0.09, dur: 0.5, slideTo: 38 })
+  const noise = _noise()
+  const lp = audioCtx.createBiquadFilter()
+  lp.type = 'lowpass'
+  lp.frequency.value = 240
+  const g = audioCtx.createGain()
+  g.gain.setValueAtTime(0.06 * globalSfxVolume, now)
+  g.gain.exponentialRampToValueAtTime(0.001, now + 0.4)
+  noise.connect(lp); lp.connect(g); g.connect(audioCtx.destination)
+  noise.start(now); noise.stop(now + 0.45)
+  // faint arcane after-ring
+  _tone(392, { type: 'sine', vol: 0.015, at: 0.15, dur: 0.9 })
+}
+
+// Gift reaction: loved = bright ascending pair, neutral = single soft note,
+// disliked = flat descending pair.
+export function playGiftChime(reaction = 'neutral') {
+  if (!_ready()) return
+  if (reaction === 'loved') {
+    _tone(784, { vol: 0.04, dur: 0.2 })
+    _tone(1175, { vol: 0.045, at: 0.14, dur: 0.4 })
+    _tone(2349, { type: 'triangle', vol: 0.012, at: 0.14, dur: 0.5 })
+  } else if (reaction === 'disliked') {
+    _tone(392, { vol: 0.035, dur: 0.25 })
+    _tone(311, { vol: 0.03, at: 0.2, dur: 0.4 })
+  } else {
+    _tone(659, { type: 'triangle', vol: 0.03, dur: 0.3 })
+  }
+}
+
+// Synthesis rite: a low ominous swell that lasts roughly the consume
+// animation (~2.3s).
+export function playRiteHum() {
+  if (!_ready()) return
+  const now = audioCtx.currentTime
+  const osc = audioCtx.createOscillator()
+  const osc2 = audioCtx.createOscillator()
+  const g = audioCtx.createGain()
+  osc.type = 'sawtooth'; osc.frequency.setValueAtTime(55, now)
+  osc.frequency.linearRampToValueAtTime(110, now + 2.0)
+  osc2.type = 'sine'; osc2.frequency.setValueAtTime(220, now)
+  osc2.frequency.linearRampToValueAtTime(440, now + 2.0)
+  g.gain.setValueAtTime(0.0001, now)
+  g.gain.exponentialRampToValueAtTime(0.05 * globalSfxVolume, now + 1.6)
+  g.gain.exponentialRampToValueAtTime(0.0008, now + 2.4)
+  osc.connect(g); osc2.connect(g); g.connect(audioCtx.destination)
+  osc.start(now); osc2.start(now)
+  osc.stop(now + 2.4); osc2.stop(now + 2.4)
+}
+
 let bgmAudio = null
 
 function stopBgm() {

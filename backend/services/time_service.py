@@ -86,7 +86,8 @@ def process_passive_generation(conn):
 
     PREFERRED_CLASSES = {
         'Market': ('Merchant', 'Quartermaster'),
-        'Farm': ('Merchant', 'Druid'),
+        # Farmers work the Farm (was Merchant — a copy/paste from Market).
+        'Farm': ('Farmer', 'Druid'),
     }
 
     gold_gen = 0

@@ -13,6 +13,7 @@ def get_base():
     from services.alchemist_service import process_alchemist_lab
     from services.restaurant_service import process_restaurant
     from services.infirmary_service import process_infirmary
+    from services.sanctum_service import process_tavern, process_shrine
     from routers.gacha import maybe_reconcile_pending_profiles
     maybe_reconcile_pending_profiles()
     with db() as conn:
@@ -22,6 +23,8 @@ def get_base():
         process_alchemist_lab(conn)
         process_restaurant(conn)
         process_infirmary(conn)
+        process_tavern(conn)
+        process_shrine(conn)
         row = conn.execute("SELECT * FROM base WHERE id = 1").fetchone()
         result = dict(row)
         # Locked once per profile on first load — a 50/50 roll that then

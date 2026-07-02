@@ -26,17 +26,23 @@ const UPGRADE_BANNERS = {
 // We now dynamically load banners for facilities based on their type name.
 // E.g. /static/facilities/Market.png
 
+// Kept accurate to the actual backend effects (time_service, restaurant/
+// infirmary/alchemist/research/sanctum services, get_workshop_discount) —
+// each names the real mechanic and the classes the code actually favors.
 const FACILITY_TOOLTIPS = {
-  "Training Grounds": "Passively trains stationed heroes, granting XP over time. Assign heroes you want to bring up to speed without risking them in the Tower.",
-  "Forge": "Crafts powerful weapons, armor, and accessories. Quality is capped by your single best Blacksmith — more Blacksmiths of that same tier assigned together adds a smaller bonus on top.",
-  "Infirmary": "Heals trauma passively over time and crafts Bandages (auto-used to patch up your most injured heroes before the next floor). Assign Medics and Priests for better results.",
-  "Vault": "Expands equipment storage capacity. Quartermasters manage the Vault effectively.",
-  "Restaurant": "Cooks advanced meals to increase morale. Assign Chefs to maximize food quality.",
-  "Alchemist Lab": "Brews potions and elixirs. Alchemists and Mages excel in this facility.",
-  "Workshop": "Builds base upgrades and gadgets. Magic Engineers are the best fit.",
-  "Market": "Generates passive gold over time and stocks a small shop for supplies, materials, and bandages. Merchants and Quartermasters excel here.",
-  "Farm": "Generates passive supplies over time. Merchants and Druids excel here.",
-  "Mage Tower": "Conducts magical research. Magic Engineers are the most effective, with Mages and Spellswords close behind."
+  "Market": "Generates passive gold (scales with level) and stocks a small shop for supplies, materials, and bandages. Merchants and Quartermasters give the biggest generation bonus; anyone assigned helps a little and earns passive XP.",
+  "Farm": "Generates passive supplies (scales with level). Farmers and Druids give the biggest generation bonus; anyone assigned helps a little and earns passive XP.",
+  "Training Grounds": "Assigned heroes passively earn XP over time (scales with level) — level up the bench without risking them in the Tower.",
+  "Restaurant": "Assigned cooks passively restore MORALE for the entire living roster. Chefs are worth triple anyone else in the kitchen.",
+  "Forge": "Crafts weapons, armor, and accessories. Craft quality is capped by your single best Blacksmith — extra smiths of the same tier add a smaller bonus on top.",
+  "Infirmary": "Passively heals TRAUMA over time and crafts Bandages (auto-used on your most injured heroes before the next floor). Medics and Priests heal fastest.",
+  "Vault": "Each upgrade expands equipment storage capacity. Assigned caretakers don't affect capacity — they just earn passive XP while minding the shelves.",
+  "Alchemist Lab": "Brews potions passively over time. Alchemists and Mages brew dramatically faster; high Mental aptitude helps too.",
+  "Tavern": "Assigned hosts take the edge off — passively reduces STRESS for the entire living roster. Bards and Chefs make the best hosts.",
+  "Workshop": "Discounts the gold cost of upgrading every OTHER facility (up to 50% off), scaling with Workshop level. Magic Engineers triple their contribution.",
+  "Bastion": "Your base's defenses for the coming Raid system (raiding is opt-in — build this if you choose to play for raid stakes). Garrison heroes to raise your defense rating; the Magic Engineer's arcane cannons let even 1★ heroes hold a wall.",
+  "Shrine": "Assigned clergy slowly deepen the whole roster's LOYALTY (affinity) — the same track gifts raise, and the one that decides whether a captured hero stays yours. Priests and Acolytes are twice as effective.",
+  "Mage Tower": "Conducts magical research for permanent upgrades. Magic Engineers are the most effective researchers, then Mages, then Spellswords."
 }
 
 // Tiny inline sparkline showing the real diminishing-returns curve a

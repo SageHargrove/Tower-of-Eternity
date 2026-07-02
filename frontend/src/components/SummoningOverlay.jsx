@@ -1,7 +1,11 @@
 import React, { useState, useEffect, useCallback } from 'react'
 import HeroCard from './HeroCard'
 import { EquipmentTypeIcon } from './EquipmentTypeIcon'
-import { playClick } from '../audio'
+import { playClick, playFlip, playRevealStinger, playArrayThud } from '../audio'
+
+function itemTier(item) {
+  return item.is_equipment ? equipTier(item.rarity) : (item.birth_star || 1)
+}
 
 // Star rarity -> glow color for the REVEALED face border + burst (mirrors
 // index.css --star*; 7★ gets white-hot since the rainbow lives on the card).
@@ -79,13 +83,14 @@ function EquipmentFace({ item, glow }) {
 // card, never on the card itself — a CSS filter on the transformed element
 // forces transform-style back to flat, which breaks backface-visibility and
 // with it the entire flip (confirmed bug: cards wobbled but never revealed).
-function FlipCard({ item, flipped, onFlip, width, height, revealed }) {
+function FlipCard({ item, flipped, onFlip, onInspect, width, height, revealed }) {
   const glow = itemGlow(item)
   return (
     <div
       className={`tarot-glow ${flipped ? 'tarot-glow-flipped' : ''}`}
-      style={{ '--glow': glow, cursor: flipped ? 'default' : 'pointer', position: 'relative' }}
-      onClick={!flipped ? onFlip : undefined}
+      style={{ '--glow': glow, cursor: !flipped || onInspect ? 'pointer' : 'default', position: 'relative' }}
+      onClick={!flipped ? onFlip : onInspect}
+      title={flipped && onInspect ? `Inspect ${item.name}` : undefined}
     >
       <div style={{ perspective: '1200px' }}>
         <div className={`tarot-card ${flipped ? 'tarot-flipped' : ''}`} style={{ width, height }}>
@@ -109,53 +114,95 @@ function FlipCard({ item, flipped, onFlip, width, height, revealed }) {
   )
 }
 
-// Single-pull reveal: one large card, click to flip into the full HeroCard
-// (or equipment face).
-function SingleReveal({ item, onDone }) {
+// Single-pull reveal: one large card, click to flip. Stays on screen until
+// Continue — this IS the result screen (click the revealed hero to inspect).
+function SingleReveal({ item, onDone, onInspect }) {
   const [flipped, setFlipped] = useState(false)
-  const high = isHighImpact(item)
 
   const flip = useCallback(() => {
     setFlipped(f => {
-      if (!f) playClick()
+      if (!f) {
+        playFlip()
+        playRevealStinger(itemTier(item))
+      }
       return true
     })
-  }, [])
+  }, [item])
 
   useEffect(() => {
     if (!flipped) {
       const t = setTimeout(flip, 2800)
       return () => clearTimeout(t)
     }
-    const t = setTimeout(onDone, high ? 3400 : 2400)
-    return () => clearTimeout(t)
-  }, [flipped, flip, onDone, high])
+  }, [flipped, flip])
 
   const glow = itemGlow(item)
 
+  // Fixed 2:3 slot for BOTH faces — the back and the revealed hero card
+  // are the exact same size/shape (the full stat card lives on the results
+  // grid afterward; the reveal moment is just the card art).
+  const W = 340
+  const H = 510
+
   return (
-    <div style={{ margin: 'auto' }}>
+    <div style={{ margin: 'auto', textAlign: 'center' }}>
       <FlipCard
         item={item}
         flipped={flipped}
         onFlip={flip}
-        width={300}
-        height={item.is_equipment ? 440 : undefined}
-        revealed={item.is_equipment
-          ? <div style={{ position: 'absolute', inset: 0 }}><EquipmentFace item={item} glow={glow} /></div>
-          : <HeroCard hero={item} showFull={false} />}
+        onInspect={!item.is_equipment && onInspect ? () => onInspect(item) : undefined}
+        width={W}
+        height={H}
+        revealed={
+          <div style={{ position: 'absolute', inset: 0 }}>
+            {item.is_equipment ? (
+              <EquipmentFace item={item} glow={glow} />
+            ) : item.portrait_path ? (
+              <img
+                src={`/heroes/${item.id}/card-image`}
+                onError={(e) => { e.target.onerror = null; e.target.src = `/${item.portrait_path}` }}
+                draggable={false}
+                style={{ width: '100%', height: '100%', objectFit: 'contain', borderRadius: 10 }}
+                alt={item.name}
+              />
+            ) : (
+              <div style={{
+                width: '100%', height: '100%', borderRadius: 10, border: `1px solid ${glow}`,
+                background: 'var(--bg-card)', display: 'flex', flexDirection: 'column',
+                alignItems: 'center', justifyContent: 'center', gap: 8, textAlign: 'center', padding: 12,
+              }}>
+                <div style={{ fontFamily: 'Cinzel, serif', fontSize: '1.1rem', color: 'var(--text-hi)' }}>{item.name}</div>
+                <div style={{ color: glow }}>{'★'.repeat(item.birth_star || 1)}</div>
+              </div>
+            )}
+          </div>
+        }
       />
-      {!flipped && (
+      {!flipped ? (
         <div className="tarot-hint" style={{ position: 'static', marginTop: '0.8rem' }}>Click to reveal</div>
+      ) : (
+        <div style={{ marginTop: '1rem', display: 'flex', flexDirection: 'column', gap: '0.5rem', alignItems: 'center' }}>
+          {!item.is_equipment && (
+            <div className="text-dim" style={{ fontSize: '0.75rem', fontFamily: 'Cinzel, serif', letterSpacing: '0.1em' }}>
+              Click the card to inspect
+            </div>
+          )}
+          <button className="btn btn-gold" style={{ padding: '0.6rem 2rem' }} onClick={onDone}>Continue</button>
+        </div>
       )}
     </div>
   )
 }
 
 // Multi-pull spread: every card dealt face-down at once in a 3-4-3 layout
-// over the summoning array. Click each to flip, or Reveal All.
-function TarotSpread({ results, onComplete }) {
+// over the summoning array. Click each to flip, or Reveal All. Once flipped,
+// this IS the result screen — click any revealed hero to inspect their full
+// card; Continue leaves the rite.
+function TarotSpread({ results, onComplete, onInspect }) {
   const [flipped, setFlipped] = useState(() => new Set())
+
+  // The array slamming in deserves weight.
+  useEffect(() => { playArrayThud() }, [])
 
   const keyOf = (item, i) => item.id ?? `i${i}`
   const columns = results.length >= 8
@@ -163,13 +210,15 @@ function TarotSpread({ results, onComplete }) {
     : [results]
   const allFlipped = flipped.size >= results.length
 
-  function flipOne(key) {
-    playClick()
+  function flipOne(key, item) {
+    playFlip()
+    playRevealStinger(itemTier(item))
     setFlipped(prev => new Set(prev).add(key))
   }
 
   function revealAll() {
-    playClick()
+    playFlip()
+    playRevealStinger(Math.max(...results.map(itemTier)))
     setFlipped(new Set(results.map((item, i) => keyOf(item, i))))
   }
 
@@ -204,7 +253,8 @@ function TarotSpread({ results, onComplete }) {
                   key={key}
                   item={item}
                   flipped={flipped.has(key)}
-                  onFlip={() => flipOne(key)}
+                  onFlip={() => flipOne(key, item)}
+                  onInspect={!item.is_equipment && onInspect ? () => onInspect(item) : undefined}
                   width={176}
                   height={264}
                   revealed={
@@ -247,9 +297,14 @@ function TarotSpread({ results, onComplete }) {
             <button className="btn btn-gold" onClick={revealAll}>Reveal All</button>
           </>
         ) : (
-          <button className="btn btn-gold" style={{ padding: '0.7rem 2.2rem', fontSize: '1rem', boxShadow: '0 0 15px rgba(201,168,76,0.4)' }} onClick={onComplete}>
-            Continue
-          </button>
+          <>
+            <div className="text-dim" style={{ fontFamily: 'Cinzel, serif', letterSpacing: '0.1em', fontSize: '0.8rem' }}>
+              Click any card to inspect
+            </div>
+            <button className="btn btn-gold" style={{ padding: '0.7rem 2.2rem', fontSize: '1rem', boxShadow: '0 0 15px rgba(201,168,76,0.4)' }} onClick={onComplete}>
+              Continue
+            </button>
+          </>
         )}
       </div>
     </div>
@@ -259,6 +314,7 @@ function TarotSpread({ results, onComplete }) {
 export default function SummoningOverlay({ results, onComplete }) {
   // No pre-reveal buildup phase — straight to the cards.
   const isSpread = results.length > 1
+  const [inspectHero, setInspectHero] = useState(null)
 
   return (
     <div style={{
@@ -277,10 +333,22 @@ export default function SummoningOverlay({ results, onComplete }) {
       </button>
 
       {isSpread ? (
-        <TarotSpread results={results} onComplete={onComplete} />
+        <TarotSpread results={results} onComplete={onComplete} onInspect={setInspectHero} />
       ) : results.length === 1 ? (
-        <SingleReveal item={results[0]} onDone={onComplete} />
+        <SingleReveal item={results[0]} onDone={onComplete} onInspect={setInspectHero} />
       ) : null}
+
+      {/* Full hero sheet, opened by clicking a revealed card */}
+      {inspectHero && (
+        <div style={{
+          position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.88)', zIndex: 10001,
+          display: 'flex', alignItems: 'center', justifyContent: 'center', backdropFilter: 'blur(4px)',
+        }} onClick={() => setInspectHero(null)}>
+          <div style={{ width: 1000, maxWidth: '95vw', maxHeight: '90vh', overflowY: 'auto', borderRadius: 8 }} onClick={e => e.stopPropagation()}>
+            <HeroCard hero={inspectHero} showFull={true} />
+          </div>
+        </div>
+      )}
 
       <style>{`
         @keyframes tarot-idle {

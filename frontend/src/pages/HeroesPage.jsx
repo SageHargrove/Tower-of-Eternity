@@ -7,6 +7,7 @@ import { HeroCompareModal, TeamCompareModal } from '../components/CompareModal'
 import { confirmDialog } from '../components/DialogHost'
 import SynthesisChamber from '../components/SynthesisChamber'
 import GiftModal from '../components/GiftModal'
+import { GiftIcon, HeartIcon } from '../components/ActionIcons'
 import GameIcon from '../components/GameIcon'
 
 // Small % rolls are real now (a D-tier ring's 1.4% crit matters at that
@@ -538,21 +539,23 @@ export default function HeroesPage() {
         )}
         {hero.is_alive && !synthMode && (
           <button
+            className="hero-chip-btn"
             title={`Give ${hero.name} a gift`}
             onClick={(e) => { e.stopPropagation(); setGiftHero(hero) }}
             style={{
               position: 'absolute', top: -10, right: isTeamTab ? 80 : 44,
               background: 'rgba(20,20,24,0.9)', border: '1px solid var(--border)',
-              color: 'var(--text-dim)', padding: '2px 6px', borderRadius: 12,
+              color: '#c9a84c', padding: '2px 6px', borderRadius: 12,
               fontSize: '0.75rem', zIndex: 10, cursor: 'pointer',
             }}
           >
-            🎁
+            <GiftIcon size={13} />
           </button>
         )}
         {hero.is_alive && (
           <button
-            title={hero.is_favorite ? 'Remove from Favorites' : 'Add to Favorites'}
+            className="hero-chip-btn"
+            title={hero.is_favorite ? 'Remove from Favorites' : 'Add to Favorites (favorites are protected from Synthesis)'}
             onClick={(e) => handleToggleFavorite(hero.id, e)}
             style={{
               position: 'absolute', top: -10, right: isTeamTab ? 44 : 8,
@@ -564,7 +567,7 @@ export default function HeroesPage() {
               boxShadow: hero.is_favorite ? '0 0 8px rgba(224,96,128,0.5)' : 'none',
             }}
           >
-            {hero.is_favorite ? '♥' : '♡'}
+            <HeartIcon size={13} filled={!!hero.is_favorite} />
           </button>
         )}
         {isTeamTab && hero.is_alive && (
@@ -795,12 +798,6 @@ export default function HeroesPage() {
             display: 'flex', alignItems: 'center', gap: '0.8rem', flexWrap: 'wrap',
             borderRadius: 6, padding: '0.3rem 0', marginBottom: '0.8rem',
           }}>
-            <span
-              style={{ fontFamily: 'Cinzel, serif', color: 'var(--gold)', fontSize: '0.9rem', cursor: 'help' }}
-              title="Click the circle in a hero's top-left corner to select 2-4 heroes, then compare them side by side."
-            >
-              ⚖ Compare <span className="text-dim" style={{ fontSize: '0.75rem' }}>[?]</span>
-            </span>
             <button
               className="btn btn-gold"
               style={{ marginLeft: 'auto', padding: '0.35rem 0.9rem', fontSize: '0.72rem' }}

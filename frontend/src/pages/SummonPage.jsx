@@ -89,7 +89,6 @@ export default function SummonPage({ onGoldChange }) {
   const [heroOddsCurrency, setHeroOddsCurrency] = useState('gem')
   const [equipOddsCurrency, setEquipOddsCurrency] = useState('gem')
   const [error, setError] = useState(null)
-  const [expandedId, setExpandedId] = useState(null)
   const [showAnimation, setShowAnimation] = useState(false)
   const [fairyGender, setFairyGender] = useState('female')
   const [fairyTip, setFairyTip] = useState({ show: false, message: '' })
@@ -122,7 +121,7 @@ export default function SummonPage({ onGoldChange }) {
       // Portraits are always generated — this stopped being a player choice.
       const data = await pullHeroes(count, true, currency)
       setHeroResults(data.pulled)
-      const cost = count * (currency === 'gold' ? 400 : 100)
+      const cost = count * (currency === 'gold' ? 500 : 100)
       if (currency === 'gold') setGold(g => g - cost)
       else setGems(g => g - cost)
       setShowAnimation(true)
@@ -155,7 +154,7 @@ export default function SummonPage({ onGoldChange }) {
       const data = await pullEquipment(count, currency)
       setEquipResults(data.results.map(e => ({...e, is_equipment: true})))
       setShowAnimation(true)
-      const cost = count * (currency === 'gem' ? 75 : 300)
+      const cost = count * (currency === 'gem' ? 75 : 250)
       if (currency === 'gem') setGems(g => g - cost)
       else setGold(g => g - cost)
       await refreshData()
@@ -174,6 +173,7 @@ export default function SummonPage({ onGoldChange }) {
     try {
       const data = await redeemSpark()
       setHeroResults([data.hero])
+      setShowAnimation(true)
       await refreshData()
     } catch (e) {
       setError(e.message)
@@ -189,6 +189,7 @@ export default function SummonPage({ onGoldChange }) {
     try {
       const data = await redeemEquipSpark()
       setEquipResults([{ ...data.equipment, is_equipment: true }])
+      setShowAnimation(true)
       await refreshData()
     } catch (e) {
       setError(e.message)
@@ -260,10 +261,10 @@ export default function SummonPage({ onGoldChange }) {
               <div className="text-dim" style={{ fontSize: '0.85rem' }}>you have <span className="text-gold">{gold.toLocaleString()} <GameIcon name="gold_coin" size={14} /></span></div>
             </div>
             <div style={{ display: 'flex', gap: '1.5rem' }}>
-              <SummonButton title="Summon 1x" cost={400} currency="gold" balance={gold}
-                onClick={() => doPull(1, 'gold')} disabled={pulling || gold < 400} pulling={pulling} />
-              <SummonButton title="Summon 10x" cost={4000} currency="gold" balance={gold}
-                onClick={() => doPull(10, 'gold')} disabled={pulling || gold < 4000} pulling={pulling} />
+              <SummonButton title="Summon 1x" cost={500} currency="gold" balance={gold}
+                onClick={() => doPull(1, 'gold')} disabled={pulling || gold < 500} pulling={pulling} />
+              <SummonButton title="Summon 10x" cost={5000} currency="gold" balance={gold}
+                onClick={() => doPull(10, 'gold')} disabled={pulling || gold < 5000} pulling={pulling} />
             </div>
           </div>
 
@@ -363,10 +364,10 @@ export default function SummonPage({ onGoldChange }) {
               <div className="text-dim" style={{ fontSize: '0.85rem' }}>you have <span className="text-gold">{gold.toLocaleString()} <GameIcon name="gold_coin" size={14} /></span></div>
             </div>
             <div style={{ display: 'flex', gap: '1.5rem' }}>
-              <SummonButton title="Summon 1x" cost={300} currency="gold" balance={gold}
-                onClick={() => doPullEquipment(1, 'gold')} disabled={pulling || gold < 300} pulling={pulling} />
-              <SummonButton title="Summon 10x" cost={3000} currency="gold" balance={gold}
-                onClick={() => doPullEquipment(10, 'gold')} disabled={pulling || gold < 3000} pulling={pulling} />
+              <SummonButton title="Summon 1x" cost={250} currency="gold" balance={gold}
+                onClick={() => doPullEquipment(1, 'gold')} disabled={pulling || gold < 250} pulling={pulling} />
+              <SummonButton title="Summon 10x" cost={2500} currency="gold" balance={gold}
+                onClick={() => doPullEquipment(10, 'gold')} disabled={pulling || gold < 2500} pulling={pulling} />
             </div>
           </div>
 
@@ -438,54 +439,8 @@ export default function SummonPage({ onGoldChange }) {
           )}
       </div>
 
-      {/* Results — hero and equipment pulls keep separate history, shown
-          according to whichever tab is active. */}
-      {results.length > 0 && (
-        <div style={{ marginTop: '2rem' }}>
-          <div className="section-header" style={{ marginBottom: '1rem' }}>Summoned</div>
-          <div className="hero-grid">
-            {results.map((item, idx) => {
-              if (item.is_equipment) {
-                return (
-                  <div key={idx} className="card" style={{ border: '1px solid var(--border)', textAlign: 'center', padding: '1.5rem', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
-                    <div style={{ marginBottom: '0.5rem' }}>
-                      <EquipmentTypeIcon item={item} fontSize="3rem" />
-                    </div>
-                    <div style={{ fontSize: '1.2rem', fontFamily: 'Cinzel, serif', fontWeight: 'bold' }}>{item.name}</div>
-                    <div style={{ fontSize: '1rem', marginTop: '0.5rem', color: 'var(--star5)' }}>{item.rarity} Rank</div>
-                  </div>
-                )
-              }
-              return (
-                <div key={item.id}>
-                  <HeroCard hero={item} onClick={() => setExpandedId(item.id)} />
-                  {item.chatter_line && (
-                    <div style={{ marginTop: '0.4rem', textAlign: 'center', fontStyle: 'italic', fontSize: '0.85rem', color: 'var(--gold)' }}>
-                      "{item.chatter_line}"
-                    </div>
-                  )}
-                </div>
-              )
-            })}
-          </div>
-        </div>
-      )}
-
-      {expandedId && (
-        <div style={{
-          position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
-          background: 'rgba(0,0,0,0.85)', zIndex: 100,
-          display: 'flex', alignItems: 'center', justifyContent: 'center',
-          backdropFilter: 'blur(5px)'
-        }} onClick={() => setExpandedId(null)}>
-          <div style={{ width: '1000px', maxWidth: '95vw', maxHeight: '90vh', overflowY: 'auto', borderRadius: '8px' }} onClick={e => e.stopPropagation()}>
-            <HeroCard
-              hero={heroResults.find(h => h.id === expandedId)}
-              showFull={true}
-            />
-          </div>
-        </div>
-      )}
+      {/* No post-summon summary grid — the tarot spread IS the results
+          screen (cards are inspectable in place, screenshot-worthy). */}
         </>
       )}
     </div>

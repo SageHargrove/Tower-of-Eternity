@@ -1,5 +1,6 @@
 import React, { useState } from 'react'
 import { synthesizeHero } from '../api/client'
+import { playRiteHum } from '../audio'
 
 // Full-screen ritual chamber for hero synthesis. Fully opaque — the roster
 // page shouldn't bleed through a rite. Drag heroes from the pool onto the
@@ -52,7 +53,7 @@ function SacrificePedestal({ heroes, onRemove, onDropHero, synthesizing }) {
       >
         {heroes.length === 0 ? (
           <div className="text-dim" style={{ fontStyle: 'italic', fontSize: '0.85rem', padding: '1rem' }}>
-            Drag up to {MAX_OFFERINGS} heroes here
+            Click or drag up to {MAX_OFFERINGS} heroes here
           </div>
         ) : heroes.map(hero => (
           <div
@@ -140,7 +141,7 @@ function Pedestal({ hero, role, onClear, onDropHero, synthesizing }) {
           )
         ) : (
           <div className="text-dim" style={{ fontStyle: 'italic', fontSize: '0.85rem', padding: '1rem' }}>
-            Drag a hero here
+            Click or drag a hero here
           </div>
         )}
       </div>
@@ -182,6 +183,12 @@ export default function SynthesisChamber({ heroes, onClose, onComplete }) {
       setSacrificeIds(ids => ids.filter(id => id !== heroId))
       setTargetId(heroId)
     } else {
+      // Favorites are protected — they can be the vessel, never the offering.
+      const hero = alive.find(h => h.id === heroId)
+      if (hero?.is_favorite) {
+        setError(`${hero.name} is a Favorite — protected from being sacrificed. Unfavorite them first if you truly mean it.`)
+        return
+      }
       if (heroId === targetId) setTargetId(null)
       setSacrificeIds(ids => ids.includes(heroId) || ids.length >= MAX_OFFERINGS ? ids : [...ids, heroId])
     }
@@ -191,6 +198,7 @@ export default function SynthesisChamber({ heroes, onClose, onComplete }) {
     if (!target || sacrifices.length === 0) return
     setSynthesizing(true)
     setError(null)
+    playRiteHum()
     try {
       // Hold the rite for at least the animation's length — the consume/
       // empower keyframes are the whole ceremony; an instant response
@@ -320,7 +328,7 @@ export default function SynthesisChamber({ heroes, onClose, onComplete }) {
                   </div>
                 ) : (
                   <div className="text-dim" style={{ marginTop: '1rem', fontSize: '0.85rem', fontStyle: 'italic' }}>
-                    Drag a vessel and up to {MAX_OFFERINGS} offerings onto the pedestals.
+                    Click or drag a vessel and up to {MAX_OFFERINGS} offerings onto the pedestals.
                   </div>
                 )}
 
@@ -357,7 +365,7 @@ export default function SynthesisChamber({ heroes, onClose, onComplete }) {
         </div>
 
         {/* Hero pool — drag from here onto a pedestal */}
-        <div className="section-header">Living Heroes — drag onto a pedestal</div>
+        <div className="section-header">Living Heroes — click or drag onto a pedestal (vessel first)</div>
         <div style={{
           display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(132px, 1fr))', gap: '1rem',
           maxHeight: '36vh', overflowY: 'auto', padding: '0.5rem 0.2rem',
@@ -370,8 +378,16 @@ export default function SynthesisChamber({ heroes, onClose, onComplete }) {
                 key={h.id}
                 draggable={!synthesizing}
                 onDragStart={(e) => e.dataTransfer.setData('heroId', String(h.id))}
-                style={{ textAlign: 'center', cursor: synthesizing ? 'default' : 'grab', opacity: role ? 1 : 0.9 }}
-                title={role ? `On the ${role} pedestal` : 'Drag onto a pedestal'}
+                onClick={() => {
+                  // Click works too: fills the vessel first, then offerings;
+                  // clicking someone already placed pulls them back off.
+                  if (synthesizing) return
+                  if (h.id === targetId) { setTargetId(null); return }
+                  if (sacrificeIds.includes(h.id)) { setSacrificeIds(ids => ids.filter(x => x !== h.id)); return }
+                  placeOnPedestal(targetId ? 'sacrifice' : 'target', h.id)
+                }}
+                style={{ textAlign: 'center', cursor: synthesizing ? 'default' : 'pointer', opacity: role ? 1 : 0.9 }}
+                title={role ? `On the ${role} pedestal — click to remove` : 'Click or drag onto a pedestal (vessel first, then offerings)'}
               >
                 {h.portrait_path ? (
                   <img
@@ -388,7 +404,9 @@ export default function SynthesisChamber({ heroes, onClose, onComplete }) {
                 ) : (
                   <div style={{ width: 110, height: 110, borderRadius: '50%', margin: '0 auto', background: 'var(--bg-card)', border: `2px solid ${ring}`, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-dim)' }}>?</div>
                 )}
-                <div style={{ fontSize: '0.78rem', marginTop: '0.3rem', color: role ? ring : 'var(--text-hi)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{h.name}</div>
+                <div style={{ fontSize: '0.78rem', marginTop: '0.3rem', color: role ? ring : 'var(--text-hi)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                  {!!h.is_favorite && <span style={{ color: '#e06080' }} title="Favorite — protected from sacrifice">♥ </span>}{h.name}
+                </div>
                 <div className="text-dim" style={{ fontSize: '0.68rem' }}>Lv.{h.level} · {(h.current_star || h.birth_star)}★ · {h.hero_class}</div>
               </div>
             )

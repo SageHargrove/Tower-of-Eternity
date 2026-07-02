@@ -453,6 +453,14 @@ h1, h2, h3, .title-font {
   font-size: 2em;
 }
 
+/* Hero-card action chips (gift/favorite) — subtle glow on hover */
+.hero-chip-btn {
+  transition: filter 0.15s, border-color 0.15s;
+}
+.hero-chip-btn:hover {
+  filter: drop-shadow(0 0 5px currentColor);
+}
+
 /* Dismiss / action buttons on hero cards */
 .hero-card-action-btn {
   position: absolute;

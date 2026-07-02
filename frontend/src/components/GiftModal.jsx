@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react'
 import { getGiftCatalog, giveGift } from '../api/client'
 import GameIcon from './GameIcon'
+import { playGiftChime } from '../audio'
 
 // Gift shop + reaction scene for one hero. Heroes have hidden preferences
 // (2 loved gifts, 1 disliked — stable per hero); a loved gift permanently
@@ -32,6 +33,7 @@ export default function GiftModal({ hero, onClose, onGifted }) {
     setError(null)
     try {
       const res = await giveGift(hero.id, selected.id)
+      playGiftChime(res.reaction)
       setResult(res)
       if (onGifted) onGifted()
     } catch (e) {

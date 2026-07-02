@@ -346,10 +346,10 @@ export default function ArenaPage() {
           <div className="card" style={{ padding: '1rem', position: 'relative', overflow: 'hidden' }}>
             <div className="section-header">🏰 Raids</div>
             <div className="text-dim text-sm" style={{ lineHeight: 1.6 }}>
-              Every base has coordinates on the World map. Raid other players to steal resources —
-              or their heroes. Build defensive facilities (the Magic Engineer's arcane cannons let even
-              1★ heroes hold a wall), and keep your roster loyal: a captured hero with low affinity
-              may not stay yours for long.
+              Strictly opt-in: flag yourself as a raider to gain the right to raid — and the risk of
+              being raided. Raiders steal resources, or even heroes. Build the Bastion (the Magic
+              Engineer's arcane cannons let even 1★ heroes hold a wall), and keep your roster loyal:
+              a captured hero with low affinity may not stay yours for long.
             </div>
             {/* Placeholder map grid */}
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(8, 1fr)', gap: 3, marginTop: '0.9rem', opacity: 0.5 }}>

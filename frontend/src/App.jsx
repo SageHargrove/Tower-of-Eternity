@@ -13,7 +13,7 @@ import HeroChat from './components/HeroChat'
 import ToastContainer from './components/ToastContainer'
 import TutorialOverlay from './components/TutorialOverlay'
 import TabTourOverlay from './components/TabTourOverlay'
-import { getBase, grantResources, clearDevInventory, setDevLevel, grantInventoryItem, listHeroes } from './api/client'
+import { getBase, grantResources, clearDevInventory, setDevLevel, grantInventoryItem, listHeroes, getAchievements } from './api/client'
 import { confirmDialog, alertDialog } from './components/DialogHost'
 import { initAudio, setSoundEnabled, isSoundEnabled, playClick, setBgmVolume, setSfxVolume } from './audio'
 
@@ -71,6 +71,11 @@ export default function App() {
   const [tourStepIndex, setTourStepIndex] = useState(0)
   const [tourTabEntered, setTourTabEntered] = useState(false)
   const [baseSubTab, setBaseSubTab] = useState('lobby')
+  // Notification design: exactly ONE kind of dot, for finite, claimable,
+  // always-good actions (unclaimed achievement rewards). Deliberately NOT
+  // "you can afford an upgrade" — gold fluctuates constantly and that dot
+  // would never turn off, which trains players to ignore it.
+  const [claimableAchievements, setClaimableAchievements] = useState(0)
 
   useEffect(() => {
     // Global click listener for buttons to play sound
@@ -94,6 +99,9 @@ export default function App() {
       setFairyGender(data.fairy_gender || 'female')
       maybeStartTabTour(!!data.tutorial_complete)
     } catch {}
+    getAchievements()
+      .then(r => setClaimableAchievements((r.achievements || []).filter(a => a.complete && !a.claimed).length))
+      .catch(() => {})
   }
 
   // Covers returning profiles that finished the intro tutorial before this
@@ -253,10 +261,21 @@ export default function App() {
               key={t.id}
               className={`tab-btn ${tab === t.id ? 'active' : ''}`}
               disabled={locked}
-              onClick={() => { if (locked) return; setTab(t.id); if (t.id === 'base' || t.id === 'summon' || t.id === 'tower') refreshResources() }}
-              style={locked ? { opacity: 0.35, cursor: 'not-allowed' } : (t.id === tourTarget ? { boxShadow: '0 0 10px var(--gold)' } : undefined)}
+              onClick={() => { if (locked) return; setTab(t.id); if (t.id === 'base' || t.id === 'summon' || t.id === 'tower' || t.id === 'achievements') refreshResources() }}
+              style={{ position: 'relative', ...(locked ? { opacity: 0.35, cursor: 'not-allowed' } : (t.id === tourTarget ? { boxShadow: '0 0 10px var(--gold)' } : {})) }}
             >
               {t.label}
+              {t.id === 'achievements' && claimableAchievements > 0 && (
+                <span
+                  title={`${claimableAchievements} reward${claimableAchievements === 1 ? '' : 's'} ready to claim`}
+                  style={{
+                    position: 'absolute', top: 8, right: 6,
+                    width: 8, height: 8, borderRadius: '50%',
+                    background: 'var(--gold)', boxShadow: '0 0 6px var(--gold)',
+                    animation: 'pulse-live 2s ease-in-out infinite',
+                  }}
+                />
+              )}
             </button>
           )
         })}

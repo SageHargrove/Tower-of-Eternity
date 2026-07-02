@@ -353,7 +353,7 @@ def pull_heroes(req: PullRequest):
     min_star, max_star = (1, 4) if use_gold else (1, 7)
     # Heroes are the premium pull — gold cost sits above equipment's (the
     # Forge/Blacksmith will eventually be the real equipment source anyway).
-    cost = 400 * req.count if use_gold else 100 * req.count
+    cost = 500 * req.count if use_gold else 100 * req.count
     currency_col = "gold" if use_gold else "gems"
 
     with db() as conn:

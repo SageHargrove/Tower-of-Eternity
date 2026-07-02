@@ -1,16 +1,24 @@
 from database import db
 
+# Unlocks stretch across the whole climb instead of everything opening by
+# floor 30 — early floors get the economy/survival core, the strategic and
+# multiplayer-facing buildings arrive as real milestones.
 FACILITY_TYPES = {
     "Market": {"cost": 1000, "unlock_floor": 1, "max_level": 50},
     "Farm": {"cost": 1000, "unlock_floor": 1, "max_level": 50},
     "Training Grounds": {"cost": 1500, "unlock_floor": 1, "max_level": 50},
-    "Forge": {"cost": 2500, "unlock_floor": 1, "max_level": 50},
-    "Infirmary": {"cost": 2500, "unlock_floor": 1, "max_level": 50},
-    "Vault": {"cost": 5000, "unlock_floor": 1, "max_level": 50},
     "Restaurant": {"cost": 5000, "unlock_floor": 1, "max_level": 50},
-    "Alchemist Lab": {"cost": 8000, "unlock_floor": 10, "max_level": 50},
-    "Workshop": {"cost": 10000, "unlock_floor": 15, "max_level": 50},
-    "Mage Tower": {"cost": 20000, "unlock_floor": 30, "max_level": 50}
+    "Forge": {"cost": 2500, "unlock_floor": 5, "max_level": 50},
+    "Infirmary": {"cost": 2500, "unlock_floor": 10, "max_level": 50},
+    "Vault": {"cost": 5000, "unlock_floor": 15, "max_level": 50},
+    "Alchemist Lab": {"cost": 8000, "unlock_floor": 20, "max_level": 50},
+    "Tavern": {"cost": 7000, "unlock_floor": 25, "max_level": 50},
+    "Workshop": {"cost": 10000, "unlock_floor": 30, "max_level": 50},
+    # Everything is obtainable by floor 50 — the game's hard enough that
+    # late facilities need to arrive while they can still help.
+    "Bastion": {"cost": 12000, "unlock_floor": 40, "max_level": 50},
+    "Shrine": {"cost": 15000, "unlock_floor": 45, "max_level": 50},
+    "Mage Tower": {"cost": 20000, "unlock_floor": 50, "max_level": 50},
 }
 
 def init_base_facilities():

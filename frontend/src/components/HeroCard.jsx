@@ -600,7 +600,9 @@ export default function HeroCard({ hero, onAssign, onManageEquipment, onManageCo
             </span>
           </span>
         )}
-        {hero.is_team_leader && (
+        {/* !! matters: is_team_leader is a SQLite integer, and {0 && ...}
+            renders a literal "0" next to the badges. */}
+        {!!hero.is_team_leader && (
           <span title="Team Leader — sets the squad's tactical doctrine in combat (if they have an Ego, their preferences also shape the recommended lineup)." style={{
             display: 'inline-flex', alignItems: 'center', gap: '3px',
             background: 'rgba(201,168,76,0.15)', border: '1px solid rgba(201,168,76,0.4)',
@@ -695,6 +697,9 @@ export default function HeroCard({ hero, onAssign, onManageEquipment, onManageCo
                 <div className="stat">Floors <span>{hero.floors_survived}</span></div>
                 <div className="stat">Stress <span>{hero.stress}</span></div>
                 <div className="stat">Trauma <span>{hero.trauma}</span></div>
+                <div className="stat" title="Loyalty (affinity) — raised by gifts they love. Feeds the upcoming raid/loyalty mechanics: a low-loyalty hero captured in a raid may turn on you.">
+                  Loyalty <span style={{ color: (hero.affinity ?? 0) >= 50 ? '#e06080' : undefined }}>{hero.affinity ?? 0}</span>
+                </div>
               </div>
               {hero.can_pilot === 1 && (
                 <div style={{ marginTop: '0.4em', color: 'var(--blue)', fontSize: '0.75em' }}>

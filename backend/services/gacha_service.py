@@ -172,7 +172,7 @@ def get_pull_cost() -> int:
 
 # Cheaper than hero pulls on both currencies — heroes matter more, and
 # crafting is meant to overtake equipment summons long-term.
-EQUIPMENT_PULL_COST = {"gold": 300, "gem": 75}
+EQUIPMENT_PULL_COST = {"gold": 250, "gem": 75}
 # Per-grade exponential weights (out of 100000), matching the same
 # philosophy as GEM_WEIGHTS/GOLD_WEIGHTS above — every grade is its own
 # weighted roll now, not a bucket of 3 sub-grades picked uniformly (the

@@ -437,7 +437,12 @@ def synthesize_hero(data: SynthesizeRequest):
             row = conn.execute("SELECT * FROM heroes WHERE id = ? AND is_alive = 1", (sid,)).fetchone()
             if not row:
                 raise HTTPException(status_code=404, detail=f"Sacrifice hero {sid} not found or dead.")
-            sacrifices.append(dict(row))
+            row = dict(row)
+            # Favorites are protected fodder — enforced here too, not just in
+            # the chamber UI, so no code path can accidentally consume one.
+            if row.get("is_favorite"):
+                raise HTTPException(status_code=400, detail=f"{row['name']} is a Favorite and cannot be sacrificed.")
+            sacrifices.append(row)
 
         # XP per sacrifice: half their own earned XP plus a base worth by
         # star and level. Resonance (matching class) doubles that
