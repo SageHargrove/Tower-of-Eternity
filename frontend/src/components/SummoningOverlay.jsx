@@ -3,61 +3,58 @@ import HeroCard from './HeroCard'
 import { EquipmentTypeIcon } from './EquipmentTypeIcon'
 import { playClick } from '../audio'
 
-// Star rarity -> glow color (mirrors index.css --star*; 7★ gets white-hot
-// since the rainbow lives on the card itself).
+// Star rarity -> glow color for the REVEALED face border + burst (mirrors
+// index.css --star*; 7★ gets white-hot since the rainbow lives on the card).
 const STAR_GLOW = {
   1: '#ffffff', 2: '#4dff4d', 3: '#1e90ff', 4: '#b84dff',
   5: '#ffb300', 6: '#ff3333', 7: '#f0f0ff',
 }
 
-// Equipment letter grades bucketed onto the same 1-7 "impact" scale so
-// equipment pulls reuse the hero glow/tarot tiers.
-function equipStarEquivalent(rarity) {
+// Equipment 24-letter grades bucket into 8 card tiers: D(-/+)…Z. E/F only
+// exist as non-droppable starters, so they share the D-tier card.
+function equipTier(rarity) {
   const r = rarity || 'D'
-  if (r === 'Z' || r.startsWith('SS')) return 7
-  if (r.startsWith('S')) return 6
-  if (r.startsWith('A')) return 5
-  if (r.startsWith('B')) return 4
-  if (r.startsWith('C')) return 3
+  if (r === 'Z') return 8
+  if (r.startsWith('SSS')) return 7
+  if (r.startsWith('SS')) return 6
+  if (r.startsWith('S')) return 5
+  if (r.startsWith('A')) return 4
+  if (r.startsWith('B')) return 3
+  if (r.startsWith('C')) return 2
   return 1
 }
 
-function itemStar(item) {
-  return item.is_equipment ? equipStarEquivalent(item.rarity) : (item.birth_star || 1)
+const EQUIP_TIER_GLOW = {
+  1: '#d8d8d8', 2: '#4dc06a', 3: '#4f92e8', 4: '#a05aee',
+  5: '#f2a63c', 6: '#ff4444', 7: '#00e5ff', 8: '#ff30dd',
 }
 
-// Star tier -> tarot card-back art. Equipment gets its own back if
-// tarot_equipment.png exists (art hook), falling back to the tiered backs.
-function tarotBack(star) {
-  if (star >= 7) return 'tarot_transcendent'
-  if (star >= 6) return 'tarot_mythic'
-  if (star >= 4) return 'tarot_epic'
-  if (star >= 3) return 'tarot_rare'
-  return 'tarot_common'
+function itemGlow(item) {
+  return item.is_equipment
+    ? (EQUIP_TIER_GLOW[equipTier(item.rarity)] || '#ffffff')
+    : (STAR_GLOW[item.birth_star] || '#ffffff')
 }
 
-// The face-down side of a card: tarot art with an ornate CSS fallback.
+function isHighImpact(item) {
+  return item.is_equipment ? equipTier(item.rarity) >= 4 : (item.birth_star || 1) >= 4
+}
+
+// Dedicated card-back suites: hero_1_star…hero_7_star / equip_1_star…
+// equip_8_star. The PNGs carry their own borders and glow auras on
+// transparency — render them BARE (contain, transparent slot, no CSS frame).
+function tarotBackSrc(item) {
+  if (item.is_equipment) return `/icons/equip_${equipTier(item.rarity)}_star.png`
+  return `/icons/hero_${Math.min(7, Math.max(1, item.birth_star || 1))}_star.png`
+}
+
 function CardBack({ item }) {
-  const star = itemStar(item)
-  const backs = item.is_equipment ? ['tarot_equipment', tarotBack(star)] : [tarotBack(star)]
-  const [idx, setIdx] = useState(0)
   return (
-    <div className="tarot-back-art">
-      <div className="tarot-back-fallback">
-        <div className="tarot-back-border" />
-        <img src="/icons/magic_synthesis.png" alt="" draggable={false} style={{ width: '55%', opacity: 0.9 }}
-          onError={(e) => { e.target.style.display = 'none' }} />
-      </div>
-      {idx < backs.length && (
-        <img
-          src={`/icons/${backs[idx]}.png`}
-          alt=""
-          draggable={false}
-          onError={() => setIdx(i => i + 1)}
-          style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover', borderRadius: 10 }}
-        />
-      )}
-    </div>
+    <img
+      src={tarotBackSrc(item)}
+      alt=""
+      draggable={false}
+      style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'contain' }}
+    />
   )
 }
 
@@ -83,7 +80,7 @@ function EquipmentFace({ item, glow }) {
 // forces transform-style back to flat, which breaks backface-visibility and
 // with it the entire flip (confirmed bug: cards wobbled but never revealed).
 function FlipCard({ item, flipped, onFlip, width, height, revealed }) {
-  const glow = STAR_GLOW[itemStar(item)] || '#ffffff'
+  const glow = itemGlow(item)
   return (
     <div
       className={`tarot-glow ${flipped ? 'tarot-glow-flipped' : ''}`}
@@ -109,7 +106,7 @@ function FlipCard({ item, flipped, onFlip, width, height, revealed }) {
 // (or equipment face).
 function SingleReveal({ item, onDone }) {
   const [flipped, setFlipped] = useState(false)
-  const high = itemStar(item) >= 4
+  const high = isHighImpact(item)
 
   const flip = useCallback(() => {
     setFlipped(f => {
@@ -127,7 +124,7 @@ function SingleReveal({ item, onDone }) {
     return () => clearTimeout(t)
   }, [flipped, flip, onDone, high])
 
-  const glow = STAR_GLOW[itemStar(item)] || '#ffffff'
+  const glow = itemGlow(item)
 
   return (
     <div style={{ margin: 'auto' }}>
@@ -173,8 +170,9 @@ function TarotSpread({ results, onComplete }) {
 
   return (
     <div style={{ position: 'relative', width: '100%', minHeight: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
+      {/* Dedicated array art per pull type (hero_array / equip_array) */}
       <img
-        src="/icons/summoning_array.png"
+        src={`/icons/${results.every(r => r.is_equipment) ? 'equip_array' : 'hero_array'}.png`}
         alt=""
         draggable={false}
         onError={(e) => { e.target.style.display = 'none' }}
@@ -193,7 +191,7 @@ function TarotSpread({ results, onComplete }) {
             {col.map((item) => {
               flatIndex += 1
               const key = keyOf(item, flatIndex)
-              const glow = STAR_GLOW[itemStar(item)] || '#ffffff'
+              const glow = itemGlow(item)
               return (
                 <FlipCard
                   key={key}
@@ -298,10 +296,12 @@ export default function SummoningOverlay({ results, onComplete }) {
           to   { transform: translate(-50%, -50%) rotate(360deg); }
         }
 
-        /* Glow lives HERE (a plain wrapper), never on .tarot-card — a filter
-           on the 3D element flattens preserve-3d and breaks the flip. */
+        /* Face-down cards get NO CSS glow — the card-back PNGs carry their
+           own baked-in auras. A soft glow returns on the revealed face.
+           Filter lives on this wrapper, never on .tarot-card itself — a
+           filter on the 3D element flattens preserve-3d and breaks the flip. */
         .tarot-glow {
-          filter: drop-shadow(0 0 16px var(--glow));
+          filter: none;
         }
         .tarot-glow-flipped {
           filter: drop-shadow(0 0 10px var(--glow));
@@ -322,41 +322,17 @@ export default function SummoningOverlay({ results, onComplete }) {
           backface-visibility: hidden;
           -webkit-backface-visibility: hidden;
         }
+        /* Face-down side is a fully transparent slot — no background, no
+           border, no clipping. The PNG IS the card (frame + aura baked in). */
         .tarot-front {
           position: absolute;
           inset: 0;
           z-index: 2;
-          border-radius: 10px;
-          overflow: hidden;
           transform: rotateY(0deg);
+          background: transparent;
         }
         .tarot-backside {
           transform: rotateY(180deg);
-        }
-
-        .tarot-back-art {
-          position: absolute;
-          inset: 0;
-          border-radius: 10px;
-        }
-        .tarot-back-fallback {
-          position: absolute;
-          inset: 0;
-          border-radius: 10px;
-          background:
-            radial-gradient(ellipse 80% 60% at 50% 40%, rgba(80, 30, 130, 0.55), transparent 75%),
-            linear-gradient(160deg, #14101e 0%, #0a0812 60%, #16112a 100%);
-          border: 2px solid var(--glow);
-          display: flex;
-          align-items: center;
-          justify-content: center;
-        }
-        .tarot-back-border {
-          position: absolute;
-          inset: 10px;
-          border: 1px solid rgba(201, 168, 76, 0.5);
-          border-radius: 6px;
-          pointer-events: none;
         }
 
         .tarot-hint {
