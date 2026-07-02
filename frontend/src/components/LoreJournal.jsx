@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react'
 import { getLore } from '../api/client'
+import GameIcon from './GameIcon'
 
 // Renders as either an inline section (inline=true, for BasePage tab) or
 // a modal overlay (default, for any direct call with onClose).
@@ -15,7 +16,7 @@ export default function LoreJournal({ onClose, inline = false }) {
     <div style={inline ? {} : { background: 'var(--bg-panel)', border: '1px solid var(--gold)', borderRadius: 8, padding: '1.5rem', maxWidth: '90vw', maxHeight: '85vh', overflow: 'auto', minWidth: '500px', width: '600px' }}>
       {!inline && (
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
-          <div style={{ fontFamily: 'Cinzel, serif', fontSize: '1.2rem', color: 'var(--gold)' }}>📖 Lore Journal</div>
+          <div style={{ fontFamily: 'Cinzel, serif', fontSize: '1.2rem', color: 'var(--gold)' }}><GameIcon name="journal" size={20} /> Lore Journal</div>
           <button className="btn" onClick={onClose}>Close</button>
         </div>
       )}
@@ -28,7 +29,7 @@ export default function LoreJournal({ onClose, inline = false }) {
 
       {entries && entries.length === 0 && (
         <div className="empty-state" style={{ padding: '3rem 2rem' }}>
-          <div className="empty-state-icon">📖</div>
+          <div className="empty-state-icon"><GameIcon name="journal" size={44} /></div>
           <div className="empty-state-title">The Journal Is Blank</div>
           <div className="empty-state-hint">
             A new page is written every 10 floors, drawn from what your team actually fought

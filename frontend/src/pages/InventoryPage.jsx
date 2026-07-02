@@ -4,7 +4,8 @@ import { EquipmentTypeIcon } from '../components/EquipmentTypeIcon'
 import GameIcon from '../components/GameIcon'
 import { confirmDialog, alertDialog } from '../components/DialogHost'
 
-const CONSUMABLE_ICONS = { potion: '🧪', scroll: '📜', summon_ticket: '🎫' }
+// GameIcon names — potion.png / scroll.png / summon_ticket.png in public/icons.
+const CONSUMABLE_ICONS = { potion: 'potion', scroll: 'scroll', summon_ticket: 'summon_ticket' }
 const CONSUMABLE_COLORS = { potion: 'var(--green)', scroll: '#a83dff', summon_ticket: 'var(--gold)' }
 
 // Equipment rarity is a 24-tier letter grade (F- through Z), a completely
@@ -313,7 +314,7 @@ export default function InventoryPage() {
                   content = <GameIcon name="supplies" size={60} />
                 } else if (item.itemType === 'consumable') {
                   borderColor = CONSUMABLE_COLORS[item.item_type]
-                  content = <span style={{ fontSize: '3rem' }}>{CONSUMABLE_ICONS[item.item_type]}</span>
+                  content = <GameIcon name={CONSUMABLE_ICONS[item.item_type]} size={60} />
                 } else if (item.itemType === 'equipment') {
                   borderColor = rarityColor(item.rarity)
                   bgColor = `rgba(255,255,255,0.05)`
@@ -413,7 +414,7 @@ export default function InventoryPage() {
 
               {(selectedItem.item_type === 'potion' || selectedItem.item_type === 'scroll') && (
                 <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
-                  <div style={{ fontSize: '4rem', textAlign: 'center', marginBottom: '1rem' }}>{CONSUMABLE_ICONS[selectedItem.item_type]}</div>
+                  <div style={{ textAlign: 'center', marginBottom: '1rem' }}><GameIcon name={CONSUMABLE_ICONS[selectedItem.item_type]} size={96} /></div>
                   <div style={{ fontFamily: 'Cinzel, serif', fontSize: '1.8rem', textAlign: 'center', color: 'var(--text-hi)', borderBottom: '1px solid var(--border)', paddingBottom: '1rem', marginBottom: '1rem' }}>
                     {selectedItem.item_name}
                   </div>
@@ -467,7 +468,7 @@ export default function InventoryPage() {
 
               {selectedItem.item_type === 'summon_ticket' && (
                 <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
-                  <div style={{ fontSize: '4rem', textAlign: 'center', marginBottom: '1rem' }}>{CONSUMABLE_ICONS.summon_ticket}</div>
+                  <div style={{ textAlign: 'center', marginBottom: '1rem' }}><GameIcon name={CONSUMABLE_ICONS.summon_ticket} size={96} /></div>
                   <div style={{ fontFamily: 'Cinzel, serif', fontSize: '1.8rem', textAlign: 'center', color: 'var(--gold)', borderBottom: '1px solid var(--border)', paddingBottom: '1rem', marginBottom: '1rem' }}>
                     {selectedItem.item_name}
                   </div>

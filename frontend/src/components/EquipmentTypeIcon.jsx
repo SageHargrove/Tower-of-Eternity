@@ -31,13 +31,21 @@ const WEAPON_TYPE_SLUG = { Sword: 'sword', Spear: 'spear', Tome: 'tome', Staff: 
 function typeSlug(item) {
   if (item.type === 'Weapon' && item.weapon_type) return `weapons/${WEAPON_TYPE_SLUG[item.weapon_type] || item.weapon_type.toLowerCase()}`
   if (item.type === 'Armor' && item.armor_type) return `armor/${item.armor_type.toLowerCase().replace(/ /g, '_')}`
-  // Art doesn't exist yet for accessories (falls through to the emoji), but
-  // the hook is in place: drop ring/amulet/charm PNGs into static/icons/accessories/.
-  if (item.type === 'Accessory' && item.accessory_type) return `accessories/${item.accessory_type.toLowerCase()}`
   return null
 }
 
 function candidateSrcs(item) {
+  // Accessory art lives in the frontend's own icon set (public/icons/
+  // acc_{ring|amulet|charm}_{tier}.png), NOT the backend's /static/icons
+  // tree like weapons/armor — different generation batch, different home.
+  if (item.type === 'Accessory' && item.accessory_type) {
+    const base = `/icons/acc_${item.accessory_type.toLowerCase()}`
+    const tier = RARITY_ART_TIER[item.rarity]
+    const srcs = []
+    if (tier) srcs.push(`${base}_${tier}.png`)
+    srcs.push(`${base}_common.png`)
+    return srcs
+  }
   const slug = typeSlug(item)
   if (!slug) return []
   const tier = RARITY_ART_TIER[item.rarity]

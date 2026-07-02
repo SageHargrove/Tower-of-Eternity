@@ -13,7 +13,7 @@ const FLOOR_ICONS = {
   miniboss: 'boss_skull',
   miniboss_survival: 'element_water',
   miniboss_behemoth: 'element_earth',
-  miniboss_assassin: 'class_rogue',
+  miniboss_assassin: 'thief_knife',
   miniboss_twins: 'class_twins',
   boss: 'boss_demon',
   resource: 'gem',
@@ -27,7 +27,7 @@ const FLOOR_ICONS = {
   retrieve: 'supplies',
   ambush: 'element_dark',
   blitz: 'element_lightning',
-  cursed_ground: 'boss_skull',
+  cursed_ground: 'element_ritual',
 }
 
 // FLOOR_TYPE_INFO colors are 3-digit hex shorthand (#a44) — appending an
@@ -171,8 +171,8 @@ function PostCombatScreen({ lastResult, combatEntities, onReturn, onRerun, busy 
             return (
               <div key={h.id} style={{ width: 96, textAlign: 'center', position: 'relative' }}>
                 {isMvp && (
-                  <div title="MVP" style={{ position: 'absolute', top: -14, left: '50%', transform: 'translateX(-50%)', fontSize: '1.4rem', zIndex: 10, filter: 'drop-shadow(0 0 4px var(--star5))' }}>
-                    👑
+                  <div title="MVP" style={{ position: 'absolute', top: -18, left: '50%', transform: 'translateX(-50%)', zIndex: 10, filter: 'drop-shadow(0 0 4px var(--star5))' }}>
+                    <GameIcon name="trophy" size={28} />
                   </div>
                 )}
                 <CardFrame birthStar={h.hero_star} status={status === 'alive' ? null : status} style={isMvp ? { boxShadow: '0 0 12px var(--star5)', border: '2px solid var(--star5)' } : undefined}>
@@ -238,7 +238,7 @@ function PostCombatScreen({ lastResult, combatEntities, onReturn, onRerun, busy 
             {lastResult.gems_gained > 0 && (
               <div style={{ display: 'flex', justifyContent: 'space-between', padding: '0.75rem', background: 'rgba(0,255,255,0.08)', border: '1px solid rgba(0,255,255,0.3)', borderRadius: 6 }}>
                 <span>New Floor Record!</span>
-                <span style={{ color: '#00ffff', fontFamily: 'Cinzel, serif', textShadow: '0 0 5px rgba(0,255,255,0.5)' }}>+{lastResult.gems_gained.toLocaleString()} 💎</span>
+                <span style={{ color: '#00ffff', fontFamily: 'Cinzel, serif', textShadow: '0 0 5px rgba(0,255,255,0.5)' }}>+{lastResult.gems_gained.toLocaleString()} <GameIcon name="gem" size={16} /></span>
               </div>
             )}
 
@@ -275,7 +275,7 @@ function PostCombatScreen({ lastResult, combatEntities, onReturn, onRerun, busy 
 
             {lastResult.blueprint_found && (
               <div style={{ display: 'flex', justifyContent: 'space-between', padding: '0.75rem', background: 'rgba(201,168,76,0.1)', border: '1px solid var(--gold)', borderRadius: 6 }}>
-                <span className="text-gold">📜 Blueprint Found</span>
+                <span className="text-gold"><GameIcon name="scroll" size={16} /> Blueprint Found</span>
                 <span>{lastResult.blueprint_found}</span>
               </div>
             )}
@@ -818,7 +818,7 @@ export default function TowerPage({ onGoldChange }) {
                   )}
                   {eventResolution.effects?.gems > 0 && (
                     <div style={{ marginTop: '1rem', fontSize: '1.1rem', color: '#00ffff' }}>
-                      +{eventResolution.effects.gems} 💎
+                      +{eventResolution.effects.gems} <GameIcon name="gem" size={16} />
                     </div>
                   )}
                   {eventResolution.effects?.gold > 0 && (
@@ -907,7 +907,7 @@ export default function TowerPage({ onGoldChange }) {
                         <div className="text-gold" style={{ fontFamily: 'Cinzel, serif', fontSize: '0.85rem', marginBottom: '0.7rem' }}>Floor Types</div>
                         {Object.entries(FLOOR_TYPE_INFO).filter(([k]) => k !== 'miniboss').map(([key, info]) => (
                           <div key={key} style={{ display: 'flex', alignItems: 'flex-start', gap: '0.5rem', marginBottom: '0.5rem' }}>
-                            <span style={{ fontSize: '1rem', lineHeight: 1 }}>{FLOOR_ICONS[key]}</span>
+                            <GameIcon name={FLOOR_ICONS[key]} size={20} />
                             <div>
                               <div style={{ fontSize: '0.8rem', color: info.color, fontWeight: 600 }}>{info.label}</div>
                               <div className="text-dim" style={{ fontSize: '0.7rem', lineHeight: 1.3 }}>{info.blurb}</div>
@@ -979,7 +979,12 @@ export default function TowerPage({ onGoldChange }) {
                   >
                     {isBoss && <div className="floor-tile-boss-stripe" />}
                     <div className="floor-tile-icon" style={{ fontSize: '1.4rem' }}>
-                      <GameIcon name={isLocked ? 'locked_padlock' : (icon || 'question_mark')} size={32} />
+                      {/* Unvisited floors show a literal '?' — there's no
+                          question-mark art, and GameIcon hides itself on a
+                          missing file, leaving the tile blank. */}
+                      {isLocked
+                        ? <GameIcon name="locked_padlock" size={32} />
+                        : icon ? <GameIcon name={icon} size={32} /> : '?'}
                     </div>
                     <div className="floor-tile-num" style={{ fontSize: '1.1rem', fontWeight: 600 }}>{floorNum}</div>
                     {isNext && <span className="floor-tile-tag" style={{ background: 'rgba(201,168,76,0.3)', color: 'var(--gold)' }}>Next</span>}

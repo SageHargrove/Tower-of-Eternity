@@ -1,14 +1,17 @@
 import React, { useState, useEffect } from 'react'
 import { getAchievements, claimAchievement } from '../api/client'
+import GameIcon from '../components/GameIcon'
 
 const CATEGORY_ORDER = ['Tower', 'Summoning', 'Roster', 'Combat', 'Economy', 'Equipment', 'Arena']
 
+// Returns JSX (not a string) so the reward icons render as real art —
+// safe to drop into both the reward column and the claim toast.
 function rewardText(reward) {
   const parts = []
-  if (reward.gems) parts.push(`💎 ${reward.gems}`)
-  if (reward.gold) parts.push(`🪙 ${reward.gold}`)
-  if (reward.summon_ticket) parts.push(`🎫 ${reward.summon_ticket}`)
-  return parts.join('  ')
+  if (reward.gems) parts.push(<span key="gems"><GameIcon name="gem" size={15} /> {reward.gems}</span>)
+  if (reward.gold) parts.push(<span key="gold"><GameIcon name="gold_coin" size={15} /> {reward.gold}</span>)
+  if (reward.summon_ticket) parts.push(<span key="ticket"><GameIcon name="summon_ticket" size={15} /> {reward.summon_ticket}</span>)
+  return <span style={{ display: 'inline-flex', gap: '0.6rem', alignItems: 'center' }}>{parts}</span>
 }
 
 export default function AchievementsPage() {
@@ -35,7 +38,7 @@ export default function AchievementsPage() {
     setClaiming(id)
     try {
       const res = await claimAchievement(id)
-      setToast(`Claimed! ${rewardText(res.reward)}`)
+      setToast(<span>Claimed! {rewardText(res.reward)}</span>)
       await refresh()
     } catch (e) {
       setToast(e.message)
@@ -59,7 +62,7 @@ export default function AchievementsPage() {
         claimed++
         for (const k of Object.keys(total)) total[k] += res.reward?.[k] || 0
       }
-      setToast(`Claimed ${claimed} achievement${claimed === 1 ? '' : 's'}! ${rewardText(total)}`)
+      setToast(<span>Claimed {claimed} achievement{claimed === 1 ? '' : 's'}! {rewardText(total)}</span>)
     } catch (e) {
       setToast(claimed > 0 ? `Claimed ${claimed} before an error: ${e.message}` : e.message)
     } finally {

@@ -503,7 +503,7 @@ export default function HeroCard({ hero, onAssign, onManageEquipment, onManageCo
               cursor: 'help',
             }}
           >
-            <span style={{ marginRight: '4px' }}>🛡️</span>
+            <span style={{ marginRight: '4px' }}><GameIcon name="crest" size={13} /></span>
             {hero.synergy_group}
           </span>
           {showSynergyTip && (

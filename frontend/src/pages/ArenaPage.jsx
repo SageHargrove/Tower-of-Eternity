@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react'
+import GameIcon from '../components/GameIcon'
 import { getAllTeams, getArenaSnapshot } from '../api/client'
 import {
   getArenaServerUrl, setArenaServerUrl, getArenaToken, getArenaUsername, clearArenaSession,
@@ -399,7 +400,7 @@ export default function ArenaPage() {
                         </div>
                       </div>
                       <button className="btn btn-gold" onClick={() => handleHireTeacher(listing.id)} disabled={busy || listing.username === username} style={{ padding: '0.4rem 0.8rem' }}>
-                        Hire ({listing.gem_cost} 💎)
+                        Hire ({listing.gem_cost} <GameIcon name="gem" size={14} />)
                       </button>
                     </div>
                   ))}

@@ -16,7 +16,6 @@ const NON_COMBAT_CLASSES = ["Chef", "Blacksmith", "Quartermaster", "Alchemist", 
 // exact shortfall — a dead disabled button with no explanation was the old
 // behavior and it's the single most confusing state on this page.
 function SummonButton({ title, cost, currency, balance, onClick, disabled, pulling, premium }) {
-  const icon = currency === 'gem' ? '💎' : '💰'
   const short = balance < cost
   return (
     <button
@@ -39,7 +38,7 @@ function SummonButton({ title, cost, currency, balance, onClick, disabled, pulli
     >
       <div>{pulling ? 'Summoning…' : title}</div>
       <div style={{ fontSize: premium ? '0.95rem' : '0.85rem', color: '#fff', opacity: 0.8, letterSpacing: '2px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.4rem' }}>
-        {cost.toLocaleString()} {currency === 'gem' ? 'GEMS' : 'GOLD'} <GameIcon name={currency === 'gem' ? 'gem' : 'coin_pouch'} size={14} />
+        {cost.toLocaleString()} {currency === 'gem' ? 'GEMS' : 'GOLD'} <GameIcon name={currency === 'gem' ? 'gem' : 'gold_coin'} size={14} />
       </div>
       {short && !pulling && (
         <div style={{ fontSize: '0.72rem', color: 'var(--red)', opacity: 0.9, letterSpacing: '0.05em' }}>
@@ -250,7 +249,7 @@ export default function SummonPage({ onGoldChange }) {
           <div className="card" style={{ padding: '1.4rem 1.5rem' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: '1rem' }}>
               <div className="section-header" style={{ margin: 0, border: 'none', paddingBottom: 0 }}>Standard Summon</div>
-              <div className="text-dim" style={{ fontSize: '0.85rem' }}>you have <span className="text-gold">{gold.toLocaleString()} 💰</span></div>
+              <div className="text-dim" style={{ fontSize: '0.85rem' }}>you have <span className="text-gold">{gold.toLocaleString()} <GameIcon name="gold_coin" size={14} /></span></div>
             </div>
             <div style={{ display: 'flex', gap: '1.5rem' }}>
               <SummonButton title="Summon 1x" cost={250} currency="gold" balance={gold}
@@ -353,7 +352,7 @@ export default function SummonPage({ onGoldChange }) {
           <div className="card" style={{ padding: '1.4rem 1.5rem' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: '1rem' }}>
               <div className="section-header" style={{ margin: 0, border: 'none', paddingBottom: 0 }}>Standard Forge</div>
-              <div className="text-dim" style={{ fontSize: '0.85rem' }}>you have <span className="text-gold">{gold.toLocaleString()} 💰</span></div>
+              <div className="text-dim" style={{ fontSize: '0.85rem' }}>you have <span className="text-gold">{gold.toLocaleString()} <GameIcon name="gold_coin" size={14} /></span></div>
             </div>
             <div style={{ display: 'flex', gap: '1.5rem' }}>
               <SummonButton title="Summon 1x" cost={500} currency="gold" balance={gold}

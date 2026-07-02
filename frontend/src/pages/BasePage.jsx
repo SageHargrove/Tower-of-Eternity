@@ -889,7 +889,7 @@ const getGenRate = (fac) => {
       {activeTab === 'lore' && (
         <div className="card" style={{ maxWidth: 780, margin: '0 auto', width: '100%' }}>
           <div style={{ fontFamily: 'Cinzel, serif', fontSize: '1.2rem', color: 'var(--gold)', marginBottom: '1.2rem' }}>
-            📖 Lore Journal
+            <GameIcon name="journal" size={20} /> Lore Journal
           </div>
           <div className="text-dim" style={{ fontSize: '0.8rem', marginBottom: '1.2rem' }}>
             A new page unlocks every 10 floors cleared — written from what your team actually fought and chose along the way.

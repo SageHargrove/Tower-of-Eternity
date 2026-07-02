@@ -148,8 +148,13 @@ export default function SynthesisChamber({ heroes, onClose, onComplete }) {
     }}>
       <style>{`
         @keyframes synth-hum {
-          0%, 100% { opacity: 0.7; text-shadow: 0 0 8px rgba(160, 80, 255, 0.5); transform: rotate(0deg); }
-          50% { opacity: 1; text-shadow: 0 0 30px rgba(160, 80, 255, 1); transform: rotate(180deg); }
+          0%   { opacity: 0.75; filter: drop-shadow(0 0 8px rgba(160, 80, 255, 0.5)); transform: rotate(0deg); }
+          50%  { opacity: 1; filter: drop-shadow(0 0 30px rgba(160, 80, 255, 1)); transform: rotate(180deg); }
+          100% { opacity: 0.75; filter: drop-shadow(0 0 8px rgba(160, 80, 255, 0.5)); transform: rotate(360deg); }
+        }
+        @keyframes synth-idle {
+          0%, 100% { filter: drop-shadow(0 0 6px rgba(160, 80, 255, 0.4)); }
+          50% { filter: drop-shadow(0 0 14px rgba(160, 80, 255, 0.7)); }
         }
         @keyframes synth-consume {
           0%   { filter: none; opacity: 1; transform: translateX(0); }
@@ -201,9 +206,16 @@ export default function SynthesisChamber({ heroes, onClose, onComplete }) {
             onClear={() => setTargetId(null)} onDropHero={(id) => placeOnPedestal('target', id)} />
 
           <div style={{ width: 300, textAlign: 'center', paddingTop: '2.2rem' }}>
-            <div style={{ fontSize: '2.4rem', color: '#b06aff', display: 'inline-block', animation: synthesizing ? 'synth-hum 1s ease-in-out infinite' : 'none' }}>
-              ◈
-            </div>
+            <img
+              src="/icons/magic_synthesis.png"
+              alt=""
+              draggable={false}
+              style={{
+                width: 90, height: 90, display: 'inline-block',
+                animation: synthesizing ? 'synth-hum 1.2s linear infinite' : 'synth-idle 3s ease-in-out infinite',
+              }}
+              onError={(e) => { e.target.outerHTML = '<div style="font-size:2.4rem;color:#b06aff">◈</div>' }}
+            />
 
             {result ? (
               <div style={{ marginTop: '1rem', border: '1px solid var(--green)', background: 'rgba(74,154,106,0.12)', borderRadius: 8, padding: '1.1rem', animation: 'synth-result-in 0.35s ease-out' }}>
