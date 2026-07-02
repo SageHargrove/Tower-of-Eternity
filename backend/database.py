@@ -639,6 +639,14 @@ WHERE NOT EXISTS (SELECT 1 FROM recipes WHERE name = 'Void Ring');
         except Exception as e:
             print(f"[DB] Migration error removing unused facilities: {e}")
 
+        # Workshop -> Skydock rename (it becomes the magic-battleship dock;
+        # 'Workshop' clashed with the Forge's identity anyway).
+        try:
+            conn.execute("UPDATE facilities SET type = 'Skydock' WHERE type = 'Workshop'")
+            conn.commit()
+        except Exception as e:
+            print(f"[DB] Migration error renaming Workshop: {e}")
+
         # Every base starts with the Training Grounds and Restaurant already
         # built (existing saves gain them too if missing) — everything else
         # is player-built through the Facilities tab.

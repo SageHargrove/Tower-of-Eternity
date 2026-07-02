@@ -39,7 +39,7 @@ const FACILITY_TOOLTIPS = {
   "Vault": "Each upgrade expands equipment storage capacity. Assigned caretakers don't affect capacity — they just earn passive XP while minding the shelves.",
   "Alchemist Lab": "Brews potions passively over time. Alchemists and Mages brew dramatically faster; high Mental aptitude helps too.",
   "Tavern": "Assigned hosts take the edge off — passively reduces STRESS for the entire living roster. Bards and Chefs make the best hosts.",
-  "Workshop": "Discounts the gold cost of upgrading every OTHER facility (up to 50% off), scaling with Workshop level. Magic Engineers triple their contribution.",
+  "Skydock": "Discounts the gold cost of upgrading every OTHER facility (up to 50% off), scaling with Skydock level — Magic Engineers triple their contribution. This is where magic battleships will be built: Magic Engineers craft the greatest hulls, but any high-Mental hero can apprentice here for a basic vessel.",
   "Bastion": "Your base's defenses for the coming Raid system (raiding is opt-in — build this if you choose to play for raid stakes). Garrison heroes to raise your defense rating; the Magic Engineer's arcane cannons let even 1★ heroes hold a wall.",
   "Shrine": "Assigned clergy slowly deepen the whole roster's LOYALTY (affinity) — the same track gifts raise, and the one that decides whether a captured hero stays yours. Priests and Acolytes are twice as effective.",
   "Mage Tower": "Conducts magical research for permanent upgrades. Magic Engineers are the most effective researchers, then Mages, then Spellswords."

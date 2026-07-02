@@ -13,7 +13,7 @@ FACILITY_TYPES = {
     "Vault": {"cost": 5000, "unlock_floor": 15, "max_level": 50},
     "Alchemist Lab": {"cost": 8000, "unlock_floor": 20, "max_level": 50},
     "Tavern": {"cost": 7000, "unlock_floor": 25, "max_level": 50},
-    "Workshop": {"cost": 10000, "unlock_floor": 30, "max_level": 50},
+    "Skydock": {"cost": 10000, "unlock_floor": 30, "max_level": 50},
     # Everything is obtainable by floor 50 — the game's hard enough that
     # late facilities need to arrive while they can still help.
     "Bastion": {"cost": 12000, "unlock_floor": 40, "max_level": 50},
@@ -106,15 +106,14 @@ def build_facility(facility_type: str):
     return {"ok": True}
 
 def get_workshop_discount(conn, fac_type: str) -> float:
-    """Workshop ("Builds base upgrades and gadgets") used to do nothing at
-    all — no service file anywhere read its level or assignments. Real
-    effect now: discounts the gold cost of upgrading every OTHER facility,
-    scaling with Workshop's own level plus any assigned Magic Engineers.
-    Capped at 50% off so upgrading never becomes free, and doesn't discount
-    upgrading the Workshop itself."""
-    if fac_type == "Workshop":
+    """Skydock (renamed from Workshop — it's the future home of magic
+    battleship construction) discounts the gold cost of upgrading every
+    OTHER facility, scaling with its level plus any assigned Magic
+    Engineers. Capped at 50% off so upgrading never becomes free, and
+    doesn't discount upgrading the Skydock itself."""
+    if fac_type == "Skydock":
         return 0.0
-    workshop = conn.execute("SELECT id, level FROM facilities WHERE type = 'Workshop' AND base_id = 1").fetchone()
+    workshop = conn.execute("SELECT id, level FROM facilities WHERE type = 'Skydock' AND base_id = 1").fetchone()
     if not workshop:
         return 0.0
     assigned = conn.execute("""
