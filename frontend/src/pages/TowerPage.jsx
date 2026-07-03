@@ -42,6 +42,28 @@ function loadActiveCombat() {
   }
 }
 
+// The 10 biomes, one per 10-floor zone — derived from enemy_families.py's
+// spawn tables. Art lives in /images/floors/<slug>.png; the zone tile grid
+// uses it as a background so each stretch of the climb reads distinctly.
+const ZONES = [
+  { name: 'Overgrown Caverns', slug: 'overgrown_caverns', blurb: 'Root-choked tunnels where goblins, spiders, and wolves den.' },
+  { name: 'Savage Badlands', slug: 'savage_badlands', blurb: 'Sun-cracked wastes ruled by orcs, trolls, and dire wolf packs.' },
+  { name: 'Sunken Swamp', slug: 'sunken_swamp', blurb: 'Fetid mire crawling with hobgoblins and lizardmen.' },
+  { name: 'Profane Catacombs', slug: 'profane_catacombs', blurb: 'Desecrated halls of rotting ghouls and rampaging minotaurs.' },
+  { name: 'Ashen Depths', slug: 'ashen_depths', blurb: 'Smouldering caverns where the Ashen Colossus stirs.' },
+  { name: 'Crystalline Labyrinth', slug: 'crystalline_depths', blurb: 'A maze of living stone — sentinels and golems keep the walls.' },
+  { name: 'Blood Lake', slug: 'blood_lake', blurb: 'Crimson waters prowled by vampire spawn and nagas.' },
+  { name: 'Dread Peaks', slug: 'dread_peaks', blurb: 'Storm-lashed summits of death knights, hydras, and manticores.' },
+  { name: 'Abyssal Rift', slug: 'abyssal_rift', blurb: 'A wound in reality leaking imps and masked horrors.' },
+  { name: "Dragon's Boneyard", slug: 'dragons_boneyard', blurb: 'The final ascent — liches, dragons, and dracoliches guard the peak.' },
+]
+
+// Zones above the built-out 100-floor table just repeat the final boneyard
+// biome rather than breaking — nothing past floor 100 is designed yet.
+function zoneFor(zoneIndex) {
+  return ZONES[Math.min(zoneIndex, ZONES.length - 1)]
+}
+
 const FLOOR_ICONS = {
   field_combat: 'class_rogue',
   miniboss: 'boss_skull',
@@ -215,7 +237,23 @@ function PostCombatScreen({ lastResult, combatEntities, onReturn, onRerun, busy 
                       src={`/heroes/${h.id}/card-image?mini=true`}
                       draggable={false}
                       style={{ width: '100%', aspectRatio: '2 / 3', height: 'auto', objectFit: 'cover', objectPosition: 'center top', borderRadius: 4 }}
-                      onError={(e) => { e.target.onerror = null; e.target.src = `/${h.portrait_path}` }}
+                      // Two-step fallback: try the composited card, then the
+                      // raw portrait, then a dim silhouette — the portrait
+                      // may still be generating in the background (combat
+                      // never waits on ComfyUI), so a broken-image icon
+                      // should never show.
+                      onError={(e) => {
+                        if (e.target.dataset.stage === 'raw') {
+                          e.target.onerror = null
+                          e.target.src = '/icons/mystery_encounter.png'
+                          e.target.style.opacity = '0.35'
+                          e.target.style.filter = 'grayscale(1)'
+                          e.target.style.objectFit = 'contain'
+                        } else {
+                          e.target.dataset.stage = 'raw'
+                          e.target.src = `/${h.portrait_path}`
+                        }
+                      }}
                     />
                   ) : (
                     // Portrait still generating in the background — a
@@ -452,23 +490,29 @@ export default function TowerPage({ onGoldChange }) {
     return () => { cancelled = true }
   }, [selectedFloor, highestFloor, lastResult])
 
-  useEffect(() => {
-    // Floor type is deterministic/cached server-side per floor number, so
-    // previewing the whole zone's grid up front (not just the one selected
-    // floor) is safe — it never changes the outcome, just lets the grid
-    // show each tile's real type instead of being blank/generic.
-    let cancelled = false
-    const start = selectedZone * 10 + 1
+  // Floor type is deterministic/cached server-side per floor number, so
+  // previewing the whole zone's grid up front (not just the one selected
+  // floor) is safe — it never changes the outcome, just lets the grid
+  // show each tile's real type instead of being blank/generic. Extracted
+  // into a callable so it can also be re-run the instant a fight finishes
+  // (a just-cleared floor's tile flips from "?" to its revealed type
+  // without waiting for the player to switch zones and back).
+  async function refreshZoneFloorTypes(zoneIndex = selectedZone) {
+    const start = zoneIndex * 10 + 1
     const floors = Array.from({ length: 10 }, (_, i) => start + i)
-    Promise.all(floors.map(f => previewFloor(f).then(p => [f, p]).catch(() => [f, null])))
-      .then(results => {
-        if (cancelled) return
-        setZoneFloorTypes(prev => {
-          const next = { ...prev }
-          for (const [f, p] of results) if (p) next[f] = p
-          return next
-        })
-      })
+    const results = await Promise.all(
+      floors.map(f => previewFloor(f).then(p => [f, p]).catch(() => [f, null]))
+    )
+    setZoneFloorTypes(prev => {
+      const next = { ...prev }
+      for (const [f, p] of results) if (p) next[f] = p
+      return next
+    })
+  }
+
+  useEffect(() => {
+    let cancelled = false
+    refreshZoneFloorTypes(selectedZone).catch(() => {})
     return () => { cancelled = true }
   }, [selectedZone])
 
@@ -575,6 +619,7 @@ export default function TowerPage({ onGoldChange }) {
       }
 
       await refresh()
+      refreshZoneFloorTypes().catch(() => {})
       if (onGoldChange) onGoldChange()
     } catch (e) {
       setError(e.message)
@@ -631,6 +676,7 @@ export default function TowerPage({ onGoldChange }) {
       }
 
       await refresh()
+      refreshZoneFloorTypes().catch(() => {})
       if (onGoldChange) onGoldChange()
     } catch (e) {
       setError(e.message)
@@ -659,6 +705,7 @@ export default function TowerPage({ onGoldChange }) {
       tnIds.forEach((id, i) => pollTurnNarrative(id, i))
 
       await refresh()
+      refreshZoneFloorTypes().catch(() => {})
       if (onGoldChange) onGoldChange()
     } catch (e) {
       setError(e.message)
@@ -939,12 +986,13 @@ export default function TowerPage({ onGoldChange }) {
               Fills the remaining viewport height so the art reads at full
               size on big screens instead of leaving a black void below. */}
           <div className="card" style={{
-            backgroundImage: 'linear-gradient(rgba(12,12,16,0.82), rgba(10,10,12,0.94)), url(/tower_limitless_wide.png)',
+            backgroundImage: `linear-gradient(rgba(12,12,16,0.82), rgba(10,10,12,0.94)), url(/images/floors/${zoneFor(selectedZone).slug}.png)`,
             backgroundSize: 'cover',
             backgroundPosition: 'center 25%',
             minHeight: 'calc(100vh - 265px)',
             display: 'flex',
             flexDirection: 'column',
+            transition: 'background-image 0.4s ease',
           }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.2rem' }}>
               <div>
@@ -960,8 +1008,16 @@ export default function TowerPage({ onGoldChange }) {
                     </button>
                   ))}
                 </div>
-                <div className="text-dim" style={{ fontSize: '0.8rem', marginTop: '0.15rem' }}>
-                  Highest floor reached: <span style={{ color: 'var(--text-hi)' }}>{highestFloor}</span>
+                <div style={{ marginTop: '0.35rem' }}>
+                  <div style={{ fontFamily: 'Cinzel, serif', fontSize: '1.4rem', color: 'var(--gold)', textShadow: '0 2px 8px rgba(0,0,0,0.8)' }}>
+                    {zoneFor(selectedZone).name}
+                  </div>
+                  <div className="text-dim" style={{ fontSize: '0.82rem', maxWidth: 520, textShadow: '0 1px 4px rgba(0,0,0,0.9)' }}>
+                    {zoneFor(selectedZone).blurb}
+                  </div>
+                  <div className="text-dim" style={{ fontSize: '0.8rem', marginTop: '0.15rem' }}>
+                    Highest floor reached: <span style={{ color: 'var(--text-hi)' }}>{highestFloor}</span>
+                  </div>
                 </div>
               </div>
             </div>

@@ -14,6 +14,33 @@ import json
 from database import db
 
 
+# A hero only earns a place in the Hall of Legacies if they actually left a
+# mark. Sacrifices are always enshrined (a deliberate, memorialized death —
+# handled by the is_sacrifice bypass in create_legacy), but an ordinary
+# combat death has to clear ONE of these bars, or they're simply gone. This
+# stops the Hall filling with level-1 fodder that died on floor 2.
+LEGACY_MIN_UNIQUE_FLOORS = 10
+LEGACY_MIN_LEVEL = 30
+
+
+def qualifies_for_legacy(hero: dict, is_sacrifice: bool = False) -> bool:
+    """Whether a fallen hero is worth enshrining. Sacrifices always are.
+    Ordinary deaths must have cleared 10+ unique tower floors, reached
+    level 30, or served as a mentor (mentored_count > 0 — the Training
+    Grounds mentorship track, so a support hero who never fought still earns
+    remembrance for the students they raised)."""
+    if is_sacrifice:
+        return True
+    if hero.get("level", 1) >= LEGACY_MIN_LEVEL:
+        return True
+    unique_floors = hero.get("unique_floor_clears", 0) or hero.get("unique_floors_cleared", 0) or 0
+    if unique_floors >= LEGACY_MIN_UNIQUE_FLOORS:
+        return True
+    if (hero.get("mentored_count", 0) or 0) > 0:
+        return True
+    return False
+
+
 def calculate_legacy_bonus(hero: dict) -> dict:
     """
     Calculate the legacy bonus a dead hero leaves behind.
@@ -74,14 +101,19 @@ def calculate_legacy_bonus(hero: dict) -> dict:
     }
 
 
-def create_legacy(hero: dict, title: str = None, flavor: str = None, is_sacrifice: bool = False) -> dict:
-    """Create and save a legacy record for a fallen hero.
+def create_legacy(hero: dict, title: str = None, flavor: str = None, is_sacrifice: bool = False) -> dict | None:
+    """Create and save a legacy record for a fallen hero, IF they qualify
+    (see qualifies_for_legacy). Returns None for a hero who didn't earn one
+    — an unremarkable death that leaves no echo.
 
     Portraits are only preserved for sacrificed heroes — sacrifice is a
     deliberate, memorialized death, so the team chooses to immortalize their
     face. An ordinary combat death is just gone; the legacy keeps their name
     and story, not their portrait.
     """
+    if not qualifies_for_legacy(hero, is_sacrifice):
+        return None
+
     bonus = calculate_legacy_bonus(hero)
 
     # Try LLM-generated title and flavor

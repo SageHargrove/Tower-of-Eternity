@@ -101,6 +101,9 @@ export const revealHeroTalent = (heroId) => request('/base/talent-observatory/re
 
 export const grantResources = (gold = 0, gems = 0, ingredients = 0, aether = 0) => request('/base/dev/grant', { method: 'POST', body: JSON.stringify({ gold, gems, ingredients, aether }) })
 
+// Training Grounds sparring (peer + mentorship, auto-detected by level gap)
+export const sparHeroes = (heroAId, heroBId) => request('/base/facilities/spar', { method: 'POST', body: JSON.stringify({ hero_a_id: heroAId, hero_b_id: heroBId }) })
+
 // Forge Recipe Book (blueprint recipes discovered in the Tower)
 export const getForgeRecipes = () => request('/forge/recipes')
 export const craftPremadeRecipe = (crafterId, recipeId) => request('/forge/craft/premade', { method: 'POST', body: JSON.stringify({ crafter_id: crafterId, recipe_id: recipeId }) })

@@ -5,6 +5,7 @@ import ItemIcon from '../components/ItemIcon'
 import TeamBanner from '../components/TeamBanner'
 import UpgradeTreePanel from '../components/UpgradeTreePanel'
 import RecipeBookPanel from '../components/RecipeBookPanel'
+import SparringPanel from '../components/SparringPanel'
 import BannerStudio from '../components/BannerStudio'
 import { getBanner } from '../api/client'
 import { CookingPanel, RefineAetherPanel, BestiaryPanel, ReliquaryPanel, ChronospherePanel, TranscendencePanel } from '../components/EndgamePanels'
@@ -102,6 +103,19 @@ const FACILITY_TOOLTIPS = {
   "Transcendence Core": "The endgame furnace — feed it staggering amounts of gold to permanently empower your entire roster, one infusion at a time. Each infusion costs more than the last.",
 }
 
+// Facility categories for the filter chips. Anything unlisted falls under
+// "Economy" as a sensible default.
+const FACILITY_CATEGORY = {
+  "Market": "Economy", "Farm": "Economy", "Dining Hall": "Economy", "Vault": "Economy",
+  "Alchemist Lab": "Economy", "Forge": "Economy", "Skydock": "Economy",
+  "Training Grounds": "Support", "Infirmary": "Support", "Tavern": "Support",
+  "Shrine": "Support", "Mirror of Fate": "Support", "Mage Tower": "Support",
+  "Wall": "Military", "Bastion": "Military",
+  "Bestiary": "Endgame", "Reliquary": "Endgame", "Chronosphere": "Endgame", "Transcendence Core": "Endgame",
+}
+const FACILITY_CATEGORIES = ["All", "Economy", "Support", "Military", "Endgame"]
+function facilityCategory(type) { return FACILITY_CATEGORY[type] || "Economy" }
+
 // Tiny inline sparkline showing the real diminishing-returns curve a
 // stationed floor follows: stat_bonus_pct = (total_lp / sqrt(headcount)) / 10
 // (see get_floor_lp in base_service.py — the backend value this curve is
@@ -133,6 +147,7 @@ function DiminishingReturnsCurve({ curve, current }) {
 
 export default function BasePage({ onGoldChange, onSubTabChange, tourTargetSubTab }) {
   const [activeTab, setActiveTab] = useState('lobby')
+  const [facilityFilter, setFacilityFilter] = useState('All')
   const [base, setBase] = useState(null)
   const [facilitiesData, setFacilitiesData] = useState(null)
   const [baseHeroes, setBaseHeroes] = useState([])
@@ -623,6 +638,19 @@ const getGenRate = (fac) => {
 
       {activeTab === 'facilities' && (
         <>
+        {/* Category filter — horizontally scrolling chips */}
+        <div style={{ display: 'flex', gap: '0.5rem', overflowX: 'auto', paddingBottom: '0.75rem', marginBottom: '0.5rem' }}>
+          {FACILITY_CATEGORIES.map(cat => (
+            <button
+              key={cat}
+              onClick={() => setFacilityFilter(cat)}
+              className={`btn ${facilityFilter === cat ? 'btn-gold' : ''}`}
+              style={{ whiteSpace: 'nowrap', padding: '0.35rem 0.9rem', fontSize: '0.85rem' }}
+            >
+              {cat}
+            </button>
+          ))}
+        </div>
         <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap' }}>
           {/* Left Column: Built Facilities */}
           <div style={{ flex: '2 1 500px', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
@@ -719,7 +747,9 @@ const getGenRate = (fac) => {
                 </div>
               </div>
             )}
-            {facilitiesData.built.sort((a,b) => a.cost - b.cost).map(fac => (
+            {facilitiesData.built
+              .filter(fac => facilityFilter === 'All' || facilityCategory(fac.type) === facilityFilter)
+              .sort((a,b) => a.cost - b.cost).map(fac => (
               <div key={fac.id} className="card" style={{ overflow: 'hidden', padding: 0 }}>
                 <div style={{ width: '100%', aspectRatio: '3/1', overflow: 'hidden', position: 'relative' }}>
                   <FacilityBanner type={fac.type} level={fac.level} style={{ width: '100%', height: '100%', objectFit: 'cover', objectPosition: 'center', display: 'block' }} />
@@ -861,6 +891,11 @@ const getGenRate = (fac) => {
                   </>
                 )}
 
+                {/* Training Grounds sparring (peer + mentorship) */}
+                {fac.type === 'Training Grounds' && (
+                  <SparringPanel assignedHeroes={fac.heroes} onSparred={() => { loadAll() }} />
+                )}
+
                 {/* Economy + endgame facility panels */}
                 {fac.type === 'Dining Hall' && <CookingPanel onResourceChange={() => { loadAll(); if (onGoldChange) onGoldChange() }} />}
                 {fac.type === 'Alchemist Lab' && <RefineAetherPanel onResourceChange={() => { loadAll(); if (onGoldChange) onGoldChange() }} />}
@@ -877,14 +912,27 @@ const getGenRate = (fac) => {
           <div style={{ flex: '1 1 300px' }}>
             <h3 style={{ fontFamily: 'Cinzel, serif', color: 'var(--gold)', marginBottom: '1rem' }}>Available Facilities</h3>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-              {facilitiesData.available.sort((a,b) => a.cost - b.cost).map(fac => (
+              {(() => {
+                // Hide "future" facilities gated behind floors you haven't
+                // reached — only show what you can actually build now (plus
+                // the current category filter). If a category ends up empty
+                // because everything in it is still floor-locked, surface the
+                // single cheapest next one so the tab never looks broken.
+                const catMatch = fac => facilityFilter === 'All' || facilityCategory(fac.type) === facilityFilter
+                const inCat = facilitiesData.available.filter(catMatch).sort((a,b) => a.cost - b.cost)
+                let shown = inCat.filter(fac => !fac.floor_restricted)
+                if (shown.length === 0 && inCat.length > 0) shown = [inCat[0]]
+                if (shown.length === 0) {
+                  return <div className="text-dim text-sm" style={{ fontStyle: 'italic' }}>Everything in this category is built. Nice work.</div>
+                }
+                return shown.map(fac => (
                 <div key={fac.type} className="card" style={{ display: 'flex', flexDirection: 'column', padding: '1rem' }}>
                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.5rem' }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                         <span style={{ fontFamily: 'Cinzel, serif', fontSize: '1.1rem', color: 'var(--gold)' }}>{fac.type}</span>
                         <span title={FACILITY_TOOLTIPS[fac.type] || "Base facility."} style={{ fontSize: '0.8rem', color: 'var(--gold)', cursor: 'help' }}>[?]</span>
                       </div>
-                      <button className="btn btn-gold" onClick={() => handleBuildFacility(fac.type)} disabled={facilityLoading || base.gold < fac.cost} style={{ padding: '0.3rem 0.6rem', fontSize: '0.8rem' }}>
+                      <button className="btn btn-gold" onClick={() => handleBuildFacility(fac.type)} disabled={facilityLoading || base.gold < fac.cost || fac.floor_restricted} style={{ padding: '0.3rem 0.6rem', fontSize: '0.8rem' }}>
                         Build ({fac.cost}g)
                       </button>
                     </div>
@@ -892,7 +940,8 @@ const getGenRate = (fac) => {
                     <div style={{ color: 'var(--text-dim)', fontSize: '0.8rem', fontStyle: 'italic' }}>Unlocked at Floor {fac.unlock_floor}</div>
                   )}
                 </div>
-              ))}
+                ))
+              })()}
             </div>
           </div>
         </div>

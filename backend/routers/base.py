@@ -1070,6 +1070,21 @@ def remove_hero_facility(req: RemoveFacilityReq):
     from services.facility_service import remove_hero_from_facility
     return remove_hero_from_facility(req.hero_id)
 
+class SparReq(BaseModel):
+    hero_a_id: int
+    hero_b_id: int
+
+@router.post("/facilities/spar")
+def spar_heroes(req: SparReq):
+    """Training Grounds sparring — peer or mentorship, auto-detected from the
+    level gap. Both heroes must be assigned to the Training Grounds."""
+    from services.sparring_service import spar
+    with db() as conn:
+        try:
+            return spar(conn, req.hero_a_id, req.hero_b_id)
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+
 RESEARCH_UPGRADES = {
     "gold_boost": {"name": "Alchemical Transmutation", "desc": "+5% Gold from Tower", "max_level": 5, "base_cost": 100},
     "xp_boost": {"name": "Arcane Insight", "desc": "+10% Skill XP Gain", "max_level": 5, "base_cost": 150},

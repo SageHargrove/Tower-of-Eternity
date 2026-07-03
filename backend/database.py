@@ -800,6 +800,12 @@ WHERE NOT EXISTS (SELECT 1 FROM recipes WHERE name = 'Void Ring');
             ("defense", "ALTER TABLE heroes ADD COLUMN defense INTEGER DEFAULT 5"),
             ("equipped_consumable", "ALTER TABLE heroes ADD COLUMN equipped_consumable TEXT"),
             ("talent_reveal", "ALTER TABLE heroes ADD COLUMN talent_reveal TEXT"),
+            # Training Grounds mentorship track — how many students this hero
+            # has mentored. Used by the legacy qualification gate (a career
+            # mentor earns remembrance even if they never cleared a floor).
+            ("mentored_count", "ALTER TABLE heroes ADD COLUMN mentored_count INTEGER DEFAULT 0"),
+            # Sparring (Training Grounds) per-hero cooldown timestamp.
+            ("last_spar_time", "ALTER TABLE heroes ADD COLUMN last_spar_time REAL DEFAULT 0"),
         ]
         for col, sql in migrations:
             if col not in existing:
