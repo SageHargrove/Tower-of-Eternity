@@ -3823,6 +3823,15 @@ def apply_passive_skills(hero: dict, skills: list[dict]) -> dict:
             continue
         eff = skill.get("effect", {})
 
+        # Conditional triggers (counter, on-kill, on-ally-death, etc.) are
+        # collected onto the hero dict and carried into the CombatUnit as
+        # _triggers, where the combat loop fires them (see combat_service
+        # fire_triggers). A passive can carry a trigger AND flat stat mods.
+        trigs = eff.get("triggers")
+        if isinstance(trigs, list) and trigs:
+            existing = h.get("_triggers") or []
+            h["_triggers"] = existing + trigs
+
         if "str_pct" in eff:
             h["strength"] = int(h["strength"] * (1 + eff["str_pct"]))
         if "int_pct" in eff:
@@ -3880,4 +3889,9 @@ UNHANDLED_ACTIVE_EFFECT_KEYS = {"team_double_turn", "self_stun", "enemy_spd_debu
 def is_skill_executable(skill: dict) -> bool:
     if skill.get("type") != "active":
         return False
-    return not UNHANDLED_ACTIVE_EFFECT_KEYS.intersection(skill.get("effect", {}).keys())
+    eff = skill.get("effect", {})
+    # Generic composable skills (services/skill_engine.py) are always
+    # executable — the engine tolerates any action list.
+    if isinstance(eff.get("actions"), list) or isinstance(eff.get("self_actions"), list):
+        return True
+    return not UNHANDLED_ACTIVE_EFFECT_KEYS.intersection(eff.keys())

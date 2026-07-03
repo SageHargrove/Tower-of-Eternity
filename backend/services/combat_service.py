@@ -65,6 +65,8 @@ class CombatUnit:
     skill_cooldowns: dict = field(default_factory=dict)  # {skill_id: rounds_remaining}
     is_npc: bool = False  # escort-floor protect target — never acts, excluded from win/reward bookkeeping
     poison_on_hit: dict = None  # {"pct": float, "duration": int} — derived from a passive skill like Poison Blade
+    triggers: list = field(default_factory=list)  # passive conditional triggers, see skill_engine (on_hit_taken/on_dodge/on_kill/on_ally_death/on_low_hp)
+    low_hp_fired: bool = False  # one-shot latch for an on_low_hp trigger
 
     def __post_init__(self):
         self.log_name = self.name if self.is_hero else f"[{self.name}]"
@@ -1063,7 +1065,35 @@ def _try_use_ability(attacker: CombatUnit, alive_heroes: list, log: list, morale
 BLEED_PCT_PER_ROUND = 0.04
 BURN_PCT_PER_ROUND = 0.05
 BURN_HEAL_REDUCTION = 0.5  # halves any heal received (regen tick, consumable, skill heal) while burning
+BLIND_MISS_CHANCE = 0.6    # a blinded attacker whiffs this often on a basic attack
 ON_ATTACK_MANA_GAIN = 5
+
+
+def effective_dodge(target: CombatUnit) -> float:
+    """A unit's dodge chance including any active Evasion status buff."""
+    from services.skill_engine import status_magnitude
+    return target.dodge_chance + status_magnitude(target, "evasion")
+
+
+def mitigate_special(target: CombatUnit, damage: int, log: list) -> int:
+    """Apply Invulnerability (nullifies) and flat absorb-Shields before a
+    basic-attack hit lands. Returns the damage that actually gets through."""
+    from services.skill_engine import has_status, absorb_with_shield
+    if has_status(target, "invuln"):
+        log.append(f"  ✨ {target.log_name} is invulnerable — the blow does nothing.")
+        return 0
+    return absorb_with_shield(target, damage)
+
+
+def _basic_ctx(all_units, log, turns, round_num, morale_changes, kill_counts, damage_stats):
+    """Build the ctx dict the trigger/death helpers expect from inside the
+    basic-attack loop, so counters and on-kill fire on plain attacks too."""
+    ctx = {
+        "log": log, "turns": turns, "round_num": round_num, "all_units": all_units,
+        "morale_changes": morale_changes, "kill_counts": kill_counts, "damage_stats": damage_stats,
+    }
+    ctx["fire_death"] = make_death_handler(ctx)
+    return ctx
 ON_HIT_MANA_GAIN = 8  # taking a hit grants slightly more than landing one — keeps tanks/frontline relevant to the mana economy, not just attackers
 
 def apply_status_effect(unit: CombatUnit, eff_type: str, rounds: int, magnitude: float = 0.0, source_id: int = None):
@@ -1108,7 +1138,15 @@ def tick_status_effects(unit: CombatUnit, log: list) -> int:
             unit.health -= dmg
             total += dmg
             log.append(f"  🔥 {unit.log_name} burns for {dmg} [{max(0, unit.health)}/{unit.max_health}]")
+        elif eff["type"] == "regen":
+            heal = max(1, int(unit.max_health * eff.get("magnitude", 0.05)))
+            healed = apply_heal(unit, heal)
+            if healed:
+                log.append(f"  ✚ {unit.log_name} regenerates {healed} [{unit.health}/{unit.max_health}]")
         eff["rounds"] -= 1
+        # A timed stat buff/debuff reverts precisely when it expires.
+        if eff["rounds"] <= 0 and eff["type"] == "stat_mod":
+            setattr(unit, eff["stat"], getattr(unit, eff["stat"]) - eff.get("delta", 0))
     unit.status_effects = [e for e in unit.status_effects if e["rounds"] > 0]
     return total
 
@@ -1143,6 +1181,9 @@ def _select_castable_skill(attacker: CombatUnit) -> dict | None:
     afford. List order is treated as meaningful priority, matching how
     skill lists are already ordered elsewhere in this codebase."""
     from services.skills_service import get_skill_mana_cost, is_skill_executable
+    # Silence locks a unit out of active skills (but not basic attacks).
+    if has_status(attacker, "silence"):
+        return None
     for skill in attacker.skills:
         if not is_skill_executable(skill):
             continue
@@ -1154,7 +1195,87 @@ def _select_castable_skill(attacker: CombatUnit) -> dict | None:
         return skill
     return None
 
+def fire_triggers(unit: CombatUnit, event: str, ctx: dict, other: CombatUnit = None):
+    """Fire any passive conditional triggers a unit carries for `event`
+    (on_hit_taken/on_dodge/on_kill/on_ally_death/on_low_hp). The trigger's
+    actions run through the same generic engine, aimed by the trigger's own
+    target mode (default: the `other` unit that caused the event, else self)."""
+    if not unit.alive or not getattr(unit, "triggers", None):
+        return
+    from services.skill_engine import apply_actions, resolve_targets
+    allies = [u for u in ctx["all_units"] if u.is_hero == unit.is_hero]
+    enemies = [u for u in ctx["all_units"] if u.is_hero != unit.is_hero]
+    for trig in unit.triggers:
+        if trig.get("event") != event:
+            continue
+        if event == "on_hit_taken" and random.random() > trig.get("chance", 1.0):
+            continue
+        mode = trig.get("target")
+        if mode:
+            targets = resolve_targets(unit, mode, allies, enemies, trig.get("target_count", 1))
+        elif other is not None and other.alive:
+            targets = [other]
+        else:
+            targets = [unit]
+        actions = trig.get("actions", [])
+        if actions and targets:
+            tctx = dict(ctx)
+            tctx["skill_name"] = trig.get("name", event)
+            ctx["log"].append(f"  ⟳ {unit.log_name}'s {trig.get('name', 'reaction')} triggers!")
+            apply_actions(unit, actions, targets, tctx)
+
+
+def make_death_handler(ctx: dict):
+    """Returns a fire_death(attacker, target, execution=False) closure the
+    generic skill engine calls whenever an action drops a unit — centralizes
+    kill bookkeeping (kills, morale, on_kill / on_ally_death triggers) so the
+    engine doesn't need to know combat internals."""
+    def fire_death(attacker, target, execution=False):
+        if not target.alive:
+            return
+        target.alive = False
+        if attacker is not None:
+            attacker.kills += 1
+            ctx["kill_counts"][attacker.id] = ctx["kill_counts"].get(attacker.id, 0) + 1
+        verb = "is executed" if execution else "falls"
+        ctx["log"].append(f"    ✦ {target.log_name} {verb}.")
+        # Morale swing for the target's enemies (the killers' side).
+        for u in ctx["all_units"]:
+            if u.alive and u.is_hero != target.is_hero:
+                ctx["morale_changes"][u.id] = ctx["morale_changes"].get(u.id, 0) + random.randint(2, 5)
+        # on_kill for the attacker; on_ally_death for the fallen unit's allies.
+        if attacker is not None:
+            fire_triggers(attacker, "on_kill", ctx, other=target)
+        for u in ctx["all_units"]:
+            if u.alive and u.is_hero == target.is_hero and u is not target:
+                fire_triggers(u, "on_ally_death", ctx, other=target)
+    return fire_death
+
+
 def _execute_active_skill(attacker: CombatUnit, skill: dict, targets: list, all_units: list,
+                           log: list, turns: list, round_num: int,
+                           morale_changes: dict, kill_counts: dict, damage_dealt_stats: dict) -> bool:
+    # Generic engine path — any skill authored in the composable actions
+    # schema (see services/skill_engine.py) routes here first.
+    from services.skill_engine import is_generic_skill, execute_generic_skill
+    if is_generic_skill(skill):
+        from services.skills_service import get_skill_mana_cost
+        attacker.mana -= get_skill_mana_cost(skill)
+        attacker.skill_cooldowns[skill["id"]] = skill.get("effect", {}).get("cooldown", skill.get("cooldown", 3))
+        ctx = {
+            "log": log, "turns": turns, "round_num": round_num, "all_units": all_units,
+            "morale_changes": morale_changes, "kill_counts": kill_counts,
+            "damage_stats": damage_dealt_stats,
+        }
+        ctx["fire_death"] = make_death_handler(ctx)
+        allies = [u for u in all_units if u.is_hero == attacker.is_hero]
+        enemies = [u for u in all_units if u.is_hero != attacker.is_hero]
+        return execute_generic_skill(attacker, skill, allies, enemies, ctx)
+    return _execute_active_skill_legacy(attacker, skill, targets, all_units,
+                                         log, turns, round_num, morale_changes, kill_counts, damage_dealt_stats)
+
+
+def _execute_active_skill_legacy(attacker: CombatUnit, skill: dict, targets: list, all_units: list,
                            log: list, turns: list, round_num: int,
                            morale_changes: dict, kill_counts: dict, damage_dealt_stats: dict) -> bool:
     """Dispatches on effect keys already defined in SKILL_POOL. Deducts mana
@@ -1571,6 +1692,7 @@ def _resolve_combat_from_processed(processed, floor_number, is_boss, is_miniboss
             mana=hero_max_mana // 2,  # start fights at 50%, not empty or full
             mana_regen_per_turn=max(1, hero_max_mana // 10),
             poison_on_hit=poison_on_hit,
+            triggers=h.get("_triggers", []),
         )
         combatants_heroes.append(hero_unit)
         
@@ -1911,13 +2033,19 @@ def _resolve_combat_from_processed(processed, floor_number, is_boss, is_miniboss
                         # default-targeting branch, never to the Assassin rule above.
                         target = _apply_tendency_target_override(target, targets, squad_tendency)
 
-                    # Dodge check
-                    if random.random() < target.dodge_chance and not attacker.is_hero:
+                    # A blinded attacker whiffs most basic attacks.
+                    if has_status(attacker, "blind") and random.random() < BLIND_MISS_CHANCE:
+                        log.append(f"  🌫 {attacker.log_name} is blinded and misses!")
+                        continue
+
+                    # Dodge check (now includes any Evasion status buff)
+                    if random.random() < effective_dodge(target):
                         log.append(f"  {target.name} dodges!")
+                        _bctx = _basic_ctx(all_units, log, turns, round_num, morale_changes, kill_counts, damage_dealt_stats)
+                        fire_triggers(target, "on_dodge", _bctx, other=attacker)
                         continue
 
                     damage, is_crit = calc_damage(attacker, target, force_strength=True)
-                    damage_dealt_stats[attacker.id] += damage
 
                     # Construct absorbs first hit for Magic Engineer
                     if target.is_hero and target.has_construct and target.construct_active:
@@ -1925,6 +2053,9 @@ def _resolve_combat_from_processed(processed, floor_number, is_boss, is_miniboss
                         log.append(f"  {target.name}'s construct absorbs the hit!")
                         continue
 
+                    # Invulnerability / absorb-shields eat the blow first.
+                    damage = mitigate_special(target, damage, log)
+                    damage_dealt_stats[attacker.id] += damage
                     target.health -= damage
                     attacker.mana = min(attacker.max_mana, attacker.mana + ON_ATTACK_MANA_GAIN)
                     target.mana = min(target.max_mana, target.mana + ON_HIT_MANA_GAIN)
@@ -1942,6 +2073,10 @@ def _resolve_combat_from_processed(processed, floor_number, is_boss, is_miniboss
                         kill_counts[attacker.id] = kill_counts.get(attacker.id, 0) + 1
                         log.append(_kill_log_line(attacker, target))
                         morale_changes[attacker.id] = morale_changes.get(attacker.id, 0) + random.randint(2, 5)
+                    elif target.alive:
+                        # Target survived — it may counter-attack (on_hit_taken).
+                        _bctx = _basic_ctx(all_units, log, turns, round_num, morale_changes, kill_counts, damage_dealt_stats)
+                        fire_triggers(target, "on_hit_taken", _bctx, other=attacker)
 
             else:
                 if attacker.abilities:
@@ -1986,9 +2121,16 @@ def _resolve_combat_from_processed(processed, floor_number, is_boss, is_miniboss
                     if isolated_targets:
                         target = random.choice(isolated_targets)
 
-                # Dodge check for thief
-                if random.random() < target.dodge_chance:
+                # A blinded enemy whiffs most basic attacks.
+                if has_status(attacker, "blind") and random.random() < BLIND_MISS_CHANCE:
+                    log.append(f"  🌫 {attacker.log_name} is blinded and misses!")
+                    continue
+
+                # Dodge check (now includes any Evasion status buff)
+                if random.random() < effective_dodge(target):
                     log.append(f"  {target.name} dodges {attacker.log_name}'s strength!")
+                    _bctx = _basic_ctx(all_units, log, turns, round_num, morale_changes, kill_counts, damage_dealt_stats)
+                    fire_triggers(target, "on_dodge", _bctx, other=attacker)
                     continue
 
                 # Construct check
@@ -2000,6 +2142,7 @@ def _resolve_combat_from_processed(processed, floor_number, is_boss, is_miniboss
                 damage, is_crit = calc_damage(attacker, target)
                 stacks = unimber_stacks(target, len(alive_frontline) + len(alive_backline), len([e for e in enemies if e.alive]))
                 damage = apply_unimber(damage, stacks)
+                damage = mitigate_special(target, damage, log)
                 target.health -= damage
                 target.mana = min(target.max_mana, target.mana + ON_HIT_MANA_GAIN)
                 crit_text = " CRIT!" if is_crit else ""
@@ -2030,6 +2173,13 @@ def _resolve_combat_from_processed(processed, floor_number, is_boss, is_miniboss
                                 _panic_check(h, "witness_death", log, power_ratio, fear_resist_mult)
                 elif target.health > 0 and (target.health / target.max_health) < 0.25:
                     _panic_check(target, "hp_critical", log, power_ratio, fear_resist_mult)
+                    # A hero hit but still standing may counter (on_hit_taken).
+                    if target.is_hero:
+                        _bctx = _basic_ctx(all_units, log, turns, round_num, morale_changes, kill_counts, damage_dealt_stats)
+                        fire_triggers(target, "on_hit_taken", _bctx, other=attacker)
+                elif target.is_hero and target.alive:
+                    _bctx = _basic_ctx(all_units, log, turns, round_num, morale_changes, kill_counts, damage_dealt_stats)
+                    fire_triggers(target, "on_hit_taken", _bctx, other=attacker)
 
             if npc_unit is not None and not npc_unit.alive:
                 break  # mid-round abort — protecting the NPC is the whole point of the floor

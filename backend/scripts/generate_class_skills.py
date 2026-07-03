@@ -35,37 +35,101 @@ def get_missing_classes():
     return missing
 
 prompt_template = """
-You are an expert game designer for an RPG auto-battler.
-I will give you a list of RPG character classes. For each class, design exactly 5 unique skills (a mix of passive and active).
+You are an expert game designer for a deep RPG auto-battler. Design skills
+that are MECHANICALLY INSANE and build-defining — not just flat stat buffs.
+The combat engine now supports a rich, composable effect system; USE IT.
 
-The output MUST be a valid JSON array of objects, matching this exact structure:
+For each class, design exactly 5 unique skills (roughly 2 active, 3 passive —
+passives should lean class-agnostic-flavored, actives class-specific). Fights
+are auto-battled front-to-back; positioning and status effects matter.
+
+Output MUST be a valid JSON array, this exact structure:
 [
   {{
     "class_name": "The Class Name",
     "skills": [
       {{
-        "id": "skill_id_like_this",
+        "id": "snake_case_id",
         "name": "Skill Name",
-        "type": "active", // or "passive"
-        "desc": "Short, punchy description (max 12 words)",
-        "cooldown": 3, // only if active
-        "effect": {{"hlt_pct": 0.1}} // Some thematic effect dictionary
+        "type": "active",              // "active" or "passive"
+        "desc": "Punchy description (max 14 words)",
+        "effect": {{ ... }}            // see schemas below
       }}
     ]
   }}
 ]
 
-Valid effect keys (use 1-2 per skill):
-- atk_pct (e.g. 1.5 for 150% damage)
-- heal_pct (e.g. 0.2 for 20% max hp heal to lowest ally)
-- self_heal_pct
-- hlt_pct, str_pct, def_pct, int_pct, agi_pct, lck_pct (passives)
-- cleanse_self (True)
-- death_heal (True)
-- regen_pct (e.g. 0.05 for 5% hp per turn)
-- mana_cost (e.g. 20)
-- crushing_blow (True - chance to deal massive damage)
-- enrage (True)
+═══ ACTIVE SKILL SCHEMA (the powerful one — prefer this for actives) ═══
+"effect": {{
+  "mana_cost": 30,                     // 15-60; bigger effects cost more
+  "cooldown": 3,                       // 1-5 rounds
+  "target": "<mode>",                  // WHO it hits (see targets below)
+  "target_count": 2,                   // only for random_enemies / random_allies
+  "actions": [ <action>, ... ],        // WHAT happens to the target(s)
+  "self_actions": [ <action>, ... ]    // optional: effects on the caster
+}}
+
+TARGET modes:
+  Enemies: one_enemy, all_enemies, random_enemies, lowest_hp_enemy,
+           highest_hp_enemy, strongest_enemy, weakest_enemy,
+           frontline_enemies, backline_enemies, enemy_column
+  Allies:  self, all_allies, lowest_hp_ally, random_allies, wounded_allies,
+           dead_ally (for revive)
+
+ACTION kinds (compose 1-3 per skill for combos):
+  {{"kind":"damage","power":2.5,"stat":"auto"|"strength"|"intelligence",
+     "ignore_def":0.5,          // 0-1, fraction of defense ignored (armor pen)
+     "true_damage":true,        // ignores ALL mitigation (use sparingly)
+     "crit_bonus":0.3,          // added crit chance for this hit
+     "guaranteed_crit":true,
+     "execute_threshold":0.3,"execute_bonus":0.5,  // bonus dmg vs low-hp
+     "lifesteal":0.3,           // heal caster for % of damage dealt
+     "chain":2,"chain_falloff":0.6}}   // bounce to N more foes at falling power
+  {{"kind":"execute","threshold":0.25}}            // instakill below 25% HP
+  {{"kind":"heal","pct":0.3}} OR {{"kind":"heal","heal_power":1.5,"stat":"intelligence"}}
+  {{"kind":"status","status":"<status>","duration":2,"magnitude":0.4}}
+  {{"kind":"buff","stat":"strength","pct":0.5,"duration":2}}   // timed, reverts
+  {{"kind":"debuff","stat":"agility","pct":0.4,"duration":2}}
+  {{"kind":"shield","status":"shield","duration":2,"magnitude":0.2}} // absorb 20% max HP
+  {{"kind":"cleanse","count":2}}     // remove debuffs from targets (allies)
+  {{"kind":"dispel","count":1}}      // strip buffs from targets (enemies)
+  {{"kind":"restore_mana","amount":30}} / {{"kind":"drain_mana","amount":25}}
+  {{"kind":"revive","pct":0.4}}      // target must be dead_ally
+
+STATUS types for {{"kind":"status"}}:
+  stun / freeze (skip their turn), blind (60% miss chance),
+  silence (can't cast skills), disarm, taunting (forces enemies to hit them),
+  bleed / poison / burn (damage-over-time; poison magnitude = dmg per tick),
+  evasion (magnitude = added dodge chance, e.g. 0.5), invuln (immune to damage),
+  regen (magnitude = % max HP healed per turn), dmg_shield (magnitude = % dmg reduced)
+
+═══ PASSIVE SKILL SCHEMA ═══
+Flat modifiers: {{"str_pct":0.15}}, {{"int_pct":0.15}}, {{"agi_pct":0.15}},
+  {{"hlt_pct":0.15}}, {{"all_pct":0.1}}, {{"crit_pct":0.1}}, {{"dodge_pct":0.1}},
+  {{"armor_pen":0.2}}, {{"regen_pct":0.05}}, {{"dmg_reduction_pct":0.15}},
+  {{"physical_resist_pct":0.2}}, {{"magic_resist_pct":0.2}}, {{"fear_immune":true}},
+  {{"death_save":1}}
+
+CONDITIONAL TRIGGERS (the exciting passives) — reactive effects:
+"effect": {{"triggers": [
+  {{"event":"<event>","chance":0.5,"name":"Trigger Name",
+    "target":"<mode or omit for the unit that caused it>",
+    "actions":[ <action>, ... ]}}
+]}}
+  events: on_hit_taken (counter-attack), on_dodge, on_kill,
+          on_ally_death, on_low_hp
+  Example — a thorns/riposte passive:
+    {{"triggers":[{{"event":"on_hit_taken","chance":0.4,"name":"Riposte",
+      "actions":[{{"kind":"damage","power":1.0,"stat":"strength"}}]}}]}}
+
+DESIGN GUIDANCE:
+- Make skills feel like the class fantasy: an Assassin executes and bleeds; a
+  Cleric shields, cleanses, and revives; a Warden taunts and gains regen; a
+  Sniper hits backline_enemies with armor pen; a Time Mage silences + debuffs.
+- Combine actions: damage + apply a debuff, or damage + self-buff.
+- Balance: power 1.5-3.0 for single-target, 0.8-1.5 for all_enemies.
+  execute thresholds 0.2-0.35. Strong effects → higher mana_cost/cooldown.
+- Use conditional triggers liberally on passives — they make builds sing.
 
 Here are the classes to generate for:
 {classes}
