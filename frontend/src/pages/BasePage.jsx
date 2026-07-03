@@ -917,11 +917,16 @@ const getGenRate = (fac) => {
                 // reached — only show what you can actually build now (plus
                 // the current category filter). If a category ends up empty
                 // because everything in it is still floor-locked, surface the
-                // single cheapest next one so the tab never looks broken.
+                // NEXT unlock floor's whole batch — several facilities can
+                // share an unlock floor (e.g. Farm + Market both at floor 2),
+                // so peek at all of them, not just the cheapest one.
                 const catMatch = fac => facilityFilter === 'All' || facilityCategory(fac.type) === facilityFilter
                 const inCat = facilitiesData.available.filter(catMatch).sort((a,b) => a.cost - b.cost)
                 let shown = inCat.filter(fac => !fac.floor_restricted)
-                if (shown.length === 0 && inCat.length > 0) shown = [inCat[0]]
+                if (shown.length === 0 && inCat.length > 0) {
+                  const nextFloor = Math.min(...inCat.map(f => f.unlock_floor))
+                  shown = inCat.filter(f => f.unlock_floor === nextFloor)
+                }
                 if (shown.length === 0) {
                   return <div className="text-dim text-sm" style={{ fontStyle: 'italic' }}>Everything in this category is built. Nice work.</div>
                 }
