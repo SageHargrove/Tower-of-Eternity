@@ -8,6 +8,8 @@ This local backend never talks to the arena_server directly; it has no
 knowledge of it at all, just like before Arena existed.
 """
 from fastapi import APIRouter, HTTPException
+from pydantic import BaseModel
+import json
 from database import db
 from services.combat_service import resolve_hero_stats
 
@@ -45,9 +47,6 @@ def record_arena_result(req: ArenaResultRequest):
             conn.execute("UPDATE base SET arena_losses = arena_losses + 1, arena_elo = ? WHERE id = 1", (req.new_elo,))
     return {"ok": True}
 
-
-from pydantic import BaseModel
-import json
 
 class ApplyTrainingRequest(BaseModel):
     student_id: int
