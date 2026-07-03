@@ -36,7 +36,7 @@ GIFT_CATALOG = [
      "desc": "A small silver locket, empty. What they put inside is up to them."},
     {"id": "storm_in_a_bottle", "name": "Storm in a Bottle", "cost_gold": 0, "cost_gems": 80, "icon": "storm",
      "desc": "A sealed vial of captured skyfire. Shakes angrily when ignored."},
-    {"id": "dragon_scale", "name": "Dragon Scale", "cost_gold": 0, "cost_gems": 120, "icon": "creature_dragon",
+    {"id": "dragon_scale", "name": "Dragon Scale", "cost_gold": 0, "cost_gems": 120, "icon": "arcane_dragon",
      "desc": "Still warm. A trophy from far above any floor you've reached."},
 ]
 

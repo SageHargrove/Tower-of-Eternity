@@ -216,11 +216,13 @@ def market_purchase(req: MarketPurchaseRequest):
 # tier-3 cloth is available) — but any unlocked lower tier stays equippable,
 # both for taste and for PvP mind games (flying tattered cloth at Wall 30).
 
+# Only the new-generation 1254px set — the old small creature_* icons
+# didn't hold up at banner scale (they serve elsewhere: Scout class icon,
+# escort floors, gift icons).
 BANNER_EMBLEMS = [
     "golden_lion", "crimson_skull", "divine_sun", "crescent_moon",
     "black_rose", "sapphire_crown", "arcane_dragon", "lightning_bolt",
     "bastion_shield", "iron_sword",
-    "creature_dragon", "creature_eagle", "creature_horse", "creature_wolf",
 ]
 
 MAX_BANNER_PAINT_BYTES = 600_000  # dataURL cap — a 512px PNG layer is plenty
