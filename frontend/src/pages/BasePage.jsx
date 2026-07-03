@@ -490,65 +490,6 @@ const getGenRate = (fac) => {
           {/* Top Row: Base Stats & Recovery */}
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(350px, 1fr))', gap: '1.5rem' }}>
             
-            {/* The Lobby Profile */}
-            <div className="card" style={{ padding: '2rem' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '1.5rem' }}>
-                <div style={{ fontFamily: 'Cinzel, serif', fontSize: '2.0rem', color: 'var(--gold)' }}>
-                  {base.name} <span style={{ fontSize: '1.4rem', color: 'var(--text-dim)' }}>(Lv.{base.level})</span>
-                  {base.difficulty && base.difficulty !== 'normal' && (
-                    <span style={{
-                      fontSize: '0.7rem', marginLeft: '0.6rem', padding: '0.15rem 0.5rem', borderRadius: 5,
-                      verticalAlign: 'middle', fontFamily: 'Cinzel, serif', letterSpacing: '1px',
-                      color: base.difficulty === 'hard' ? '#e66' : '#6e6',
-                      border: `1px solid ${base.difficulty === 'hard' ? 'rgba(230,100,100,0.4)' : 'rgba(100,230,100,0.4)'}`,
-                    }}>
-                      {base.difficulty.toUpperCase()} MODE
-                    </span>
-                  )}
-                </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
-                  <div style={{ cursor: 'pointer' }} onClick={() => setShowBannerStudio(true)} title="Customize your Team Banner">
-                    <TeamBanner banner={banner} size={72} />
-                  </div>
-                  <button className="btn" style={{ padding: '0.4rem', fontSize: '0.9rem' }} onClick={handleRenameBase} title="Rename Base">✎ Edit</button>
-                </div>
-              </div>
-              <button className="btn" style={{ marginBottom: '1rem', fontSize: '0.8rem' }} onClick={() => setShowBannerStudio(true)}>
-                🚩 Banner Studio
-              </button>
-              
-              <div style={{ display: 'flex', gap: '2rem', marginBottom: '1.5rem', marginTop: '1rem' }}>
-                <div>
-                  <div className="text-dim" style={{ fontSize: '0.9rem', textTransform: 'uppercase', letterSpacing: '1px' }}>Total Treasury</div>
-                  <div className="text-gold" style={{ fontFamily: 'Cinzel, serif', fontSize: '1.5rem' }}>{base.gold.toLocaleString()} Gold</div>
-                </div>
-                <div>
-                  <div className="text-dim" style={{ fontSize: '0.9rem', textTransform: 'uppercase', letterSpacing: '1px' }}>Ingredients</div>
-                  <div style={{ fontFamily: 'Cinzel, serif', fontSize: '1.5rem', color: '#9fd68a' }}>{base.ingredients?.toLocaleString()}</div>
-                </div>
-                <div>
-                  <div className="text-dim" style={{ fontSize: '0.9rem', textTransform: 'uppercase', letterSpacing: '1px' }}>Aether</div>
-                  <div style={{ fontFamily: 'Cinzel, serif', fontSize: '1.5rem', color: '#8fb8ff' }}>{(base.aether || 0).toLocaleString()}</div>
-                </div>
-              </div>
-              
-              <div style={{ borderTop: '1px solid var(--border)', paddingTop: '1.5rem' }}>
-                <div style={{ fontFamily: 'Cinzel, serif', fontSize: '1.2rem', color: 'var(--text-hi)', marginBottom: '1rem' }}>Resource Generation</div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.5rem', fontSize: '1.1rem' }}>
-                  <span className="text-dim">The Market:</span>
-                  <span className="text-gold">+{goldGen} Gold / 5 mins</span>
-                </div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.5rem', fontSize: '1.1rem' }}>
-                  <span className="text-dim">The Farm:</span>
-                  <span style={{ color: '#9fd68a' }}>+{ingredientsGen} Ingredients / 5 mins</span>
-                </div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '1.1rem' }}>
-                  <span className="text-dim">The Skydock:</span>
-                  <span style={{ color: '#8fb8ff' }}>+{aetherGen} Aether / 5 mins</span>
-                </div>
-              </div>
-            </div>
-
             {/* Base Expansion */}
             <div className="card" style={{ padding: '2rem', display: 'flex', flexDirection: 'column' }}>
               <div style={{ fontFamily: 'Cinzel, serif', fontSize: '1.8rem', color: 'var(--text-hi)', marginBottom: '1rem' }}>Base Expansion</div>
@@ -560,6 +501,69 @@ const getGenRate = (fac) => {
               <button className="btn btn-gold" onClick={handleUpgradeBase} style={{ width: '100%', padding: '1rem', fontSize: '1.1rem', marginTop: '2rem' }}>
                 Upgrade Base ({5000 * base.level}G)
               </button>
+            </div>
+
+            {/* The Lobby Profile */}
+            <div className="card" style={{ padding: '2rem', display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center' }}>
+              <div 
+                className="hover-brighten"
+                style={{ cursor: 'pointer', transition: 'transform 0.2s', marginBottom: '1rem' }} 
+                onClick={() => setShowBannerStudio(true)} 
+                title="Click to customize your Team Banner"
+              >
+                <TeamBanner banner={banner} size={300} />
+              </div>
+              
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.8rem', marginBottom: '0.4rem' }}>
+                <div style={{ fontFamily: 'Cinzel, serif', fontSize: '2.4rem', color: 'var(--gold)', lineHeight: 1.1 }}>
+                  {base.name}
+                </div>
+                <button className="hover-brighten" style={{ background: 'transparent', border: 'none', padding: '0.2rem', fontSize: '1.4rem', color: 'var(--text-dim)', cursor: 'pointer', display: 'flex' }} onClick={handleRenameBase} title="Rename Base">✎</button>
+              </div>
+
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '1rem', marginBottom: '1.5rem' }}>
+                <span style={{ fontSize: '1.3rem', color: 'var(--text-dim)' }}>Lv.{base.level}</span>
+                {base.difficulty && base.difficulty !== 'normal' && (
+                  <span style={{
+                    fontSize: '0.8rem', padding: '0.15rem 0.6rem', borderRadius: 5,
+                    fontFamily: 'Cinzel, serif', letterSpacing: '1px',
+                    color: base.difficulty === 'hard' ? '#e66' : '#6e6',
+                    border: `1px solid ${base.difficulty === 'hard' ? 'rgba(230,100,100,0.4)' : 'rgba(100,230,100,0.4)'}`,
+                  }}>
+                    {base.difficulty.toUpperCase()} MODE
+                  </span>
+                )}
+              </div>
+              
+              <div style={{ display: 'flex', gap: '2rem', justifyContent: 'center', width: '100%', padding: '1.5rem 0', borderTop: '1px solid var(--border)', borderBottom: '1px solid var(--border)', marginBottom: '1.5rem' }}>
+                <div style={{ textAlign: 'center' }}>
+                  <div className="text-dim" style={{ fontSize: '0.85rem', textTransform: 'uppercase', letterSpacing: '1px', marginBottom: '0.3rem' }}>Treasury</div>
+                  <div className="text-gold" style={{ fontFamily: 'Cinzel, serif', fontSize: '1.4rem' }}>{base.gold.toLocaleString()} G</div>
+                </div>
+                <div style={{ textAlign: 'center' }}>
+                  <div className="text-dim" style={{ fontSize: '0.85rem', textTransform: 'uppercase', letterSpacing: '1px', marginBottom: '0.3rem' }}>Ingredients</div>
+                  <div style={{ fontFamily: 'Cinzel, serif', fontSize: '1.4rem', color: '#9fd68a' }}>{base.ingredients?.toLocaleString()}</div>
+                </div>
+                <div style={{ textAlign: 'center' }}>
+                  <div className="text-dim" style={{ fontSize: '0.85rem', textTransform: 'uppercase', letterSpacing: '1px', marginBottom: '0.3rem' }}>Aether</div>
+                  <div style={{ fontFamily: 'Cinzel, serif', fontSize: '1.4rem', color: '#8fb8ff' }}>{(base.aether || 0).toLocaleString()}</div>
+                </div>
+              </div>
+              
+              <div style={{ width: '100%' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.5rem', fontSize: '1.0rem' }}>
+                  <span className="text-dim">Market:</span>
+                  <span className="text-gold">+{goldGen} G / 5m</span>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.5rem', fontSize: '1.0rem' }}>
+                  <span className="text-dim">Farm:</span>
+                  <span style={{ color: '#9fd68a' }}>+{ingredientsGen} Ing / 5m</span>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '1.0rem' }}>
+                  <span className="text-dim">Skydock:</span>
+                  <span style={{ color: '#8fb8ff' }}>+{aetherGen} Aeth / 5m</span>
+                </div>
+              </div>
             </div>
 
             {/* Rest & Recovery */}

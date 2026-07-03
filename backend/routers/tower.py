@@ -15,6 +15,24 @@ from pydantic import BaseModel
 
 router = APIRouter()
 
+
+def _heal_survivors_after_combat(conn, hero_ids: list[int]):
+    """Full HP heal + morale/stress/trauma recovery for every hero who
+    survived a fight — "the tower trip is over, not a siege" (see
+    between_floor_recovery). /floor/enter already did this inline; event
+    floors that trigger_combat and explore floors call the same low-level
+    _resolve_real_combat but never ran this, so a hero could walk away
+    from a won event/explore fight still injured. Centralized here so all
+    three call sites share one heal path."""
+    for hid in hero_ids:
+        hero_row = conn.execute("SELECT * FROM heroes WHERE id = ?", (hid,)).fetchone()
+        if not hero_row:
+            continue
+        recovery = between_floor_recovery(dict(hero_row))
+        conn.execute("""
+            UPDATE heroes SET health = max_health, morale = ?, stress = ?, trauma = ?, morale_state = ? WHERE id = ?
+        """, (recovery["morale"], recovery["stress"], recovery["trauma"], recovery["morale_state"], hid))
+
 class EnterFloorRequest(BaseModel):
     team_ids: list[int] = []
     team_id: int = 1
@@ -668,17 +686,10 @@ def enter_floor(req: EnterFloorRequest):
                             bond_level = floors_together / 5
                     """, (a, b))
 
-        # IMPORTANT: Between floor recovery applied immediately since we return to base instantly!
-        # HP fully heals on lobby return too — the tower trip is over, not a
-        # siege, and this is what makes the Infirmary's old passive HP regen
-        # and the Rest action's old HP heal both redundant (removed elsewhere).
-        for hid in surviving_ids:
-            hero_row = conn.execute("SELECT * FROM heroes WHERE id = ?", (hid,)).fetchone()
-            if hero_row:
-                recovery = between_floor_recovery(dict(hero_row))
-                conn.execute("""
-                    UPDATE heroes SET health = max_health, morale = ?, stress = ?, trauma = ?, morale_state = ? WHERE id = ?
-                """, (recovery["morale"], recovery["stress"], recovery["trauma"], recovery["morale_state"], hid))
+        # Between-floor recovery applied immediately since we return to base
+        # instantly — HP fully heals on lobby return too (the tower trip is
+        # over, not a siege).
+        _heal_survivors_after_combat(conn, surviving_ids)
 
         # Mark this floor as visited regardless of win/loss — the player
         # entered it, so the floor type is now revealed on the grid.
@@ -852,6 +863,9 @@ def resolve_event_floor(data: ResolveEventRequest):
             combat_result["event_narrative"] = narrative
             combat_result["effects"] = effects
 
+            survivors = combat_result.get("combat", {}).get("surviving_heroes", [])
+            _heal_survivors_after_combat(conn, [s["id"] for s in survivors])
+
             conn.execute("UPDATE floor_cache SET visited = 1 WHERE floor_number = ?", (data.floor_number,))
 
             if not combat_result.get("run_over") and data.floor_number > base_row["highest_floor"]:
@@ -946,6 +960,9 @@ def resolve_explore_floor_choice(data: ResolveExploreRequest):
             f"Explored \"{template['theme'][:80]}\" — chose: {choice.get('label', data.choice_id)}. "
             f"Fought {', '.join(enemy_names) or 'enemies'} — party {outcome}.",
         )
+
+        survivors = result.get("combat", {}).get("surviving_heroes", [])
+        _heal_survivors_after_combat(conn, [s["id"] for s in survivors])
 
         # Loot is a bonus on top of the fight — only rolls if the fight was won.
         if not result.get("run_over"):

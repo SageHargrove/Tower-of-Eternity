@@ -10,7 +10,12 @@ function rewardText(reward) {
   const parts = []
   if (reward.gems) parts.push(<span key="gems"><GameIcon name="gem" size={15} /> {reward.gems}</span>)
   if (reward.gold) parts.push(<span key="gold"><GameIcon name="gold_coin" size={15} /> {reward.gold}</span>)
-  if (reward.summon_ticket) parts.push(<span key="ticket"><GameIcon name="summon_ticket" size={15} /> {reward.summon_ticket}</span>)
+  if (reward.summon_ticket) {
+    let iconName = 'summon_ticket'
+    const m = reward.summon_ticket.match(/^(\d)-Star/)
+    if (m) iconName = `summon_ticket_${m[1]}star`
+    parts.push(<span key="ticket"><GameIcon name={iconName} size={15} /> {reward.summon_ticket}</span>)
+  }
   return <span style={{ display: 'inline-flex', gap: '0.6rem', alignItems: 'center' }}>{parts}</span>
 }
 

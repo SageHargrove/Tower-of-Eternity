@@ -17,26 +17,37 @@ export default function TeamBanner({ banner, size = 96, style, title }) {
         draggable={false}
         style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'contain' }}
       />
-      {banner?.paint ? (
+      {banner?.paint && (
         <img
           src={banner.paint}
           alt=""
           draggable={false}
-          style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'contain' }}
+          style={{ 
+            position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'contain',
+            WebkitMaskImage: `url(/icons/banners/banner_tier${tier}.png)`,
+            WebkitMaskSize: 'contain',
+            WebkitMaskPosition: 'center',
+            WebkitMaskRepeat: 'no-repeat',
+            maskImage: `url(/icons/banners/banner_tier${tier}.png)`,
+            maskSize: 'contain',
+            maskPosition: 'center',
+            maskRepeat: 'no-repeat'
+          }}
         />
-      ) : banner?.emblem ? (
+      )}
+      {banner?.emblem && (
         <img
           src={`/icons/emblems/${banner.emblem}.png`}
           alt=""
           draggable={false}
           style={{
             position: 'absolute',
-            left: '28%', top: '22%', width: '44%', height: '44%',
+            left: '28%', top: '28%', width: '44%', height: '44%',
             objectFit: 'contain',
             filter: 'drop-shadow(0 2px 3px rgba(0,0,0,0.6))',
           }}
         />
-      ) : null}
+      )}
     </div>
   )
 }

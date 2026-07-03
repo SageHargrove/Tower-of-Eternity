@@ -241,11 +241,7 @@ export default function App() {
                   <GameIcon name="gem" size={18} /> {gems.toLocaleString()} <span className="pill-label">GEMS</span>
                 </span>
               )}
-              {ingredients !== null && (
-                <span className="resource-pill" style={{ color: '#9fd68a' }}>
-                  <GameIcon name="mystic_wheat" size={18} /> {ingredients.toLocaleString()} <span className="pill-label">INGREDIENTS</span>
-                </span>
-              )}
+
               {aether !== null && aether > 0 && (
                 <span className="resource-pill" style={{ color: '#8fb8ff', textShadow: '0 0 5px rgba(120,160,255,0.4)' }}>
                   <GameIcon name="aether_crystal" size={18} /> {aether.toLocaleString()} <span className="pill-label">AETHER</span>

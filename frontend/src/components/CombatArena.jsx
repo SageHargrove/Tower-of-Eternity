@@ -241,7 +241,7 @@ function CombatUnitSprite({ unit, team, position, teamCount = 1, pos: posOverrid
   )
 }
 
-export default function CombatArena({ combatData, onComplete, turnNarrations }) {
+export default function CombatArena({ combatData, onComplete, turnNarrations, initialTurnIndex = -1 }) {
   const [currentTurnIndex, setCurrentTurnIndex] = useState(-1)
   const [playing, setPlaying] = useState(false)
   
@@ -306,9 +306,25 @@ export default function CombatArena({ combatData, onComplete, turnNarrations }) 
       const initialManas = {}
       heroes.forEach(h => { initialHps[h.id] = h.health; initialManas[h.id] = h.mana })
       enemies.forEach(e => initialHps[e.id] = e.health)
+
+      // Time-skip resume: if the player left the Tower tab mid-fight and
+      // came back, TowerPage computes how many turns "should have played"
+      // from elapsed real time and hands it in here. Replay every turn up
+      // to that point INSTANTLY (no per-turn delay) so HP/mana bars land
+      // exactly where they'd be if the player had watched the whole thing,
+      // then resume normal timed playback from there.
+      const targetIndex = Math.min(initialTurnIndex, turns.length - 1)
+      for (let i = 0; i <= targetIndex; i++) {
+        const t = turns[i]
+        if (t && t.target_id) {
+          initialHps[t.target_id] = t.target_hp
+          if (t.attacker_mana != null) initialManas[t.attacker_id] = t.attacker_mana
+          if (t.target_mana != null) initialManas[t.target_id] = t.target_mana
+        }
+      }
       setUnitHPs(initialHps)
       setUnitManas(initialManas)
-      setCurrentTurnIndex(-1)
+      setCurrentTurnIndex(targetIndex)
       setPlaying(true)
     }
   }, [combatData])

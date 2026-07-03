@@ -8,6 +8,12 @@ import React, { useState, useEffect } from 'react'
 // frontend/public/icons/ and it just shows up.
 
 const NAME_OVERRIDES = {
+  // summon tickets
+  '4-Star Summon Ticket': 'summon_ticket_4star',
+  '5-Star Summon Ticket': 'summon_ticket_5star',
+  '6-Star Summon Ticket': 'summon_ticket_6star',
+  '7-Star Summon Ticket': 'summon_ticket_7star',
+  'Summon Ticket': 'summon_ticket',
   // potions (alchemist_service POTION_CATALOG)
   'Minor Healing Draught': 'low_health_potion',
   'Greater Healing Draught': 'high_health_potion',
@@ -18,7 +24,7 @@ const NAME_OVERRIDES = {
   'Greater Mana Draught': 'high_mana_potion',
   // food (cooking_service FOOD_CATALOG)
   "Traveler's Rations": 'travelers_rations',
-  "Hero's Feast": 'hero_feast',
+  "Hero's Feast": 'heros_feast',
   // market shop bundles
   'Ingredient Basket': 'mystic_wheat',
   'Ingredient Cart': 'mystic_wheat',

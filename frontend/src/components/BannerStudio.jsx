@@ -117,10 +117,10 @@ export default function BannerStudio({ onClose, onSaved }) {
     setMsg(null)
     try {
       let paint = null
-      if (mode === 'paint' && canvasRef.current && !canvasIsEmpty()) {
+      if (canvasRef.current && !canvasIsEmpty()) {
         paint = canvasRef.current.toDataURL('image/png')
       }
-      await saveBanner(tier, mode === 'emblem' ? emblem : null, paint)
+      await saveBanner(tier, emblem, paint)
       if (onSaved) onSaved()
       onClose()
     } catch (e) {
@@ -150,10 +150,6 @@ export default function BannerStudio({ onClose, onSaved }) {
             <div style={{ position: 'relative', width: 320, height: 320, background: 'rgba(255,255,255,0.03)', borderRadius: 8 }}>
               <img src={`/icons/banners/banner_tier${tier}.png`} alt="" draggable={false}
                 style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'contain', pointerEvents: 'none' }} />
-              {mode === 'emblem' && emblem && (
-                <img src={`/icons/emblems/${emblem}.png`} alt="" draggable={false}
-                  style={{ position: 'absolute', left: '28%', top: '22%', width: '44%', height: '44%', objectFit: 'contain', pointerEvents: 'none', filter: 'drop-shadow(0 2px 4px rgba(0,0,0,0.6))' }} />
-              )}
               <canvas
                 ref={canvasRef}
                 width={CANVAS_SIZE}
@@ -162,12 +158,24 @@ export default function BannerStudio({ onClose, onSaved }) {
                   position: 'absolute', inset: 0, width: '100%', height: '100%',
                   cursor: mode === 'paint' ? 'crosshair' : 'default',
                   pointerEvents: mode === 'paint' ? 'auto' : 'none',
-                  display: mode === 'paint' ? 'block' : 'none',
+                  display: 'block',
                   touchAction: 'none',
+                  WebkitMaskImage: `url(/icons/banners/banner_tier${tier}.png)`,
+                  WebkitMaskSize: 'contain',
+                  WebkitMaskPosition: 'center',
+                  WebkitMaskRepeat: 'no-repeat',
+                  maskImage: `url(/icons/banners/banner_tier${tier}.png)`,
+                  maskSize: 'contain',
+                  maskPosition: 'center',
+                  maskRepeat: 'no-repeat'
                 }}
                 onMouseDown={handleDown} onMouseMove={handleMove} onMouseUp={handleUp} onMouseLeave={handleUp}
                 onTouchStart={handleDown} onTouchMove={handleMove} onTouchEnd={handleUp}
               />
+              {emblem && (
+                <img src={`/icons/emblems/${emblem}.png`} alt="" draggable={false}
+                  style={{ position: 'absolute', left: '28%', top: '28%', width: '44%', height: '44%', objectFit: 'contain', pointerEvents: 'none', filter: 'drop-shadow(0 2px 4px rgba(0,0,0,0.6))' }} />
+              )}
             </div>
             <div className="text-dim text-sm" style={{ marginTop: '0.5rem', textAlign: 'center' }}>
               This banner flies over your base, your battleship, and beside your name in the World.
@@ -240,7 +248,7 @@ export default function BannerStudio({ onClose, onSaved }) {
                   </label>
                 </div>
                 <div className="text-dim text-sm" style={{ marginTop: '0.5rem' }}>
-                  Paint directly on the banner — or import a design your clan made. Great bonding, questionable art optional.
+                  Paint directly on the banner — or import a design your clan made. (Transparent PNGs work best!) Great bonding, questionable art optional.
                 </div>
               </div>
             )}

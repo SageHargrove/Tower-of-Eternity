@@ -8,6 +8,40 @@ import { CardFrame } from '../components/HeroCard'
 import { EquipmentTypeIcon } from '../components/EquipmentTypeIcon'
 import GameIcon from '../components/GameIcon'
 
+// Time-skip combat persistence — see resumeTurnIndex below. Discard
+// anything older than this even if found; a fight left "in progress" for
+// an hour+ is more likely a stale/abandoned tab than one worth resuming.
+const ACTIVE_COMBAT_KEY = 'tower_active_combat'
+const ACTIVE_COMBAT_MAX_AGE_MS = 20 * 60 * 1000
+const TURN_DELAY_MS = 800
+
+function saveActiveCombat(result, resolvedFloor) {
+  try {
+    sessionStorage.setItem(ACTIVE_COMBAT_KEY, JSON.stringify({
+      result, resolvedFloor, deployedAt: Date.now(),
+    }))
+  } catch {}
+}
+
+function clearActiveCombat() {
+  try { sessionStorage.removeItem(ACTIVE_COMBAT_KEY) } catch {}
+}
+
+function loadActiveCombat() {
+  try {
+    const raw = sessionStorage.getItem(ACTIVE_COMBAT_KEY)
+    if (!raw) return null
+    const parsed = JSON.parse(raw)
+    if (!parsed?.deployedAt || Date.now() - parsed.deployedAt > ACTIVE_COMBAT_MAX_AGE_MS) {
+      clearActiveCombat()
+      return null
+    }
+    return parsed
+  } catch {
+    return null
+  }
+}
+
 const FLOOR_ICONS = {
   field_combat: 'class_rogue',
   miniboss: 'boss_skull',
@@ -184,7 +218,16 @@ function PostCombatScreen({ lastResult, combatEntities, onReturn, onRerun, busy 
                       onError={(e) => { e.target.onerror = null; e.target.src = `/${h.portrait_path}` }}
                     />
                   ) : (
-                    <div style={{ width: '100%', aspectRatio: '2 / 3', borderRadius: 4, background: 'var(--bg-panel)' }} />
+                    // Portrait still generating in the background — a
+                    // silhouette placeholder instead of a blank box, so
+                    // combat never has to wait on ComfyUI to display.
+                    <div style={{
+                      width: '100%', aspectRatio: '2 / 3', borderRadius: 4, background: 'var(--bg-panel)',
+                      display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden',
+                    }}>
+                      <img src="/icons/mystery_encounter.png" alt="" draggable={false}
+                        style={{ width: '55%', height: '55%', objectFit: 'contain', opacity: 0.35, filter: 'grayscale(1)' }} />
+                    </div>
                   )}
                 </CardFrame>
                 <div style={{ fontSize: '0.72rem', marginTop: '0.3rem', color: isMvp ? 'var(--star5)' : undefined }}>{h.name}</div>
@@ -357,8 +400,6 @@ export default function TowerPage({ onGoldChange }) {
   const [pendingExplore, setPendingExplore] = useState(null)
   const [exploreResolution, setExploreResolution] = useState(null)
 
-  const [showLegend, setShowLegend] = useState(false)
-
   // The manager's standing tactical directive — applies to every regular
   // combat floor automatically (Boss/Miniboss ignore it, see backend). The
   // one persistent lever the player gets since they can't dictate the fight
@@ -372,6 +413,12 @@ export default function TowerPage({ onGoldChange }) {
   const [combatEntities, setCombatEntities] = useState(null)
   const [postCombatPhase, setPostCombatPhase] = useState(false)
   const [arenasFinished, setArenasFinished] = useState(0)
+  // When a real fight starts animating, we stash it here so leaving the
+  // Tower tab (which unmounts this whole page — the app renders exactly
+  // one tab's component at a time) and coming back doesn't just lose the
+  // fight. On remount we restore it and fast-forward the animation by
+  // exactly how long the player was gone, instead of replaying from turn 1.
+  const [resumeTurnIndex, setResumeTurnIndex] = useState(-1)
   // Indexed by team/arena position — one AI-narrated line per turn, swapped
   // in for the raw damage-number log line once it arrives (see pollTurnNarrative).
   const [turnNarrations, setTurnNarrations] = useState({})
@@ -380,6 +427,18 @@ export default function TowerPage({ onGoldChange }) {
 
   useEffect(() => {
     refresh()
+    // Resume an in-progress fight left running when this tab was last torn
+    // down (see saveActiveCombat). Compute how many turns "should have
+    // played" from real elapsed time and fast-forward CombatArena to it.
+    const active = loadActiveCombat()
+    if (active) {
+      const speedMult = localStorage.getItem('combatSpeed2x') === '1' ? 2 : 1
+      const elapsedTurns = Math.floor((Date.now() - active.deployedAt) / (TURN_DELAY_MS / speedMult))
+      setLastResult(active.result)
+      setResolvedFloor(active.resolvedFloor)
+      setCombatEntities(mergedCombatEntities(active.result))
+      setResumeTurnIndex(elapsedTurns)
+    }
   }, [])
 
   useEffect(() => {
@@ -489,6 +548,8 @@ export default function TowerPage({ onGoldChange }) {
     setPostCombatPhase(false)
     setArenasFinished(0)
     setTurnNarrations({})
+    setResumeTurnIndex(-1)
+    clearActiveCombat()
 
     try {
       const requiredTeams = (floorNumber - 1) === 0 ? 1 : Math.floor((floorNumber - 1) / 20) + 1
@@ -507,6 +568,10 @@ export default function TowerPage({ onGoldChange }) {
         // Already seen this floor — jump straight to the resolution screen
         // instead of replaying the full combat animation.
         setPostCombatPhase(true)
+      } else {
+        // A real animation is about to play — save it so leaving and
+        // returning to this tab can resume instead of losing it.
+        saveActiveCombat(result, floorNumber)
       }
 
       await refresh()
@@ -531,6 +596,7 @@ export default function TowerPage({ onGoldChange }) {
   }
 
   function handleExit() {
+    clearActiveCombat()
     setLastResult(null)
     setEventResolution(null)
     setExploreResolution(null)
@@ -555,7 +621,9 @@ export default function TowerPage({ onGoldChange }) {
         setLastResult(result)
         setArenasFinished(0)
         setTurnNarrations({})
+        setResumeTurnIndex(-1)
         setCombatEntities(mergedCombatEntities(result))
+        saveActiveCombat(result, resolvedFloor || selectedFloor)
         const tnIds = result.turn_narrative_ids || (result.turn_narrative_id != null ? [result.turn_narrative_id] : [])
         tnIds.forEach((id, i) => pollTurnNarrative(id, i))
       } else {
@@ -583,8 +651,10 @@ export default function TowerPage({ onGoldChange }) {
       setLastResult(result)
       setArenasFinished(0)
       setTurnNarrations({})
+      setResumeTurnIndex(-1)
       setCombatEntities(mergedCombatEntities(result))
       setPendingExplore(null)
+      saveActiveCombat(result, resolvedFloor || selectedFloor)
       const tnIds = result.turn_narrative_ids || (result.turn_narrative_id != null ? [result.turn_narrative_id] : [])
       tnIds.forEach((id, i) => pollTurnNarrative(id, i))
 
@@ -755,7 +825,10 @@ export default function TowerPage({ onGoldChange }) {
                   const onArenaComplete = () => {
                     setArenasFinished(prev => {
                       const next = prev + 1
-                      if (next >= teamResults.length) setPostCombatPhase(true)
+                      if (next >= teamResults.length) {
+                        clearActiveCombat()
+                        setPostCombatPhase(true)
+                      }
                       return next
                     })
                   }
@@ -772,7 +845,14 @@ export default function TowerPage({ onGoldChange }) {
                     </div>
                   )
                 }
-                return <CombatArena combatData={lastResult?.combat || lastResult} onComplete={() => setPostCombatPhase(true)} turnNarrations={turnNarrations[0]} />
+                return (
+                  <CombatArena
+                    combatData={lastResult?.combat || lastResult}
+                    onComplete={() => { clearActiveCombat(); setPostCombatPhase(true) }}
+                    turnNarrations={turnNarrations[0]}
+                    initialTurnIndex={resumeTurnIndex}
+                  />
+                )
               })()}
               <div style={{ textAlign: 'center', marginTop: '1rem' }}>
                 <button className="btn" onClick={handleExit} style={{ padding: '0.5rem 1.5rem', fontSize: '0.9rem' }}>
@@ -868,55 +948,20 @@ export default function TowerPage({ onGoldChange }) {
           }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.2rem' }}>
               <div>
-                <div className="text-gold" style={{ fontFamily: 'Cinzel, serif', fontSize: '1.35rem' }}>
-                  Zone {selectedZone + 1}
+                <div style={{ display: 'flex', gap: '0.4rem', overflowX: 'auto', paddingBottom: '0.5rem', marginLeft: '-0.5rem' }}>
+                  {Array.from({ length: maxZone + 1 }).map((_, z) => (
+                    <button
+                      key={z}
+                      className={`btn ${selectedZone === z ? 'btn-gold' : ''}`}
+                      onClick={() => setSelectedZone(z)}
+                      style={{ minWidth: '70px', padding: '0.4rem 0.6rem', fontSize: '0.85rem' }}
+                    >
+                      Zone {z + 1}
+                    </button>
+                  ))}
                 </div>
                 <div className="text-dim" style={{ fontSize: '0.8rem', marginTop: '0.15rem' }}>
                   Highest floor reached: <span style={{ color: 'var(--text-hi)' }}>{highestFloor}</span>
-                </div>
-              </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '0.8rem' }}>
-                <div className="text-dim" style={{ fontSize: '0.75rem' }}>
-                  Floors {startFloorOfZone}–{startFloorOfZone + 9}
-                </div>
-                {/* Floor legend — lists what each icon/colour means */}
-                <div style={{ position: 'relative' }}>
-                  <button
-                    className="btn"
-                    onClick={() => setShowLegend(v => !v)}
-                    style={{ fontSize: '0.75rem', padding: '0.3rem 0.7rem' }}
-                    title="Floor type legend"
-                  >
-                    ? Legend
-                  </button>
-                  {showLegend && (
-                    <div onClick={() => setShowLegend(false)} style={{
-                      position: 'fixed', inset: 0, zIndex: 50,
-                    }}>
-                      {/* The panel used to be absolute top:110% INSIDE this
-                          full-viewport fixed backdrop — 110% of the viewport
-                          put it entirely below the screen. Anchor it to the
-                          viewport's top-right instead. */}
-                      <div onClick={e => e.stopPropagation()} style={{
-                        position: 'absolute', right: '2rem', top: '10rem',
-                        background: 'var(--bg-panel)', border: '1px solid var(--border)',
-                        borderRadius: 8, padding: '1rem', zIndex: 51,
-                        minWidth: 240, maxHeight: '70vh', overflowY: 'auto',
-                        boxShadow: '0 4px 20px rgba(0,0,0,0.6)',
-                      }}>
-                        <div className="text-gold" style={{ fontFamily: 'Cinzel, serif', fontSize: '0.85rem', marginBottom: '0.7rem' }}>Floor Types</div>
-                        {Object.entries(FLOOR_TYPE_INFO).filter(([k]) => k !== 'miniboss').map(([key, info]) => (
-                          <div key={key} style={{ display: 'flex', alignItems: 'flex-start', gap: '0.5rem', marginBottom: '0.5rem' }}>
-                            <GameIcon name={FLOOR_ICONS[key]} size={20} />
-                            <div>
-                              <div style={{ fontSize: '0.8rem', color: info.color, fontWeight: 600 }}>{info.label}</div>
-                              <div className="text-dim" style={{ fontSize: '0.7rem', lineHeight: 1.3 }}>{info.blurb}</div>
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
                 </div>
               </div>
             </div>
@@ -935,7 +980,6 @@ export default function TowerPage({ onGoldChange }) {
                 // Only reveal floor type/colour once the player has actually entered it
                 const visited = preview?.visited
                 const typeInfo = visited ? FLOOR_TYPE_INFO[preview.floor_type] : null
-                const icon = isBoss ? 'boss_demon' : (visited ? FLOOR_ICONS[preview.floor_type] : null)
 
                 let bg = 'rgba(255,255,255,0.05)'
                 let border = '1px solid rgba(255,255,255,0.12)'
@@ -945,9 +989,6 @@ export default function TowerPage({ onGoldChange }) {
                 if (isLocked) {
                   bg = 'rgba(0,0,0,0.35)'
                   color = 'var(--text-dim)'
-                } else if (typeInfo) {
-                  bg = hexWithAlpha(typeInfo.color, '22')
-                  border = `1px solid ${hexWithAlpha(typeInfo.color, '88')}`
                 }
                 if (isNext) {
                   border = '1px solid var(--gold)'
@@ -978,12 +1019,7 @@ export default function TowerPage({ onGoldChange }) {
                     }}
                   >
                     {isBoss && <div className="floor-tile-boss-stripe" />}
-                    <div className="floor-tile-icon" style={{ fontSize: '1.4rem' }}>
-                      {isLocked
-                        ? <GameIcon name="locked_padlock" size={32} />
-                        : <GameIcon name={icon || 'mystery_encounter'} size={32} />}
-                    </div>
-                    <div className="floor-tile-num" style={{ fontSize: '1.1rem', fontWeight: 600 }}>{floorNum}</div>
+                    <div className="floor-tile-num" style={{ fontSize: '3.2rem', fontWeight: 600 }}>{floorNum}</div>
                     {isNext && <span className="floor-tile-tag" style={{ background: 'rgba(201,168,76,0.3)', color: 'var(--gold)' }}>Next</span>}
                     {!isLocked && !isNext && <span className="floor-tile-tag" style={{ background: 'rgba(80,200,120,0.2)', color: 'var(--green)' }}>
                       ✓ {typeInfo ? typeInfo.label : 'Cleared'}
