@@ -186,11 +186,21 @@ NIGHTWING_DEVOURER = {
 # param in combat_service.py), or a list of dicts for a floor that should
 # randomly pick between more than one (floor 100). Keyed by exact floor
 # since each range only has one mini-boss floor and one boss floor right now.
-# Floor 35 has no miniboss entry — advanced tier's one named unique
-# (Grave Sovereign) is reserved for floor 40's boss, so 35 stays on the old
-# generic LLM-flavored naming rather than reusing the same unit twice.
+# Floor 35: the "Evil 7★" — a corrupted god-tier climber. 7★ HERO art is
+# the best thing the portrait pipeline produces, so this enemy deliberately
+# reads as a fallen 7★ hero rather than a monster: humanoid, regal, wrong.
+# Drop art at static/portraits/enemies/miniboss/boss_fallen_ascendant.png
+# (until then it falls back like any other missing miniboss portrait).
+FALLEN_ASCENDANT = {
+    "name": "Vaelor, the Fallen Ascendant",
+    "abilities": ["team_buff_aura", "crushing_blow", "enrage", "last_stand"],
+    "portrait_path": "static/portraits/enemies/miniboss/boss_fallen_ascendant.png",
+    "stat_mod": {"atk": 1.35, "def": 1.15, "spd": 1.25, "health": 1.25},
+}
+
 MINIBOSS_OVERRIDES = {
     5: GOBLIN_KING,
+    35: FALLEN_ASCENDANT,
     15: ORC_WARCHIEF,
     25: SKARN_LIZARD_CHIEFTAIN,
     45: BULLHORN_MINOTAUR_LORD,

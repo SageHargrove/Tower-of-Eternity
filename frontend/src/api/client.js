@@ -13,7 +13,7 @@ function extractRewards(data) {
   if (!data || typeof data !== 'object') return null
   const gold = (data.gold_gained || 0) + (data.effects?.gold || 0) + (data.type === 'gold' ? (data.reward || 0) : 0)
   const gems = (data.gems_gained || 0) + (data.effects?.gems || 0)
-  const supplies = (data.supplies_gained || 0) + (data.type === 'supplies' ? (data.reward || 0) : 0)
+  const ingredients = (data.ingredients_gained || 0) + (data.type === 'ingredients' ? (data.reward || 0) : 0)
   const materials = { ...(data.materials_gained || {}) }
   if (data.type === 'materials' && data.reward && typeof data.reward === 'object') {
     for (const [k, v] of Object.entries(data.reward)) materials[k] = (materials[k] || 0) + v
@@ -24,7 +24,7 @@ function extractRewards(data) {
   const lines = []
   if (gold > 0) lines.push({ label: 'Gold', value: `+${gold.toLocaleString()}`, color: 'var(--gold)' })
   if (gems > 0) lines.push({ label: 'Gems', value: `+${gems.toLocaleString()}`, color: '#00ffff' })
-  if (supplies > 0) lines.push({ label: 'Supplies', value: `+${supplies.toLocaleString()}`, color: 'var(--text-hi)' })
+  if (ingredients > 0) lines.push({ label: 'Ingredients', value: `+${ingredients.toLocaleString()}`, color: '#9fd68a' })
   for (const [name, qty] of Object.entries(materials)) {
     if (qty > 0) lines.push({ label: name, value: `+${qty}`, color: 'var(--text-hi)' })
   }
@@ -99,7 +99,22 @@ export const getBaseUpgrades = () => request('/base/upgrades')
 export const buyBaseUpgrade = (upgradeId) => request('/base/upgrades/purchase', { method: 'POST', body: JSON.stringify({ upgrade_id: upgradeId }) })
 export const revealHeroTalent = (heroId) => request('/base/talent-observatory/reveal', { method: 'POST', body: JSON.stringify({ hero_id: heroId }) })
 
-export const grantResources = (gold = 0, gems = 0, supplies = 0) => request('/base/dev/grant', { method: 'POST', body: JSON.stringify({ gold, gems, supplies }) })
+export const grantResources = (gold = 0, gems = 0, ingredients = 0, aether = 0) => request('/base/dev/grant', { method: 'POST', body: JSON.stringify({ gold, gems, ingredients, aether }) })
+
+// Dining Hall cooking + Alchemist aether refining
+export const getDiningCatalog = () => request('/base/dining/catalog')
+export const cookFood = (recipeId, quantity = 1) => request('/base/dining/cook', { method: 'POST', body: JSON.stringify({ recipe_id: recipeId, quantity }) })
+export const refineAether = (batches = 1) => request('/base/alchemist/refine-aether', { method: 'POST', body: JSON.stringify({ batches }) })
+
+// Endgame facilities
+export const getBestiary = () => request('/base/bestiary')
+export const releaseBeast = (id) => request(`/base/bestiary/release/${id}`, { method: 'POST' })
+export const getReliquary = () => request('/base/reliquary')
+export const mountTrophy = (trophyId, mounted) => request('/base/reliquary/mount', { method: 'POST', body: JSON.stringify({ trophy_id: trophyId, mounted }) })
+export const getChronosphere = () => request('/base/chronosphere')
+export const activateChronosphere = () => request('/base/chronosphere/activate', { method: 'POST' })
+export const getTranscendence = () => request('/base/transcendence')
+export const infuseTranscendence = () => request('/base/transcendence/infuse', { method: 'POST' })
 export const clearDevInventory = () => request('/base/dev/clear-inventory', { method: 'POST' })
 export const setDevLevel = (heroId, level) => request('/base/dev/set-level', { method: 'POST', body: JSON.stringify({ hero_id: heroId, level }) })
 export const grantInventoryItem = (itemName, itemType, quantity = 1) => request(`/base/inventory/add?item_name=${encodeURIComponent(itemName)}&item_type=${encodeURIComponent(itemType)}&quantity=${quantity}`, { method: 'POST' })

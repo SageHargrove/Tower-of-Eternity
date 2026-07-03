@@ -6,8 +6,10 @@ import random
 # "Dragon Scale" can't show up on floor 2 no matter what quality letter it
 # rolls — each tier unlocks at a floor threshold and stays a minority pick
 # even once unlocked, layered on top of (not replacing) the D-S quality roll.
+# Slime Core is retired (art generation never produced a usable icon) —
+# Dark Crystal replaced it everywhere, including the Forge armor recipe.
 CRAFTING_MATERIALS = [
-    "Slime Core", "Iron Ore", "Goblin Ear", "Monster Bone", "Mystic Dust",
+    "Dark Crystal", "Iron Ore", "Goblin Ear", "Monster Bone", "Mystic Dust",
     "Steel", "Copper", "Leather", "Imp Horn", "Tattered Cloth",
 ]
 
@@ -60,6 +62,7 @@ def roll_material_name(floor_number: int = 1) -> str:
 # the mismatch would actually be noticed; anything not listed here falls
 # back to the existing generic floor-gated roll, same as before this fix.
 ENEMY_MATERIAL_HINTS = {
+    "Shadow Wisp": ["Dark Crystal"], "Greater Shadow Wisp": ["Dark Crystal"],
     "Goblin": ["Goblin Ear"], "Goblin Warrior": ["Goblin Ear"], "Goblin Shaman": ["Goblin Ear"],
     "Hobgoblin": ["Goblin Ear"], "Hobgoblin Berserker": ["Goblin Ear"], "Goblin King": ["Goblin Ear"],
     "Bandit": ["Monster Bone"], "Kobold": ["Monster Bone"], "Skeleton": ["Monster Bone"],

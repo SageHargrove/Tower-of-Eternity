@@ -82,16 +82,18 @@ def process_passive_generation(conn):
     if ticks <= 0:
         return
         
-    facilities = conn.execute("SELECT id, type, level FROM facilities WHERE type IN ('Market', 'Farm', 'Vault', 'Training Grounds')").fetchall()
+    facilities = conn.execute("SELECT id, type, level FROM facilities WHERE type IN ('Market', 'Farm', 'Vault', 'Training Grounds', 'Skydock')").fetchall()
 
     PREFERRED_CLASSES = {
         'Market': ('Merchant', 'Quartermaster'),
         # Farmers work the Farm (was Merchant — a copy/paste from Market).
         'Farm': ('Farmer', 'Druid'),
+        'Skydock': ('Magic Engineer',),
     }
 
     gold_gen = 0
-    supplies_gen = 0
+    ingredients_gen = 0
+    aether_gen = 0
 
     for f in facilities:
         assigned = conn.execute("""
@@ -109,8 +111,18 @@ def process_passive_generation(conn):
             base_amt = 100 * f["level"]
             gold_gen += int(base_amt * multiplier) * ticks
         elif f["type"] == 'Farm':
+            # The Farm grows alchemy ingredients (replaced the retired
+            # supplies currency) — cooked into consumables at the Dining
+            # Hall or brewed into potions at the Alchemist Lab.
             base_amt = 5 * f["level"]
-            supplies_gen += int(base_amt * multiplier) * ticks
+            ingredients_gen += int(base_amt * multiplier) * ticks
+        elif f["type"] == 'Skydock':
+            # Aether condensers: the Skydock slowly refines raw mana into
+            # Aether, the battleships' raid fuel. Deliberately slow — the
+            # Alchemist Lab's refine-aether craft is the fast (but paid)
+            # path; raids should feel like an expedition you PROVISION for.
+            base_amt = 2 * f["level"]
+            aether_gen += int(base_amt * multiplier) * ticks
         elif f["type"] == 'Training Grounds':
             xp_per_tick = int(50 * f["level"] * multiplier)
             training_heroes = conn.execute("""
@@ -120,14 +132,17 @@ def process_passive_generation(conn):
             for h in training_heroes:
                 conn.execute("UPDATE heroes SET xp = COALESCE(xp, 0) + ? WHERE id = ?", (xp_per_tick * ticks, h["hero_id"]))
 
-    if gold_gen > 0 or supplies_gen > 0:
-        conn.execute("UPDATE base SET gold = gold + ?, supplies = supplies + ? WHERE id = 1", (gold_gen, supplies_gen))
+    if gold_gen > 0 or ingredients_gen > 0 or aether_gen > 0:
+        conn.execute(
+            "UPDATE base SET gold = gold + ?, ingredients = ingredients + ?, aether = aether + ? WHERE id = 1",
+            (gold_gen, ingredients_gen, aether_gen)
+        )
 
     hero_assignments = conn.execute("""
         SELECT fa.hero_id
         FROM facilities f
         JOIN facility_assignments fa ON f.id = fa.facility_id
-        WHERE f.type IN ('Market', 'Farm', 'Vault')
+        WHERE f.type IN ('Market', 'Farm', 'Vault', 'Skydock')
     """).fetchall()
 
     for h in hero_assignments:

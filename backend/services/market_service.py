@@ -8,8 +8,8 @@ from services.materials_service import CRAFTING_MATERIALS, tiered_material_name
 # covered by the gacha pulls (which stay the only source of equipment and
 # heroes), so this doesn't compete with or devalue those.
 SHOP_CATALOG = {
-    "supplies_small": {"name": "Supplies Pack", "currency": "gold", "cost": 150, "grants": {"supplies": 10}},
-    "supplies_large": {"name": "Supplies Crate", "currency": "gold", "cost": 1200, "grants": {"supplies": 100}},
+    "ingredients_small": {"name": "Ingredient Basket", "currency": "gold", "cost": 150, "grants": {"ingredients": 10}},
+    "ingredients_large": {"name": "Ingredient Cart", "currency": "gold", "cost": 1200, "grants": {"ingredients": 100}},
     "bandages": {"name": "Bandage Bundle", "currency": "gold", "cost": 200, "grants": {"material": "Bandage", "amount": 5}},
     "materials_small": {"name": "Raw Material Crate", "currency": "gold", "cost": 300, "grants": {"material_random_d": 5}},
 }
@@ -31,9 +31,9 @@ def purchase_item(conn, item_id: str) -> dict:
     grants = item["grants"]
     result = {"item": item["name"]}
 
-    if "supplies" in grants:
-        conn.execute("UPDATE base SET supplies = supplies + ? WHERE id = 1", (grants["supplies"],))
-        result["supplies"] = grants["supplies"]
+    if "ingredients" in grants:
+        conn.execute("UPDATE base SET ingredients = ingredients + ? WHERE id = 1", (grants["ingredients"],))
+        result["ingredients"] = grants["ingredients"]
 
     if "material" in grants or "material_random_d" in grants:
         materials = json.loads(base["materials"]) if base["materials"] else {}

@@ -150,9 +150,14 @@ def get_base_defense(conn) -> dict:
         garrison_rating = sum(r["level"] for r in rows) * (2 if engineer else 1) + bastion["level"] * 5
     ship_rating = SHIP_TIERS.get(ship_tier, {}).get("defense", 0)
 
+    # Captured beasts guarding the grounds (Bestiary, floor 30+).
+    from services.endgame_service import bestiary_defense
+    beast_rating = bestiary_defense(conn)
+
     return {
         "wall": wall_rating,
         "garrison": garrison_rating,
         "ship": ship_rating,
-        "total": wall_rating + garrison_rating + ship_rating,
+        "beasts": beast_rating,
+        "total": wall_rating + garrison_rating + ship_rating + beast_rating,
     }

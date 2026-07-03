@@ -31,7 +31,7 @@ def process_restaurant(conn):
     if minutes_passed <= 0:
         return
 
-    restaurant = conn.execute("SELECT id, level FROM facilities WHERE type = 'Restaurant' AND base_id = 1").fetchone()
+    restaurant = conn.execute("SELECT id, level FROM facilities WHERE type = 'Dining Hall' AND base_id = 1").fetchone()
     if not restaurant:
         return
 

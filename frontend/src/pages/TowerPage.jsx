@@ -24,7 +24,7 @@ const FLOOR_ICONS = {
   escort: 'creature_horse',
   conquest: 'element_fire',
   war: 'class_warrior',
-  retrieve: 'supplies',
+  retrieve: 'coin_pouch',
   ambush: 'element_dark',
   blitz: 'element_lightning',
   cursed_ground: 'element_ritual',
@@ -242,10 +242,10 @@ function PostCombatScreen({ lastResult, combatEntities, onReturn, onRerun, busy 
               </div>
             )}
 
-            {lastResult.supplies_gained > 0 && (
+            {lastResult.ingredients_gained > 0 && (
               <div style={{ display: 'flex', justifyContent: 'space-between', padding: '0.75rem', background: 'rgba(255,255,255,0.05)', borderRadius: 6 }}>
-                <span>Supplies Found</span>
-                <span style={{ color: 'var(--text-hi)', fontFamily: 'Cinzel, serif' }}>+{lastResult.supplies_gained.toLocaleString()}</span>
+                <span>Ingredients Foraged</span>
+                <span style={{ color: 'var(--text-hi)', fontFamily: 'Cinzel, serif' }}>+{lastResult.ingredients_gained.toLocaleString()}</span>
               </div>
             )}
             
@@ -298,7 +298,7 @@ function PostCombatScreen({ lastResult, combatEntities, onReturn, onRerun, busy 
               </div>
             )}
 
-            {(!lastResult.gold_gained && !lastResult.gems_gained && !lastResult.equipment_drop && !lastResult.blueprint_found && !lastResult.combat?.skill_upgrades && !lastResult.supplies_gained && !(lastResult.level_ups && lastResult.level_ups.length > 0) && !(lastResult.materials_gained && Object.keys(lastResult.materials_gained).length > 0)) && (
+            {(!lastResult.gold_gained && !lastResult.gems_gained && !lastResult.equipment_drop && !lastResult.blueprint_found && !lastResult.combat?.skill_upgrades && !lastResult.ingredients_gained && !(lastResult.level_ups && lastResult.level_ups.length > 0) && !(lastResult.materials_gained && Object.keys(lastResult.materials_gained).length > 0)) && (
                <div className="text-dim text-center" style={{ padding: '2rem' }}>No loot found.</div>
             )}
 
@@ -1119,9 +1119,6 @@ export default function TowerPage({ onGoldChange }) {
                   Rush
                 </button>
               )}
-            </div>
-            <div className="text-dim text-sm" style={{ textAlign: 'center', marginTop: '0.5rem' }}>
-              Cost: 2 Supplies 🍖
             </div>
           </div>
         </div>

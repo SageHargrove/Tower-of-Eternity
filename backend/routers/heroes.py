@@ -609,7 +609,7 @@ def toggle_favorite(hero_id: int):
 # the higher the ascension tier being attempted.
 
 ASCENSION_MATERIAL_COST = {
-    0: {"Iron Ore": 5, "Slime Core": 3},
+    0: {"Iron Ore": 5, "Dark Crystal": 3},
     1: {"Iron Ore": 10, "Monster Bone": 5},
     2: {"Iron Ore": 18, "Monster Bone": 10, "Mystic Dust": 3},
     3: {"Monster Bone": 18, "Mystic Dust": 8, "Goblin Ear": 10},
@@ -755,7 +755,7 @@ EVOLUTION_GOLD_COST = {
 }
 
 EVOLUTION_MATERIAL_COST = {
-    1: {"Iron Ore": 10, "Slime Core": 6},
+    1: {"Iron Ore": 10, "Dark Crystal": 6},
     2: {"Iron Ore": 15, "Monster Bone": 10, "Wolf Pelt": 5},
     3: {"Monster Bone": 20, "Mystic Dust": 10, "Refined Iron": 10},
     4: {"Mystic Dust": 20, "Goblin Ear": 25, "Hardened Bone": 15, "Wyvern Scale": 5},

@@ -383,14 +383,20 @@ export default function HeroCard({ hero, onAssign, onManageEquipment, onManageCo
     }
   }
 
-  // Backstory unlocking based on star rank
+  // Backstory unlocks SENTENCE by sentence with promotions (never slicing
+  // mid-word like the old percentage cut), scaling all the way to 6★.
   const activeStar = hero.current_star || hero.birth_star
-  // If 5+ star, show full story. If 1-4 star, show proportional percentage.
-  const unlockPct = Math.min(1.0, activeStar / 5)
-  const totalChars = hero.backstory ? hero.backstory.length : 0
-  const visibleChars = Math.floor(totalChars * unlockPct)
-  const unlockedStory = hero.backstory ? hero.backstory.substring(0, visibleChars) : ''
-  const lockedStory = hero.backstory ? hero.backstory.substring(visibleChars).replace(/[a-zA-Z0-9]/g, '█') : ''
+  const storySentences = hero.backstory
+    ? (hero.backstory.match(/[^.!?]+[.!?]+["']?\s*/g) || [hero.backstory])
+    : []
+  // Spread the sentences across stars 1→6: a 1★ knows only the opening
+  // line of their own legend; the full story belongs to a 6★.
+  const unlockedCount = storySentences.length
+    ? Math.max(1, Math.ceil(storySentences.length * Math.min(1, activeStar / 6)))
+    : 0
+  const unlockedStory = storySentences.slice(0, unlockedCount).join('')
+  const lockedSentences = storySentences.length - unlockedCount
+  const storyFullyUnlocked = lockedSentences <= 0
 
   return (
     <div
@@ -896,13 +902,33 @@ export default function HeroCard({ hero, onAssign, onManageEquipment, onManageCo
               <div className="story-block" style={{ marginTop: '1em', paddingTop: '0.75em', borderTop: '1px solid var(--border)' }}>
                 <div className="text-dim" style={{ fontStyle: 'italic', lineHeight: 1.6 }}>
                   <span>{unlockedStory}</span>
-                  {lockedStory && <span style={{ opacity: 0.3, letterSpacing: '2px' }}>{lockedStory}</span>}
-                  {unlockPct < 1 && (
-                    <div style={{ fontSize: '0.85em', color: 'var(--gold)', marginTop: '0.3em', opacity: 0.8 }}>
-                      [Story locked. Promote hero to reveal more.]
-                    </div>
+                  {!storyFullyUnlocked && (
+                    <span style={{
+                      display: 'inline-block',
+                      marginLeft: '0.35em',
+                      opacity: 0.45,
+                      fontStyle: 'normal',
+                      background: 'linear-gradient(90deg, var(--text-dim), transparent)',
+                      WebkitBackgroundClip: 'text',
+                      backgroundClip: 'text',
+                      color: 'transparent',
+                    }}>
+                      and the rest is still theirs to prove…
+                    </span>
                   )}
                 </div>
+                {!storyFullyUnlocked && (
+                  <div style={{
+                    display: 'flex', alignItems: 'center', gap: '0.5em',
+                    marginTop: '0.5em', fontSize: '0.8em', color: 'var(--text-dim)',
+                  }}>
+                    <span style={{ opacity: 0.7 }}>🔒</span>
+                    <span>
+                      {lockedSentences} more {lockedSentences === 1 ? 'passage' : 'passages'} of their legend
+                      unlock{lockedSentences === 1 ? 's' : ''} with promotion (fully told at 6★)
+                    </span>
+                  </div>
+                )}
                 <div className="text-dim" style={{ marginTop: '0.4em', lineHeight: 1.5 }}>
                   {hero.personality}
                 </div>

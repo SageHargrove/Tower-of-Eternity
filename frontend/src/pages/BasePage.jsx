@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react'
 import { getBase, getFacilities, buildFacility, upgradeFacility, assignFacility, removeFacility, restHeroes, listHeroes, configTraining, getMageTowerUpgrades, buyResearchUpgrade, craftMaterialEquipment, craftBandages, getBaseFloors, assignBaseFloor, getLegacies, getChatLogs, renameBase, upgradeBase, getMarketCatalog, purchaseMarketItem, getBaseUpgrades, buyBaseUpgrade, getMailList, claimMail, getShip, buildShip, renameShip } from '../api/client'
 import MirrorOfFate from '../components/MirrorOfFate'
+import { CookingPanel, RefineAetherPanel, BestiaryPanel, ReliquaryPanel, ChronospherePanel, TranscendencePanel } from '../components/EndgamePanels'
 import LoreJournal from '../components/LoreJournal'
 import GameIcon from '../components/GameIcon'
 import { alertDialog } from '../components/DialogHost'
@@ -11,8 +12,9 @@ import { alertDialog } from '../components/DialogHost'
 // lowercase with underscores (wall_tier1.png, training_grounds_tier2.png…
 // a plural variant like walls_tier1.png is also accepted). Fallback chain:
 // exact tier → each lower tier → the flat {Type}.png → hidden.
+// Visual progression caps at Tier 4 (the white-marble-and-gold celestial
+// look) — levels 45+ keep using the Tier 4 assets.
 function facilityArtTier(level) {
-  if (level >= 45) return 5
   if (level >= 30) return 4
   if (level >= 15) return 3
   if (level >= 5) return 2
@@ -66,10 +68,10 @@ const UPGRADE_BANNERS = {
 // infirmary/alchemist/research/sanctum services, get_workshop_discount) —
 // each names the real mechanic and the classes the code actually favors.
 const FACILITY_TOOLTIPS = {
-  "Market": "Generates passive gold (scales with level) and stocks a small shop for supplies, materials, and bandages. Merchants and Quartermasters give the biggest generation bonus; anyone assigned helps a little and earns passive XP.",
-  "Farm": "Generates passive supplies (scales with level). Farmers and Druids give the biggest generation bonus; anyone assigned helps a little and earns passive XP.",
+  "Market": "Generates passive gold (scales with level) and stocks a small shop for ingredients, materials, and bandages. Merchants and Quartermasters give the biggest generation bonus; anyone assigned helps a little and earns passive XP.",
+  "Farm": "Grows alchemy INGREDIENTS passively (scales with level) — cook them into consumables at the Dining Hall, or brew them into potions at the Alchemist Lab. Farmers and Druids give the biggest generation bonus.",
   "Training Grounds": "Assigned heroes passively earn XP over time (scales with level) — level up the bench without risking them in the Tower.",
-  "Restaurant": "Assigned cooks passively restore MORALE for the entire living roster. Chefs are worth triple anyone else in the kitchen.",
+  "Dining Hall": "Assigned cooks passively restore MORALE for the entire living roster, and the kitchen COOKS Farm ingredients into early consumables (rations, stews) heroes can carry into the Tower. Chefs are worth triple anyone else in the kitchen.",
   "Forge": "Crafts weapons, armor, and accessories. Craft quality is capped by your single best Blacksmith — extra smiths of the same tier add a smaller bonus on top.",
   "Infirmary": "Passively heals TRAUMA over time and crafts Bandages (auto-used on your most injured heroes before the next floor). Medics and Priests heal fastest.",
   "Vault": "Each upgrade expands equipment storage capacity. Assigned caretakers don't affect capacity — they just earn passive XP while minding the shelves.",
@@ -79,7 +81,12 @@ const FACILITY_TOOLTIPS = {
   "Wall": "The base's FOUNDATION — no other facility can be upgraded above the Wall's level, so raise it first. Every level also adds flat defense rating for the coming Raid system (opt-in): raiders must breach the Wall before the Bastion's garrison ever engages.",
   "Bastion": "Your garrison for the coming Raid system (raiding is opt-in). Stationed heroes contribute their strength behind the Wall's cover — and a Magic Engineer's arcane cannons DOUBLE the whole garrison, letting even 1★ heroes hold the line.",
   "Shrine": "Assigned clergy slowly deepen the whole roster's LOYALTY (affinity) — the same track gifts raise, and the one that decides whether a captured hero stays yours. Priests and Acolytes are twice as effective.",
-  "Mage Tower": "Conducts magical research for permanent upgrades. Magic Engineers are the most effective researchers, then Mages, then Spellswords."
+  "Mage Tower": "Conducts magical research for permanent upgrades. Magic Engineers are the most effective researchers, then Mages, then Spellswords.",
+  "Mirror of Fate": "Pay gold to instantly reveal a hero's hidden Talent. The Mirror's level sets the detail: a vague tier at first, a numeric range at Lv.5, the exact number at Lv.10.",
+  "Bestiary": "Houses beasts captured in the Tower. Kept beasts add their menace to your base's defense rating; higher levels hold more (and bigger) monsters.",
+  "Reliquary": "A museum of your conquests — mount the Trophies major Bosses drop (every 10th floor) to grant permanent, roster-wide passive buffs.",
+  "Chronosphere": "Bend time once per day: instantly simulate hours of passive base generation (gold, ingredients, XP, fatigue recovery). Upgrades increase the hours skipped.",
+  "Transcendence Core": "The endgame furnace — feed it staggering amounts of gold to permanently empower your entire roster, one infusion at a time. Each infusion costs more than the last.",
 }
 
 // Tiny inline sparkline showing the real diminishing-returns curve a
@@ -223,7 +230,7 @@ const handleRenameBase = async () => {
     setResting(true)
     try {
       const data = await restHeroes()
-      alertDialog(`Rested ${data.rested} heroes — Health fully restored, morale/stress/trauma recovered. Cost: ${data.cost} supplies.`)
+      alertDialog(`Rested ${data.rested} heroes — Health fully restored, morale/stress/trauma recovered. Cost: ${data.cost} ingredients.`)
       loadAll()
     } catch (e) {
       alertDialog(e.message || "Cannot rest.")
@@ -353,7 +360,7 @@ const handleRenameBase = async () => {
       const res = await purchaseMarketItem(itemId)
       loadAll()
       if (onGoldChange) onGoldChange()
-      const detail = res.material ? `${res.amount}x ${res.material}` : res.supplies ? `${res.supplies} supplies` : ''
+      const detail = res.material ? `${res.amount}x ${res.material}` : res.ingredients ? `${res.ingredients} ingredients` : ''
       alertDialog(`Purchased ${res.item}! +${detail}`)
     } catch (e) {
       alertDialog(e.message)
@@ -395,13 +402,14 @@ const handleRenameBase = async () => {
 
   
   let goldGen = 0;
-  let suppliesGen = 0;
+  let ingredientsGen = 0;
+  let aetherGen = 0;
   if (facilitiesData && facilitiesData.built) {
     facilitiesData.built.forEach(f => {
-      let base_amt = f.type === 'Market' ? 100 * f.level : 5 * f.level;
       let multiplier = 1.0 + ((f.heroes?.length || 0) * 0.10);
-      if (f.type === 'Market') goldGen += Math.floor(base_amt * multiplier);
-      if (f.type === 'Farm') suppliesGen += Math.floor(base_amt * multiplier);
+      if (f.type === 'Market') goldGen += Math.floor(100 * f.level * multiplier);
+      if (f.type === 'Farm') ingredientsGen += Math.floor(5 * f.level * multiplier);
+      if (f.type === 'Skydock') aetherGen += Math.floor(2 * f.level * multiplier);
     });
   }
 
@@ -446,11 +454,11 @@ const handleRenameBase = async () => {
 
 
 const getGenRate = (fac) => {
-    if (fac.type !== 'Market' && fac.type !== 'Farm') return null;
-    let base_amt = fac.type === 'Market' ? 100 * fac.level : 5 * fac.level;
+    const rates = { Market: [100, 'Gold'], Farm: [5, 'Ingredients'], Skydock: [2, 'Aether'] };
+    if (!rates[fac.type]) return null;
+    const [per, resName] = rates[fac.type];
     let multiplier = 1.0 + ((fac.heroes || []).length * 0.10);
-    let amt = Math.floor(base_amt * multiplier);
-    let resName = fac.type === 'Market' ? 'Gold' : 'Supplies';
+    let amt = Math.floor(per * fac.level * multiplier);
     return `Generating: +${amt} ${resName} / 5 mins`;
   };
 
@@ -491,8 +499,12 @@ const getGenRate = (fac) => {
                   <div className="text-gold" style={{ fontFamily: 'Cinzel, serif', fontSize: '1.5rem' }}>{base.gold.toLocaleString()} Gold</div>
                 </div>
                 <div>
-                  <div className="text-dim" style={{ fontSize: '0.9rem', textTransform: 'uppercase', letterSpacing: '1px' }}>Total Supplies</div>
-                  <div style={{ fontFamily: 'Cinzel, serif', fontSize: '1.5rem', color: '#c7e0f4' }}>{base.supplies?.toLocaleString()} Supplies</div>
+                  <div className="text-dim" style={{ fontSize: '0.9rem', textTransform: 'uppercase', letterSpacing: '1px' }}>Ingredients</div>
+                  <div style={{ fontFamily: 'Cinzel, serif', fontSize: '1.5rem', color: '#9fd68a' }}>{base.ingredients?.toLocaleString()}</div>
+                </div>
+                <div>
+                  <div className="text-dim" style={{ fontSize: '0.9rem', textTransform: 'uppercase', letterSpacing: '1px' }}>Aether</div>
+                  <div style={{ fontFamily: 'Cinzel, serif', fontSize: '1.5rem', color: '#8fb8ff' }}>{(base.aether || 0).toLocaleString()}</div>
                 </div>
               </div>
               
@@ -502,9 +514,13 @@ const getGenRate = (fac) => {
                   <span className="text-dim">The Market:</span>
                   <span className="text-gold">+{goldGen} Gold / 5 mins</span>
                 </div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '1.1rem' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.5rem', fontSize: '1.1rem' }}>
                   <span className="text-dim">The Farm:</span>
-                  <span style={{ color: '#c7e0f4' }}>+{suppliesGen} Supplies / 5 mins</span>
+                  <span style={{ color: '#9fd68a' }}>+{ingredientsGen} Ingredients / 5 mins</span>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '1.1rem' }}>
+                  <span className="text-dim">The Skydock:</span>
+                  <span style={{ color: '#8fb8ff' }}>+{aetherGen} Aether / 5 mins</span>
                 </div>
               </div>
             </div>
@@ -527,7 +543,7 @@ const getGenRate = (fac) => {
               <div style={{ fontFamily: 'Cinzel, serif', fontSize: '1.8rem', color: 'var(--text-hi)', marginBottom: '1rem' }}>Rest & Recovery</div>
               <div className="text-dim" style={{ fontSize: '1.1rem', lineHeight: 1.6, marginBottom: 'auto' }}>
                 Resting at base recovers morale (+25), reduces stress (-20), and slowly heals trauma (-5) for all living heroes.<br/><br/>
-                Resting costs 50 supplies and has a 5-minute cooldown.
+                Resting costs 50 ingredients (a hot meal for the roster) and has a 5-minute cooldown.
               </div>
               {(() => {
                 const now = Date.now() / 1000;
@@ -537,7 +553,7 @@ const getGenRate = (fac) => {
                 const isCooldown = rem > 0;
                 return (
                   <button className="btn btn-gold" onClick={handleRest} disabled={resting || isCooldown} style={{ width: '100%', padding: '1rem', fontSize: '1.1rem', marginTop: '2rem' }}>
-                    {resting ? 'Resting...' : isCooldown ? `Cooldown (${Math.ceil(rem)}s)` : 'Rest All Heroes (Costs 50 Supplies)'}
+                    {resting ? 'Resting...' : isCooldown ? `Cooldown (${Math.ceil(rem)}s)` : 'Rest All Heroes (50 Ingredients)'}
                   </button>
                 )
               })()}
@@ -727,7 +743,7 @@ const getGenRate = (fac) => {
                       )}
                       {fac.type === 'Infirmary' && (
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '0.2rem', marginLeft: '0.5rem' }}>
-                          <button onClick={() => handleCraftBandages(h.id)} disabled={crafting} className="btn btn-gold" style={{ padding: '0.2rem 0.5rem', fontSize: '0.75rem' }}>Bandage (15 supplies)</button>
+                          <button onClick={() => handleCraftBandages(h.id)} disabled={crafting} className="btn btn-gold" style={{ padding: '0.2rem 0.5rem', fontSize: '0.75rem' }}>Bandage (15 ingredients)</button>
                         </div>
                       )}
                     </div>
@@ -788,24 +804,26 @@ const getGenRate = (fac) => {
                     </div>
                   </div>
                 )}
+
+                {/* Mirror of Fate — talent reveals */}
+                {fac.type === 'Mirror of Fate' && (
+                  <MirrorOfFate
+                    level={fac.level}
+                    gold={base.gold}
+                    onGoldChange={() => { loadAll(); if (onGoldChange) onGoldChange() }}
+                  />
+                )}
+
+                {/* Economy + endgame facility panels */}
+                {fac.type === 'Dining Hall' && <CookingPanel onResourceChange={() => { loadAll(); if (onGoldChange) onGoldChange() }} />}
+                {fac.type === 'Alchemist Lab' && <RefineAetherPanel onResourceChange={() => { loadAll(); if (onGoldChange) onGoldChange() }} />}
+                {fac.type === 'Bestiary' && <BestiaryPanel />}
+                {fac.type === 'Reliquary' && <ReliquaryPanel />}
+                {fac.type === 'Chronosphere' && <ChronospherePanel onResourceChange={() => { loadAll(); if (onGoldChange) onGoldChange() }} />}
+                {fac.type === 'Transcendence Core' && <TranscendencePanel gold={base.gold} onResourceChange={() => { loadAll(); if (onGoldChange) onGoldChange() }} />}
                 </div>
               </div>
             ))}
-
-            {(() => {
-                const obs = baseUpgrades.find(u => u.id === 'mirror_of_fate')
-                if (obs && obs.level > 0) {
-                    return (
-                        <MirrorOfFate
-                            upgrade={obs}
-                            gold={base.gold}
-                            onGoldChange={() => { loadAll(); if (onGoldChange) onGoldChange() }}
-                            onUpgrade={() => handleBuyBaseUpgrade('mirror_of_fate')}
-                        />
-                    )
-                }
-                return null;
-            })()}
           </div>
 
           {/* Right Column: Available Facilities */}
@@ -828,26 +846,6 @@ const getGenRate = (fac) => {
                   )}
                 </div>
               ))}
-              
-              {(() => {
-                const obs = baseUpgrades.find(u => u.id === 'mirror_of_fate')
-                if (obs && obs.level === 0) {
-                  return (
-                    <div className="card" style={{ display: 'flex', flexDirection: 'column', padding: '1rem' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.5rem' }}>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                            <span style={{ fontFamily: 'Cinzel, serif', fontSize: '1.1rem', color: 'var(--gold)' }}>Mirror of Fate</span>
-                          </div>
-                          <button className="btn btn-gold" onClick={() => handleBuyBaseUpgrade('mirror_of_fate')} disabled={base.gold < obs.next_cost} style={{ padding: '0.3rem 0.6rem', fontSize: '0.8rem' }}>
-                            Build ({obs.next_cost}g)
-                          </button>
-                        </div>
-                        <div style={{ color: 'var(--text-dim)', fontSize: '0.85rem' }}>{obs.description}</div>
-                    </div>
-                  )
-                }
-                return null;
-              })()}
             </div>
           </div>
         </div>
@@ -888,7 +886,7 @@ const getGenRate = (fac) => {
                     const badges = []
                     if (rw.gems) badges.push(<div key="gems" style={{ padding: '0.3rem 0.6rem', background: 'rgba(0,255,255,0.1)', border: '1px solid rgba(0,255,255,0.3)', borderRadius: 4, color: '#00ffff' }}>{rw.gems} <GameIcon name="gem" size={14} /></div>)
                     if (rw.gold) badges.push(<div key="gold" style={{ padding: '0.3rem 0.6rem', background: 'rgba(201,168,76,0.1)', border: '1px solid var(--gold)', borderRadius: 4, color: 'var(--gold)' }}>{rw.gold} Gold</div>)
-                    if (rw.supplies) badges.push(<div key="supplies" style={{ padding: '0.3rem 0.6rem', background: 'rgba(200,200,200,0.1)', border: '1px solid #aaa', borderRadius: 4, color: 'var(--text-hi)' }}>{rw.supplies} Supplies</div>)
+                    if (rw.ingredients || rw.supplies) badges.push(<div key="ingredients" style={{ padding: '0.3rem 0.6rem', background: 'rgba(159,214,138,0.1)', border: '1px solid #9fd68a', borderRadius: 4, color: 'var(--text-hi)' }}>{(rw.ingredients || 0) + (rw.supplies || 0)} Ingredients</div>)
                     return badges
                   } catch (e) {
                     return null

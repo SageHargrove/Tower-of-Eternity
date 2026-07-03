@@ -52,7 +52,8 @@ export default function App() {
   const [activeProfile, setActiveProfile] = useState(null)
   const [tab, setTab] = useState('summon')
   const [gold, setGold] = useState(null)
-  const [supplies, setSupplies] = useState(null)
+  const [ingredients, setIngredients] = useState(null)
+  const [aether, setAether] = useState(null)
   const [gems, setGems] = useState(null)
   const [tutorialComplete, setTutorialComplete] = useState(true)
   const [fairyGender, setFairyGender] = useState('female')
@@ -93,7 +94,8 @@ export default function App() {
     try {
       const data = await getBase()
       setGold(data.gold)
-      setSupplies(data.supplies)
+      setIngredients(data.ingredients)
+      setAether(data.aether)
       setGems(data.gems || 0)
       setTutorialComplete(!!data.tutorial_complete)
       setFairyGender(data.fairy_gender || 'female')
@@ -180,9 +182,9 @@ export default function App() {
     } catch (e) { alertDialog(e.message) } finally { setDevBusy(false) }
   }
 
-  async function handleGrantResources(gold, gems, supplies) {
+  async function handleGrantResources(gold, gems, ingredients, aether) {
     try {
-      await grantResources(gold, gems, supplies)
+      await grantResources(gold, gems, ingredients, aether)
       refreshResources()
     } catch (e) {
       alertDialog(e.message)
@@ -239,9 +241,14 @@ export default function App() {
                   <GameIcon name="gem" size={18} /> {gems.toLocaleString()} <span className="pill-label">GEMS</span>
                 </span>
               )}
-              {supplies !== null && (
-                <span className="resource-pill" style={{ color: '#d3b890' }}>
-                  <GameIcon name="supplies" size={18} /> {supplies.toLocaleString()} <span className="pill-label">SUPPLIES</span>
+              {ingredients !== null && (
+                <span className="resource-pill" style={{ color: '#9fd68a' }}>
+                  <GameIcon name="mystic_wheat" size={18} /> {ingredients.toLocaleString()} <span className="pill-label">INGREDIENTS</span>
+                </span>
+              )}
+              {aether !== null && aether > 0 && (
+                <span className="resource-pill" style={{ color: '#8fb8ff', textShadow: '0 0 5px rgba(120,160,255,0.4)' }}>
+                  <GameIcon name="aether_crystal" size={18} /> {aether.toLocaleString()} <span className="pill-label">AETHER</span>
                 </span>
               )}
             </div>
@@ -300,7 +307,8 @@ export default function App() {
           </div>
           <button className="btn" style={{ fontSize: '0.85rem' }} onClick={() => handleGrantResources(10000, 0, 0)}>+10,000 Gold</button>
           <button className="btn" style={{ fontSize: '0.85rem' }} onClick={() => handleGrantResources(0, 500, 0)}>+500 Gems</button>
-          <button className="btn" style={{ fontSize: '0.85rem' }} onClick={() => handleGrantResources(0, 0, 500)}>+500 Supplies</button>
+          <button className="btn" style={{ fontSize: '0.85rem' }} onClick={() => handleGrantResources(0, 0, 500)}>+500 Ingredients</button>
+          <button className="btn" style={{ fontSize: '0.85rem' }} onClick={() => handleGrantResources(0, 0, 0, 500)}>+500 Aether</button>
 
           <div style={{ borderTop: '1px solid rgba(255,100,100,0.25)', marginTop: '0.4rem', paddingTop: '0.5rem' }}>
             <button className="btn" style={{ fontSize: '0.8rem', width: '100%', color: '#ff8080' }} disabled={devBusy} onClick={handleDevClearInventory}>

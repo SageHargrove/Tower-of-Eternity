@@ -96,7 +96,8 @@ def complete_tutorial():
 class GrantResourcesRequest(BaseModel):
     gold: int = 0
     gems: int = 0
-    supplies: int = 0
+    ingredients: int = 0
+    aether: int = 0
 
 @router.post("/dev/grant")
 def grant_resources(req: GrantResourcesRequest):
@@ -107,11 +108,11 @@ def grant_resources(req: GrantResourcesRequest):
     import database
     with db() as conn:
         conn.execute(
-            "UPDATE base SET gold = gold + ?, gems = gems + ?, supplies = supplies + ? WHERE id = 1",
-            (max(0, req.gold), max(0, req.gems), max(0, req.supplies))
+            "UPDATE base SET gold = gold + ?, gems = gems + ?, ingredients = ingredients + ?, aether = aether + ? WHERE id = 1",
+            (max(0, req.gold), max(0, req.gems), max(0, req.ingredients), max(0, req.aether))
         )
-        row = conn.execute("SELECT gold, gems, supplies FROM base WHERE id = 1").fetchone()
-    return {"ok": True, "profile": database.ACTIVE_PROFILE, "gold": row["gold"], "gems": row["gems"], "supplies": row["supplies"]}
+        row = conn.execute("SELECT gold, gems, ingredients, aether FROM base WHERE id = 1").fetchone()
+    return {"ok": True, "profile": database.ACTIVE_PROFILE, "gold": row["gold"], "gems": row["gems"], "ingredients": row["ingredients"], "aether": row["aether"]}
 
 @router.post("/dev/clear-inventory")
 def dev_clear_inventory():
@@ -157,26 +158,27 @@ def dev_set_level(req: DevSetLevelRequest):
 
 @router.post("/rest")
 def rest_heroes():
-    """Rest all active heroes at base. Costs 50 supplies, 5 min cooldown."""
+    """Rest all active heroes at base. Costs 50 ingredients (a hot meal for
+    the whole roster), 5 min cooldown."""
     import time
     from services.morale_service import rest_at_base_recovery
     with db() as conn:
         # Get base info
-        base = conn.execute("SELECT supplies, last_rest_time FROM base WHERE id = 1").fetchone()
-        
+        base = conn.execute("SELECT ingredients, last_rest_time FROM base WHERE id = 1").fetchone()
+
         now = time.time()
         cooldown = 300 # 5 minutes
         last_rest = base["last_rest_time"] or 0
         if now - last_rest < cooldown:
             rem = int(cooldown - (now - last_rest))
             raise HTTPException(status_code=400, detail=f"Resting is on cooldown for {rem} more seconds.")
-            
+
         supply_cost = 50
-        
-        if base["supplies"] < supply_cost:
-            raise HTTPException(status_code=400, detail=f"Not enough supplies to rest. Need {supply_cost}, have {base['supplies']}.")
-            
-        conn.execute("UPDATE base SET supplies = supplies - ?, last_rest_time = ? WHERE id = 1", (supply_cost, now))
+
+        if base["ingredients"] < supply_cost:
+            raise HTTPException(status_code=400, detail=f"Not enough ingredients to rest. Need {supply_cost}, have {base['ingredients']}.")
+
+        conn.execute("UPDATE base SET ingredients = ingredients - ?, last_rest_time = ? WHERE id = 1", (supply_cost, now))
 
         # Button says "Rest All Heroes" — rest the whole living roster, not just deployed ones
         from services.base_service import get_base_upgrade_level
@@ -206,6 +208,105 @@ def market_purchase(req: MarketPurchaseRequest):
     with db() as conn:
         try:
             return purchase_item(conn, req.item_id)
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+
+# ─── Endgame facilities: Bestiary / Reliquary / Chronosphere / Core ──
+
+@router.get("/bestiary")
+def bestiary_status():
+    from services.endgame_service import get_bestiary
+    with db() as conn:
+        return get_bestiary(conn)
+
+@router.post("/bestiary/release/{beast_id}")
+def bestiary_release(beast_id: int):
+    from services.endgame_service import release_beast
+    with db() as conn:
+        try:
+            return release_beast(conn, beast_id)
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+
+@router.get("/reliquary")
+def reliquary_status():
+    from services.endgame_service import get_reliquary
+    with db() as conn:
+        return get_reliquary(conn)
+
+class MountTrophyRequest(BaseModel):
+    trophy_id: int
+    mounted: bool
+
+@router.post("/reliquary/mount")
+def reliquary_mount(req: MountTrophyRequest):
+    from services.endgame_service import set_trophy_mounted
+    with db() as conn:
+        try:
+            return set_trophy_mounted(conn, req.trophy_id, req.mounted)
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+
+@router.get("/chronosphere")
+def chronosphere_status():
+    from services.endgame_service import get_chronosphere
+    with db() as conn:
+        return get_chronosphere(conn)
+
+@router.post("/chronosphere/activate")
+def chronosphere_activate():
+    from services.endgame_service import activate_chronosphere
+    with db() as conn:
+        try:
+            return activate_chronosphere(conn)
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+
+@router.get("/transcendence")
+def transcendence_status():
+    from services.endgame_service import get_transcendence
+    with db() as conn:
+        return get_transcendence(conn)
+
+@router.post("/transcendence/infuse")
+def transcendence_infuse():
+    from services.endgame_service import infuse_transcendence
+    with db() as conn:
+        try:
+            return infuse_transcendence(conn)
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+
+# ─── Dining Hall cooking + Alchemist aether refining ────────────────
+
+@router.get("/dining/catalog")
+def dining_catalog():
+    from services.cooking_service import get_cooking_catalog
+    with db() as conn:
+        return get_cooking_catalog(conn)
+
+class CookRequest(BaseModel):
+    recipe_id: str
+    quantity: int = 1
+
+@router.post("/dining/cook")
+def dining_cook(req: CookRequest):
+    from services.cooking_service import cook_food
+    with db() as conn:
+        try:
+            return cook_food(conn, req.recipe_id, req.quantity)
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+
+class RefineAetherRequest(BaseModel):
+    batches: int = 1
+
+@router.post("/alchemist/refine-aether")
+def alchemist_refine_aether(req: RefineAetherRequest):
+    from services.cooking_service import refine_aether
+    with db() as conn:
+        try:
+            return refine_aether(conn, req.batches)
         except ValueError as e:
             raise HTTPException(status_code=400, detail=str(e))
 
@@ -337,8 +438,12 @@ def run_daily_dungeon(dungeon_type: str):
     Run a daily dungeon for Gold or Materials.
     Rewards scale with the highest floor reached in the tower.
     """
-    if dungeon_type not in ["gold", "materials", "supplies"]:
-        raise HTTPException(status_code=400, detail="Invalid dungeon type. Must be 'gold', 'materials', or 'supplies'.")
+    # "ingredients" replaced the old supplies dungeon; the legacy name is
+    # still accepted so a stale client doesn't 400.
+    if dungeon_type == "supplies":
+        dungeon_type = "ingredients"
+    if dungeon_type not in ["gold", "materials", "ingredients"]:
+        raise HTTPException(status_code=400, detail="Invalid dungeon type. Must be 'gold', 'materials', or 'ingredients'.")
 
     with db() as conn:
         # Check team
@@ -352,7 +457,7 @@ def run_daily_dungeon(dungeon_type: str):
         scale = 1 + (highest // 10)
 
         # Base info
-        base_row = conn.execute("SELECT gold, materials, supplies FROM base WHERE id = 1").fetchone()
+        base_row = conn.execute("SELECT gold, materials, ingredients FROM base WHERE id = 1").fetchone()
         
         if dungeon_type == "gold":
             gold_reward = 1000 + (scale * 800)
@@ -374,10 +479,10 @@ def run_daily_dungeon(dungeon_type: str):
             conn.execute("UPDATE base SET materials = ? WHERE id = 1", (json.dumps(current_mats),))
             return {"ok": True, "type": "materials", "reward": drops, "message": "Dungeon cleared! Gathered materials."}
 
-        elif dungeon_type == "supplies":
-            supplies_earned = 20 + max(0, highest * 5)
-            conn.execute("UPDATE base SET supplies = supplies + ? WHERE id = 1", (supplies_earned,))
-            return {"ok": True, "type": "supplies", "reward": supplies_earned, "message": f"Dungeon cleared! Gathered {supplies_earned} Supplies 🍖."}
+        elif dungeon_type == "ingredients":
+            ingredients_earned = 20 + max(0, highest * 5)
+            conn.execute("UPDATE base SET ingredients = ingredients + ? WHERE id = 1", (ingredients_earned,))
+            return {"ok": True, "type": "ingredients", "reward": ingredients_earned, "message": f"Dungeon cleared! Foraged {ingredients_earned} Ingredients 🌿."}
 # ─── Inventory endpoints ────────────────────────────────────────────
 
 @router.get("/inventory")
@@ -394,9 +499,11 @@ def _eligible_consumable_names(conn) -> set:
     so equip choices can't point at e.g. a non-healing Scroll of Insight."""
     from services.alchemist_service import POTION_CATALOG
     from services.research_service import SCROLL_CATALOG
+    from services.cooking_service import FOOD_CATALOG
     names = {"Bandage"}
     names.update(p["name"] for p in POTION_CATALOG if "heal_pct" in p["effect"] or "mana_pct" in p["effect"])
     names.update(s["name"] for s in SCROLL_CATALOG if "heal_pct" in s["effect"])
+    names.update(f["name"] for f in FOOD_CATALOG if "heal_pct" in f["effect"])
     return names
 
 class EquipConsumableRequest(BaseModel):
@@ -451,11 +558,13 @@ class UseItemRequest(BaseModel):
 
 @router.post("/inventory/use")
 def use_item(req: UseItemRequest):
-    """Consume a potion or scroll on a target hero."""
+    """Consume a potion, scroll, or cooked food on a target hero."""
     from services.alchemist_service import POTION_CATALOG
     from services.research_service import SCROLL_CATALOG
+    from services.cooking_service import FOOD_CATALOG
     catalog = {p["name"]: p["effect"] for p in POTION_CATALOG}
     catalog.update({s["name"]: s["effect"] for s in SCROLL_CATALOG})
+    catalog.update({f["name"]: f["effect"] for f in FOOD_CATALOG})
 
     effect = catalog.get(req.item_name)
     if not effect:
@@ -484,6 +593,13 @@ def use_item(req: UseItemRequest):
             new_stress = max(0, hero["stress"] + effect["stress_delta"])
             conn.execute("UPDATE heroes SET stress = ? WHERE id = ?", (new_stress, hero["id"]))
             applied["stress"] = new_stress
+
+        if "morale_delta" in effect:
+            from services.morale_service import get_morale_state
+            new_morale = max(0, min(100, hero["morale"] + effect["morale_delta"]))
+            conn.execute("UPDATE heroes SET morale = ?, morale_state = ? WHERE id = ?",
+                         (new_morale, get_morale_state(new_morale), hero["id"]))
+            applied["morale"] = new_morale
 
         if "trauma_delta" in effect:
             new_trauma = max(0, hero["trauma"] + effect["trauma_delta"])
@@ -518,10 +634,11 @@ def use_item(req: UseItemRequest):
 
 # ─── Base upgrades endpoints ────────────────────────────────────────
 
+# Mirror of Fate left this tree — it's a real facility now (floor 25,
+# FACILITY_TYPES); reveal detail scales with the FACILITY's level.
 DEFAULT_UPGRADES = [
     {"id": "infirmary", "name": "Infirmary", "description": "Improve rest recovery rates.", "max_level": 5},
     {"id": "forge", "name": "Forge", "description": "Improves the quality of crafted equipment.", "max_level": 5},
-    {"id": "mirror_of_fate", "name": "Mirror of Fate", "description": "Pay gold to reveal a hero's Talent immediately.", "max_level": 3},
 ]
 
 UPGRADE_GOLD_COST = {
@@ -561,20 +678,11 @@ def get_upgrades():
     results = []
     for r in rows:
         upgrade = dict(r)
-        if upgrade["id"] == "mirror_of_fate" and highest_floor < 5:
-            continue
-            
         current_level = upgrade.get("level", 0)
         max_level = upgrade.get("max_level", 5)
         next_level = current_level + 1
         upgrade["is_maxed"] = current_level >= max_level
-        
-        if upgrade["id"] == "mirror_of_fate":
-            obs_costs = {1: 2500, 2: 10000, 3: 25000}
-            upgrade["next_cost"] = obs_costs.get(next_level, 25000)
-        else:
-            upgrade["next_cost"] = UPGRADE_GOLD_COST.get(next_level, 10000)
-            
+        upgrade["next_cost"] = UPGRADE_GOLD_COST.get(next_level, 10000)
         results.append(upgrade)
     return results
 
@@ -597,17 +705,9 @@ def buy_upgrade(data: UpgradeRequest):
             raise HTTPException(status_code=400, detail="Upgrade already at max level.")
 
         next_level = current_level + 1
-        
-        if data.upgrade_id == "mirror_of_fate":
-            obs_costs = {1: 2500, 2: 10000, 3: 25000}
-            cost = obs_costs.get(next_level, 25000)
-        else:
-            cost = UPGRADE_GOLD_COST.get(next_level, 10000)
+        cost = UPGRADE_GOLD_COST.get(next_level, 10000)
 
         base = conn.execute("SELECT gold, highest_floor FROM base WHERE id = 1").fetchone()
-        
-        if data.upgrade_id == "talent_observatory" and base["highest_floor"] < 5:
-            raise HTTPException(status_code=400, detail="Must reach Floor 5 to unlock the Mirror of Fate.")
 
         if base["gold"] < cost:
             raise HTTPException(
@@ -635,13 +735,16 @@ class TalentRevealRequest(BaseModel):
 
 @router.post("/talent-observatory/reveal")
 def reveal_hero_talent(data: TalentRevealRequest):
-    """Pay gold to immediately reveal a hero's Talent — see
-    services/level_service.py's reveal_talent_observatory for how this
-    differs from Archive's free, passive, per-level aptitude reveal."""
-    from services.base_service import get_base_upgrade_level
+    """Pay gold at the Mirror of Fate FACILITY to immediately reveal a
+    hero's Talent — detail scales with the facility's level (see
+    level_service.reveal_mirror_of_fate)."""
     from services.level_service import get_mirror_of_fate_cost, reveal_mirror_of_fate
 
     with db() as conn:
+        mirror = conn.execute("SELECT level FROM facilities WHERE type = 'Mirror of Fate' AND base_id = 1").fetchone()
+        if not mirror:
+            raise HTTPException(status_code=400, detail="Build the Mirror of Fate facility first.")
+
         hero = conn.execute("SELECT * FROM heroes WHERE id = ?", (data.hero_id,)).fetchone()
         if not hero:
             raise HTTPException(status_code=404, detail="Hero not found.")
@@ -654,7 +757,9 @@ def reveal_hero_talent(data: TalentRevealRequest):
         if base["gold"] < cost:
             raise HTTPException(status_code=400, detail=f"Not enough gold. Need {cost}, have {base['gold']}.")
 
-        mirror_level = get_base_upgrade_level(conn, "mirror_of_fate")
+        # Facility level -> reveal-detail tier: Lv1-4 vague, Lv5-9 the
+        # aptitude's category, Lv10+ the exact aptitude.
+        mirror_level = min(3, 1 + mirror["level"] // 5)
         revealed = reveal_mirror_of_fate(hero, mirror_level)
 
         conn.execute("UPDATE base SET gold = gold - ? WHERE id = 1", (cost,))
@@ -720,7 +825,9 @@ def forge_craft(req: CraftRequest):
         if req.slot == "weapon":
             recipe = {"Iron Ore": 3, "Monster Bone": 1}
         elif req.slot == "armor":
-            recipe = {"Slime Core": 2, "Iron Ore": 2}
+            # Slime Core was dropped from the game (its icon never generated
+            # well) — Dark Crystal took its slot in the armor recipe.
+            recipe = {"Dark Crystal": 2, "Iron Ore": 2}
         else:
             recipe = {"Mystic Dust": 3, "Goblin Ear": 1}
             
@@ -963,8 +1070,11 @@ def claim_mail(req: ClaimMailReq):
             conn.execute("UPDATE base SET gems = gems + ? WHERE id = 1", (rewards["gems"],))
         if "gold" in rewards:
             conn.execute("UPDATE base SET gold = gold + ? WHERE id = 1", (rewards["gold"],))
-        if "supplies" in rewards:
-            conn.execute("UPDATE base SET supplies = supplies + ? WHERE id = 1", (rewards["supplies"],))
+        # Legacy mail may still carry a "supplies" reward — grant it as
+        # ingredients, the currency that replaced it.
+        if "ingredients" in rewards or "supplies" in rewards:
+            amt = rewards.get("ingredients", 0) + rewards.get("supplies", 0)
+            conn.execute("UPDATE base SET ingredients = ingredients + ? WHERE id = 1", (amt,))
 
         conn.execute("UPDATE mail SET is_claimed = 1, is_read = 1 WHERE id = ?", (req.mail_id,))
     return {"ok": True, "rewards": rewards}

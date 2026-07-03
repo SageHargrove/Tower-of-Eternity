@@ -203,7 +203,8 @@ CREATE TABLE IF NOT EXISTS base (
             level INTEGER DEFAULT 1,
             gold INTEGER DEFAULT 1000,
             gems INTEGER DEFAULT 500,
-            supplies INTEGER DEFAULT 50,
+            ingredients INTEGER DEFAULT 50,
+            aether INTEGER DEFAULT 0,
             materials TEXT DEFAULT '{}',
             highest_floor INTEGER DEFAULT 0,
             max_roster_size INTEGER DEFAULT 10,
@@ -373,7 +374,7 @@ SELECT 'Basic Sword', 'weapon', 'A sturdy basic sword.', '{"Iron Ore": 3, "Monst
 WHERE NOT EXISTS (SELECT 1 FROM recipes WHERE name = 'Basic Sword');
 
 INSERT INTO recipes (name, type, description, materials_json, gold_cost, base_stat_mult, is_discovered)
-SELECT 'Basic Armor', 'armor', 'Standard protective gear.', '{"Slime Core": 2, "Iron Ore": 2}', 100, 1.0, 1
+SELECT 'Basic Armor', 'armor', 'Standard protective gear.', '{"Dark Crystal": 2, "Iron Ore": 2}', 100, 1.0, 1
 WHERE NOT EXISTS (SELECT 1 FROM recipes WHERE name = 'Basic Armor');
 
 INSERT INTO recipes (name, type, description, materials_json, gold_cost, base_stat_mult, is_discovered)
@@ -415,12 +416,6 @@ WHERE NOT EXISTS (SELECT 1 FROM recipes WHERE name = 'Void Ring');
 
 
         """)
-
-        try:
-            conn.execute("ALTER TABLE base ADD COLUMN supplies INTEGER DEFAULT 500")
-            print("[DB] Migrated: added column 'supplies' to base")
-        except sqlite3.OperationalError:
-            pass
 
         try:
             conn.execute("ALTER TABLE base ADD COLUMN gems INTEGER DEFAULT 500")
@@ -647,12 +642,77 @@ WHERE NOT EXISTS (SELECT 1 FROM recipes WHERE name = 'Void Ring');
         except Exception as e:
             print(f"[DB] Migration error renaming Workshop: {e}")
 
+        # Restaurant -> Dining Hall rename (existing saves keep their level
+        # and staff, just under the new name).
+        try:
+            conn.execute("UPDATE facilities SET type = 'Dining Hall' WHERE type = 'Restaurant'")
+            conn.commit()
+        except Exception as e:
+            print(f"[DB] Migration error renaming Restaurant: {e}")
+
+        # Mirror of Fate graduated from the base-upgrade tree to a real
+        # facility (floor 25). Existing purchased upgrade levels (1-3) map
+        # to facility levels 5/10/15 so nobody loses reveal detail — see
+        # level_service.reveal_mirror_of_fate for the level->detail tiers.
+        try:
+            old = conn.execute("SELECT level FROM base_upgrades WHERE id = 'mirror_of_fate'").fetchone()
+            if old and old["level"] > 0:
+                existing = conn.execute("SELECT id FROM facilities WHERE base_id = 1 AND type = 'Mirror of Fate'").fetchone()
+                if not existing:
+                    conn.execute(
+                        "INSERT INTO facilities (base_id, type, level, slots_unlocked) VALUES (1, 'Mirror of Fate', ?, 1)",
+                        (old["level"] * 5,)
+                    )
+                conn.execute("DELETE FROM base_upgrades WHERE id = 'mirror_of_fate'")
+                conn.commit()
+                print("[DB] Migrated: Mirror of Fate base-upgrade -> facility")
+        except Exception as e:
+            print(f"[DB] Migration error converting Mirror of Fate: {e}")
+
+        # Supplies are retired. The Farm now grows alchemy INGREDIENTS (food,
+        # herbs — cooking and potion crafting), and AETHER (Skydock-refined
+        # ship fuel) covers what supplies did for expeditions. Existing
+        # supplies convert 1:1 into ingredients so nothing is lost.
+        base_cols = [r[1] for r in conn.execute("PRAGMA table_info(base)").fetchall()]
+        if "ingredients" not in base_cols:
+            conn.execute("ALTER TABLE base ADD COLUMN ingredients INTEGER DEFAULT 50")
+            if "supplies" in base_cols:
+                conn.execute("UPDATE base SET ingredients = COALESCE(supplies, 50)")
+            print("[DB] Migrated: base.ingredients (converted from supplies)")
+        if "aether" not in base_cols:
+            conn.execute("ALTER TABLE base ADD COLUMN aether INTEGER DEFAULT 0")
+            print("[DB] Migrated: base.aether")
+        if "supplies" in base_cols:
+            try:
+                conn.execute("ALTER TABLE base DROP COLUMN supplies")
+                print("[DB] Migrated: dropped base.supplies")
+            except sqlite3.OperationalError:
+                pass  # old SQLite without DROP COLUMN — column just goes unused
+
+        # Slime Core is retired (Dark Crystal replaced it) — convert any the
+        # player is holding, plus every recipe that still calls for it.
+        try:
+            row = conn.execute("SELECT materials FROM base WHERE id = 1").fetchone()
+            if row and row["materials"] and "Slime Core" in row["materials"]:
+                import json as _json
+                mats = _json.loads(row["materials"])
+                for k in list(mats.keys()):
+                    if k.startswith("Slime Core"):
+                        new_k = k.replace("Slime Core", "Dark Crystal")
+                        mats[new_k] = mats.get(new_k, 0) + mats.pop(k)
+                conn.execute("UPDATE base SET materials = ? WHERE id = 1", (_json.dumps(mats),))
+                print("[DB] Migrated: Slime Core -> Dark Crystal in held materials")
+            conn.execute("UPDATE recipes SET materials_json = REPLACE(materials_json, 'Slime Core', 'Dark Crystal') WHERE materials_json LIKE '%Slime Core%'")
+            conn.commit()
+        except Exception as e:
+            print(f"[DB] Migration error converting Slime Core: {e}")
+
         # Every base starts with the Wall (its foundation — other facilities
-        # can't out-level it), Training Grounds, and Restaurant already
+        # can't out-level it), Training Grounds, and Dining Hall already
         # built (existing saves gain them too if missing) — everything else
         # is player-built through the Facilities tab.
         try:
-            for fac_type in ("Wall", "Training Grounds", "Restaurant"):
+            for fac_type in ("Wall", "Training Grounds", "Dining Hall"):
                 existing = conn.execute("SELECT id FROM facilities WHERE base_id = 1 AND type = ?", (fac_type,)).fetchone()
                 if not existing:
                     conn.execute("INSERT INTO facilities (base_id, type, slots_unlocked) VALUES (1, ?, 1)", (fac_type,))

@@ -247,7 +247,7 @@ def _resolve_real_combat(conn, hero_teams, floor_number, is_boss, is_miniboss, z
             """, (s["health"], new_morale, get_morale_state(new_morale), skills_json, s["id"]))
 
     result["gold_gained"] = combat_result.get("gold_gained", 0)
-    result["supplies_gained"] = combat_result.get("supplies_gained", 0)
+    result["ingredients_gained"] = combat_result.get("ingredients_gained", 0)
     result["materials_gained"] = combat_result.get("materials_gained", {})
 
     if reward_mult != 1.0:
@@ -256,12 +256,12 @@ def _resolve_real_combat(conn, hero_teams, floor_number, is_boss, is_miniboss, z
 
     if floor_number <= base_row["highest_floor"]:
         result["gold_gained"] = int(result["gold_gained"] * 0.05)
-        result["supplies_gained"] = int(result["supplies_gained"] * 0.05)
+        result["ingredients_gained"] = int(result["ingredients_gained"] * 0.05)
 
-    if result["gold_gained"] > 0 or result["supplies_gained"] > 0 or result["materials_gained"]:
+    if result["gold_gained"] > 0 or result["ingredients_gained"] > 0 or result["materials_gained"]:
         conn.execute(
-            "UPDATE base SET gold = gold + ?, supplies = supplies + ? WHERE id = 1",
-            (result["gold_gained"], result["supplies_gained"])
+            "UPDATE base SET gold = gold + ?, ingredients = ingredients + ? WHERE id = 1",
+            (result["gold_gained"], result["ingredients_gained"])
         )
         if result["materials_gained"]:
             base_row_current = conn.execute("SELECT materials FROM base WHERE id = 1").fetchone()
@@ -285,6 +285,24 @@ def _resolve_real_combat(conn, hero_teams, floor_number, is_boss, is_miniboss, z
 
     if combat_result.get("relic_drop"):
         result["relic_drop"] = combat_result["relic_drop"]
+
+    # Endgame facility hooks — Bestiary capture roll on any winning fight,
+    # Reliquary trophy on a winning boss floor (every 10th).
+    if combat_result["winner"] == "heroes":
+        try:
+            from services.endgame_service import maybe_capture_beast, maybe_award_trophy
+            enemy_names = [e["name"] for e in combat_result.get("initial_state", {}).get("enemies", [])]
+            captured = maybe_capture_beast(conn, floor_number, enemy_names, is_boss)
+            if captured:
+                result["beast_captured"] = captured
+                combat_result.setdefault("log", []).append(f"🐾 {captured['name']} was subdued and dragged back to the Bestiary!")
+            if is_boss:
+                trophy = maybe_award_trophy(conn, floor_number, enemy_names)
+                if trophy:
+                    result["trophy_earned"] = trophy
+                    combat_result.setdefault("log", []).append(f"🏛️ Trophy claimed: {trophy['boss_name']} (Floor {trophy['floor']}) — mount it in the Reliquary for {trophy['buff_label']}.")
+        except Exception as e:
+            print(f"Endgame hook error: {e}")
 
     result["narrative"] = narrative
     return result
@@ -315,17 +333,14 @@ def enter_floor(req: EnterFloorRequest):
     """Resolve a single floor for a specific team without any 'Run' constraints."""
     pending_legacies = []
     with db() as conn:
-        # Check base and supplies
-        base_row = conn.execute("SELECT highest_floor, supplies FROM base WHERE id = 1").fetchone()
+        # Tower entry is free — the old per-entry supply toll went away with
+        # the supplies currency itself (fatigue is what throttles runs now).
+        base_row = conn.execute("SELECT highest_floor FROM base WHERE id = 1").fetchone()
         if not base_row:
             raise HTTPException(status_code=500, detail="Base not found")
-            
+
         if req.floor_number > base_row["highest_floor"] + 1:
             raise HTTPException(status_code=400, detail="Cannot skip floors.")
-
-        supply_cost = 2
-        if base_row["supplies"] < supply_cost:
-            raise HTTPException(status_code=400, detail=f"Not enough supplies to enter the tower. Need {supply_cost}.")
 
         # Get heroes
         teams_to_deploy = req.team_ids if req.team_ids else [req.team_id]
@@ -385,8 +400,10 @@ def enter_floor(req: EnterFloorRequest):
         # something you'd drink to save your life mid-fight.
         from services.alchemist_service import POTION_CATALOG
         from services.research_service import SCROLL_CATALOG
+        from services.cooking_service import FOOD_CATALOG
         heal_catalog = {p["name"]: p["effect"]["heal_pct"] for p in POTION_CATALOG if "heal_pct" in p["effect"]}
         heal_catalog.update({s["name"]: s["effect"]["heal_pct"] for s in SCROLL_CATALOG if "heal_pct" in s["effect"]})
+        heal_catalog.update({f["name"]: f["effect"]["heal_pct"] for f in FOOD_CATALOG if "heal_pct" in f["effect"]})
         mana_catalog = {p["name"]: p["effect"]["mana_pct"] for p in POTION_CATALOG if "mana_pct" in p["effect"]}
         available_consumables = [
             {"item_name": row["item_name"], "quantity": row["quantity"],
@@ -394,8 +411,6 @@ def enter_floor(req: EnterFloorRequest):
             for row in conn.execute("SELECT item_name, quantity FROM inventory WHERE quantity > 0").fetchall()
             if row["item_name"] in heal_catalog or row["item_name"] in mana_catalog
         ]
-
-        conn.execute("UPDATE base SET supplies = supplies - ? WHERE id = 1", (supply_cost,))
 
         # Flavor text (zone theme, boss naming, narration) must never stack into
         # a multi-second wait before combat starts — none of it affects combat

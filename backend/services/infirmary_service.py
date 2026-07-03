@@ -70,7 +70,7 @@ def process_infirmary(conn):
     conn.execute("UPDATE base SET last_infirmary_tick = CURRENT_TIMESTAMP WHERE id = 1")
 
 
-BANDAGE_CRAFT_COST = {"supplies": 15}
+BANDAGE_CRAFT_COST = {"ingredients": 15}
 BANDAGE_HEAL_PCT = 0.30  # consumable in-combat heal, see services/combat_service.py usage
 
 
@@ -91,14 +91,14 @@ def craft_bandages(conn, crafter_id: int, quantity: int = 1) -> dict:
     if not assigned:
         raise ValueError("Crafter must be assigned to the Infirmary.")
 
-    total_cost = BANDAGE_CRAFT_COST["supplies"] * quantity
-    base_row = conn.execute("SELECT supplies, materials FROM base WHERE id = 1").fetchone()
-    if base_row["supplies"] < total_cost:
-        raise ValueError(f"Not enough supplies. Need {total_cost}.")
+    total_cost = BANDAGE_CRAFT_COST["ingredients"] * quantity
+    base_row = conn.execute("SELECT ingredients, materials FROM base WHERE id = 1").fetchone()
+    if base_row["ingredients"] < total_cost:
+        raise ValueError(f"Not enough ingredients. Need {total_cost}.")
 
     import json
     materials = json.loads(base_row["materials"]) if base_row["materials"] else {}
     materials["Bandage"] = materials.get("Bandage", 0) + quantity
-    conn.execute("UPDATE base SET supplies = supplies - ?, materials = ? WHERE id = 1", (total_cost, json.dumps(materials)))
+    conn.execute("UPDATE base SET ingredients = ingredients - ?, materials = ? WHERE id = 1", (total_cost, json.dumps(materials)))
 
     return {"crafted": quantity, "material": "Bandage", "total": materials["Bandage"]}

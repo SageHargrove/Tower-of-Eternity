@@ -173,7 +173,7 @@ def generate_hero_chat() -> dict:
             tenure_note = " [Arrived recently - still getting their bearings, may ask questions others take for granted.]"
         chatter_profiles.append(f"- {h['name']}: Lvl {h['level']} {h['hero_class']}{ego}. Personality: {h['personality']}{tenure_note}")
 
-    has_restaurant = any(f["type"] == "Restaurant" for f in facilities)
+    has_restaurant = any(f["type"] == "Dining Hall" for f in facilities)
     has_chef = any(h["hero_class"] == "Chef" for h in heroes_dict_list)
 
     food_activity = "complaining about eating bland potatoes/rations"

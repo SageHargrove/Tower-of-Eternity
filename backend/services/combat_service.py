@@ -508,7 +508,14 @@ def make_boss(floor_number: int, zone_theme: str = "", is_miniboss: bool = False
         # Raid Boss portrait folder used only on floors 50 and 100.
         is_raid = (not is_miniboss) and floor_number in {50, 100}
         portrait_tier_dir = "raid_boss" if is_raid else ("miniboss" if is_miniboss else "boss")
-        portrait_path = family_override.get("portrait_path") or _enemy_portrait_path(boss_title, portrait_tier_dir) or None
+        # Pinned paths are existence-checked so a family whose art hasn't
+        # been generated yet (e.g. the Fallen Ascendant) degrades to the
+        # normal lookup/fallback chain instead of a broken image.
+        import os as _os
+        pinned = family_override.get("portrait_path")
+        if pinned and not _os.path.exists(pinned):
+            pinned = None
+        portrait_path = pinned or _enemy_portrait_path(boss_title, portrait_tier_dir) or None
         power = (1.5 + (floor_number / 40)) if is_miniboss else (2.5 + (floor_number / 30))
         from services.portrait_cache import get_random_boss_portrait
         boss = CombatUnit(
@@ -1285,6 +1292,16 @@ def resolve_hero_stats(heroes: list[dict]) -> list[dict]:
     except Exception:
         bond_totals = {h["id"]: 0 for h in heroes}
 
+    # Roster-wide endgame buffs (mounted Reliquary trophies + Transcendence
+    # Core infusions) — fetched once per pipeline run, applied per hero below.
+    try:
+        from services.endgame_service import get_global_empowerment
+        from database import db as _db
+        with _db() as _conn:
+            empower = get_global_empowerment(_conn)
+    except Exception:
+        empower = {}
+
     # Pre-pass for support class buffs (Tactician, Scout, etc)
     team_atk_mult = 1.0
     team_end_mult = 1.0
@@ -1368,6 +1385,26 @@ def resolve_hero_stats(heroes: list[dict]) -> list[dict]:
                 modified["luck"] = int(modified["luck"] * lp_mult)
         except Exception:
             pass
+
+        # Apply endgame empowerment: mounted Reliquary trophies (per-stat %)
+        # + Transcendence Core infusions (+1% ALL stats per infusion).
+        if empower:
+            all_mult = 1.0 + empower.get("all_stats_pct", 0) / 100.0
+            def _emp(stat_key, buff_key):
+                if stat_key in modified:
+                    mult = all_mult * (1.0 + empower.get(buff_key, 0) / 100.0)
+                    if mult != 1.0:
+                        modified[stat_key] = int(modified[stat_key] * mult)
+            _emp("strength", "atk_pct")
+            _emp("intelligence", "int_pct")
+            _emp("agility", "agi_pct")
+            _emp("endurance", "def_pct")
+            _emp("willpower", "def_pct")
+            _emp("luck", "luck_pct")
+            hp_mult = all_mult * (1.0 + empower.get("hp_pct", 0) / 100.0)
+            if hp_mult != 1.0 and "max_health" in modified:
+                modified["max_health"] = int(modified["max_health"] * hp_mult)
+                modified["health"] = min(modified["health"], modified["max_health"])
 
         # Apply bond stats
         bond_lvl = bond_totals.get(modified["id"], 0)
@@ -2128,7 +2165,7 @@ def _apply_combat_drops(result: dict, floor_number: int, is_boss: bool, is_minib
         # second connection here while the caller's own `with db()`
         # transaction is still uncommitted causes "database is locked"
         # on SQLite, which this block's except then silently swallowed,
-        # also skipping the gold/supplies/materials grant below it.
+        # also skipping the gold/ingredients/materials grant below it.
         from services.difficulty_service import get_difficulty_mults
         if outer_conn is not None:
             base_info = outer_conn.execute("SELECT global_buffs FROM base WHERE id = 1").fetchone()
@@ -2163,7 +2200,7 @@ def _apply_combat_drops(result: dict, floor_number: int, is_boss: bool, is_minib
 
         # Guaranteed Drops
         result["gold_gained"] = int(300 * (1 + (floor_number/10)))
-        result["supplies_gained"] = random.randint(2, 5)
+        result["ingredients_gained"] = random.randint(2, 5)
 
         from services.materials_service import roll_material_name_for_enemies, tiered_material_name
         # Drops are now biased toward materials tied to the enemies actually
@@ -2179,7 +2216,7 @@ def _apply_combat_drops(result: dict, floor_number: int, is_boss: bool, is_minib
 
         if is_boss:
             result["gold_gained"] += int(1500 * (1 + (floor_number/10)))
-            result["supplies_gained"] += 10
+            result["ingredients_gained"] += 10
             for _ in range(5):
                 mat = tiered_material_name(roll_material_name_for_enemies(floor_number, enemy_names), avg_luck=avg_luck)
                 drops[mat] = drops.get(mat, 0) + 1
@@ -2190,7 +2227,7 @@ def _apply_combat_drops(result: dict, floor_number: int, is_boss: bool, is_minib
             # only ever happen on a miniboss floor) gets a smaller version
             # of the Boss bonus on top of the guaranteed drops above.
             result["gold_gained"] += int(600 * (1 + (floor_number/10)))
-            result["supplies_gained"] += 4
+            result["ingredients_gained"] += 4
             for _ in range(2):
                 mat = tiered_material_name(roll_material_name_for_enemies(floor_number, enemy_names), avg_luck=avg_luck)
                 drops[mat] = drops.get(mat, 0) + 1
@@ -2199,6 +2236,20 @@ def _apply_combat_drops(result: dict, floor_number: int, is_boss: bool, is_minib
         # Easy mode's appeal is quantity (gold), Hard's is quality (rarity
         # boost above) — Hard deliberately leaves gold at baseline per spec.
         result["gold_gained"] = int(result["gold_gained"] * diff_mults["gold_mult"])
+
+        # Mounted Reliquary gold trophies boost every fight's gold.
+        try:
+            from services.endgame_service import get_global_empowerment
+            if outer_conn is not None:
+                gold_pct = get_global_empowerment(outer_conn).get("gold_pct", 0)
+            else:
+                from database import db as _db2
+                with _db2() as _c2:
+                    gold_pct = get_global_empowerment(_c2).get("gold_pct", 0)
+            if gold_pct:
+                result["gold_gained"] = int(result["gold_gained"] * (1 + gold_pct / 100.0))
+        except Exception:
+            pass
     except Exception as e:
         print(f"Error generating drop: {e}")
 
@@ -2250,7 +2301,7 @@ def run_multi_combat(hero_teams: list[list[dict]], floor_number: int, is_boss: b
         "log": logs,
         "combat_metrics": {},
         "gold_gained": 0,
-        "supplies_gained": 0,
+        "ingredients_gained": 0,
         "materials_gained": {},
         "consumables_used": {},
         # One entry per deployed team (None if that team was empty or had
@@ -2296,7 +2347,7 @@ def run_multi_combat(hero_teams: list[list[dict]], floor_number: int, is_boss: b
         final_result["surviving_heroes"].extend(res.get("surviving_heroes", []))
         final_result["dead_heroes"].extend(res.get("dead_heroes", []))
         final_result["gold_gained"] += res.get("gold_gained", 0)
-        final_result["supplies_gained"] += res.get("supplies_gained", 0)
+        final_result["ingredients_gained"] += res.get("ingredients_gained", 0)
         for k, v in res.get("materials_gained", {}).items():
             final_result["materials_gained"][k] = final_result["materials_gained"].get(k, 0) + v
         for k, v in res.get("consumables_used", {}).items():
