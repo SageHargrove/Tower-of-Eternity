@@ -101,6 +101,10 @@ export const revealHeroTalent = (heroId) => request('/base/talent-observatory/re
 
 export const grantResources = (gold = 0, gems = 0, ingredients = 0, aether = 0) => request('/base/dev/grant', { method: 'POST', body: JSON.stringify({ gold, gems, ingredients, aether }) })
 
+// Forge Recipe Book (blueprint recipes discovered in the Tower)
+export const getForgeRecipes = () => request('/forge/recipes')
+export const craftPremadeRecipe = (crafterId, recipeId) => request('/forge/craft/premade', { method: 'POST', body: JSON.stringify({ crafter_id: crafterId, recipe_id: recipeId }) })
+
 // Team banner
 export const getBanner = () => request('/base/banner')
 export const saveBanner = (templateTier, emblem, paint) => request('/base/banner', { method: 'POST', body: JSON.stringify({ template_tier: templateTier, emblem, paint }) })

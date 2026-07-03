@@ -10,6 +10,7 @@ import react from '@vitejs/plugin-react'
 const BACKEND_PREFIXES = [
   'heroes', 'gacha', 'tower', 'base', 'runs', 'equipment',
   'relics', 'profiles', 'chat', 'static', 'portrait-cache', 'arena',
+  'forge', 'achievements',
 ]
 
 export default defineConfig({

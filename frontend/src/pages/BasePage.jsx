@@ -3,6 +3,8 @@ import { getBase, getFacilities, buildFacility, upgradeFacility, assignFacility,
 import MirrorOfFate from '../components/MirrorOfFate'
 import ItemIcon from '../components/ItemIcon'
 import TeamBanner from '../components/TeamBanner'
+import UpgradeTreePanel from '../components/UpgradeTreePanel'
+import RecipeBookPanel from '../components/RecipeBookPanel'
 import BannerStudio from '../components/BannerStudio'
 import { getBanner } from '../api/client'
 import { CookingPanel, RefineAetherPanel, BestiaryPanel, ReliquaryPanel, ChronospherePanel, TranscendencePanel } from '../components/EndgamePanels'
@@ -835,6 +837,17 @@ const getGenRate = (fac) => {
                     gold={base.gold}
                     onGoldChange={() => { loadAll(); if (onGoldChange) onGoldChange() }}
                   />
+                )}
+
+                {/* Base-upgrade enhancement tracks (gold-bought, separate from facility level) */}
+                {fac.type === 'Infirmary' && (
+                  <UpgradeTreePanel upgrade={baseUpgrades.find(u => u.id === 'infirmary')} gold={base.gold} busy={upgradingId === 'infirmary'} onBuy={handleBuyBaseUpgrade} />
+                )}
+                {fac.type === 'Forge' && (
+                  <>
+                    <UpgradeTreePanel upgrade={baseUpgrades.find(u => u.id === 'forge')} gold={base.gold} busy={upgradingId === 'forge'} onBuy={handleBuyBaseUpgrade} />
+                    <RecipeBookPanel assignedHeroes={fac.heroes} gold={base.gold} materials={materials} onCrafted={() => { loadAll(); if (onGoldChange) onGoldChange() }} />
+                  </>
                 )}
 
                 {/* Economy + endgame facility panels */}
