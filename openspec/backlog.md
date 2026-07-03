@@ -11,9 +11,9 @@ when ready; nothing here is scheduled.
   (enemy-art-overhaul) were the only two addressed so far.
 - **Dragon-tier higher-ranked enemies**: a normal "Young Dragon"/"Dracolich"
   exist; want elite/boss-ranked dragon variants.
-- **Evil 7-star-looking humanoid elite/boss**: 7-star hero art generates
-  well; want a dedicated evil-humanoid enemy concept that leans on the same
-  thing that makes 7-star hero art read well.
+- ~~Evil 7-star humanoid elite/boss~~ — DONE 2026-07-02: "Vaelor, the
+  Fallen Ascendant" is the floor-35 miniboss (enemy_families.py). Still
+  needs its art: static/portraits/enemies/miniboss/boss_fallen_ascendant.png.
 - **Monster art pipeline / LoRA investigation**: monster-type prompts keep
   generating humanoid results instead of actual monster shapes. Needs
   investigating whether a monster-specific LoRA or different prompt
@@ -49,3 +49,24 @@ when ready; nothing here is scheduled.
 ## Notes
 - Each item above was independently confirmed missing (not just
   forgotten) via a code search before being added here — not guesses.
+
+## From the 2026-07-02 Base Progression & Economy Overhaul
+- **Raid system backend**: opt-in PvP raids (Wall breach -> Bastion garrison
+  -> ship firepower; beasts now add to the defense rating; ships will burn
+  AETHER per raid — resource exists, consumption doesn't yet).
+- **Tournaments backend** (1v1/2v2/4v4/Battle Royale) — UI shell exists on
+  the World tab.
+- **Banner sync to arena_server**: banners render locally (Base, Shipyard,
+  World header) but the arena server doesn't carry them yet, so opponents
+  can't see your banner (the PvP mind-games use case needs this).
+- **Infirmary/Forge "base upgrade" tree has NO UI**: routers/base.py
+  DEFAULT_UPGRADES + /base/upgrades endpoints exist and the effects work,
+  but nothing on BasePage renders them since the Mirror of Fate (the only
+  rendered entry) graduated to a facility. Either surface them or fold
+  their effects into the facilities.
+- **Bestiary raids tie-in**: captured beasts should be sendable alongside
+  battleships on raids as cannon fodder (currently defense-only).
+- **Events system** for summon tickets (tickets currently achievement-only).
+- **Crafting flexibility review**: kept strict recipes for now (Forge slot
+  recipes + discoverable blueprint recipes + LLM creative crafting already
+  covers the "creative" niche); revisit if playtesters find it rigid.

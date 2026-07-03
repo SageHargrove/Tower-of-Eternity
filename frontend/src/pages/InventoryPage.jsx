@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react'
 import { getInventory, listEquipment, getFacilities, listHeroes, useItem, useSummonTicket, scrapEquipment } from '../api/client'
 import { EquipmentTypeIcon } from '../components/EquipmentTypeIcon'
+import ItemIcon from '../components/ItemIcon'
 import GameIcon from '../components/GameIcon'
 import { confirmDialog, alertDialog } from '../components/DialogHost'
 
@@ -17,7 +18,7 @@ function consumableIconName(item) {
   }
   return CONSUMABLE_ICONS[item.item_type]
 }
-const CONSUMABLE_COLORS = { potion: 'var(--green)', scroll: '#a83dff', summon_ticket: 'var(--gold)' }
+const CONSUMABLE_COLORS = { potion: 'var(--green)', scroll: '#a83dff', summon_ticket: 'var(--gold)', food: '#d3a15f' }
 
 // Equipment rarity is a 24-tier letter grade (F- through Z), a completely
 // different scale than hero star rarity (1-7) — the old code reused
@@ -112,7 +113,7 @@ export default function InventoryPage() {
   let allItems = []
   if (Array.isArray(inventory)) {
     inventory.forEach(item => {
-      if (item.item_type === 'potion' || item.item_type === 'scroll' || item.item_type === 'summon_ticket') {
+      if (item.item_type === 'potion' || item.item_type === 'scroll' || item.item_type === 'summon_ticket' || item.item_type === 'food') {
         allItems.push({ ...item, typeId: item.item_type + '_' + item.item_name, itemType: 'consumable' })
       } else {
         allItems.push({ ...item, typeId: 'mat_' + item.item_name, itemType: 'material' })
@@ -324,10 +325,12 @@ export default function InventoryPage() {
               if (item) {
                 if (item.itemType === 'material') {
                   borderColor = 'var(--border-hi)'
-                  content = <GameIcon name="supplies" size={60} />
+                  content = <ItemIcon name={item.item_name} kind="material" size={60} />
                 } else if (item.itemType === 'consumable') {
-                  borderColor = CONSUMABLE_COLORS[item.item_type]
-                  content = <GameIcon name={consumableIconName(item)} size={60} />
+                  borderColor = CONSUMABLE_COLORS[item.item_type] || 'var(--green)'
+                  content = item.item_type === 'summon_ticket'
+                    ? <GameIcon name={consumableIconName(item)} size={60} />
+                    : <ItemIcon name={item.item_name} kind={item.item_type} size={60} />
                 } else if (item.itemType === 'equipment') {
                   borderColor = rarityColor(item.rarity)
                   bgColor = `rgba(255,255,255,0.05)`
@@ -411,7 +414,7 @@ export default function InventoryPage() {
               {selectedItem.itemType === 'material' && (
                 <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
                   <div style={{ textAlign: 'center', marginBottom: '1rem', filter: 'drop-shadow(0 0 20px rgba(255,255,255,0.2))' }}>
-                    <GameIcon name="supplies" size={64} />
+                    <ItemIcon name={selectedItem.item_name} kind="material" size={64} />
                   </div>
                   <div style={{ fontFamily: 'Cinzel, serif', fontSize: '1.8rem', textAlign: 'center', color: 'var(--text-hi)', textTransform: 'capitalize', borderBottom: '1px solid var(--border)', paddingBottom: '1rem', marginBottom: '1rem' }}>
                     {selectedItem.item_name.replace('_', ' ')}
@@ -428,9 +431,9 @@ export default function InventoryPage() {
                 </div>
               )}
 
-              {(selectedItem.item_type === 'potion' || selectedItem.item_type === 'scroll') && (
+              {(selectedItem.item_type === 'potion' || selectedItem.item_type === 'scroll' || selectedItem.item_type === 'food') && (
                 <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
-                  <div style={{ textAlign: 'center', marginBottom: '1rem' }}><GameIcon name={consumableIconName(selectedItem)} size={96} /></div>
+                  <div style={{ textAlign: 'center', marginBottom: '1rem' }}><ItemIcon name={selectedItem.item_name} kind={selectedItem.item_type} size={96} /></div>
                   <div style={{ fontFamily: 'Cinzel, serif', fontSize: '1.8rem', textAlign: 'center', color: 'var(--text-hi)', borderBottom: '1px solid var(--border)', paddingBottom: '1rem', marginBottom: '1rem' }}>
                     {selectedItem.item_name}
                   </div>

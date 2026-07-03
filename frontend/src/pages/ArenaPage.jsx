@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react'
 import GameIcon from '../components/GameIcon'
-import { getAllTeams, getArenaSnapshot } from '../api/client'
+import { getAllTeams, getArenaSnapshot, getBanner } from '../api/client'
+import TeamBanner from '../components/TeamBanner'
 import {
   getArenaServerUrl, setArenaServerUrl, getArenaToken, getArenaUsername, clearArenaSession,
   arenaRegister, arenaLogin, arenaSubmitTeam, arenaChallenge, arenaMatchmake, arenaLeaderboard,
@@ -10,6 +11,8 @@ import { receiveMail, applyTraining, listHeroes } from '../api/client'
 
 export default function ArenaPage() {
   const [serverUrl, setServerUrl] = useState(getArenaServerUrl())
+  const [banner, setBanner] = useState(null)
+  useEffect(() => { getBanner().then(setBanner).catch(() => {}) }, [])
   const [token, setToken] = useState(getArenaToken())
   const [username, setUsername] = useState(getArenaUsername())
 
@@ -288,7 +291,10 @@ export default function ArenaPage() {
       ) : (
         <>
           <div className="card" style={{ marginBottom: '1rem', padding: '1rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <div>Logged in as <span className="text-gold" style={{ fontWeight: 'bold' }}>{username}</span></div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+              <TeamBanner banner={banner} size={44} title="Your Team Banner — customize it at the Base" />
+              <div>Fighting under <span className="text-gold" style={{ fontWeight: 'bold' }}>{username}</span>'s banner</div>
+            </div>
             <button className="btn" onClick={handleLogout}>Log Out</button>
           </div>
 

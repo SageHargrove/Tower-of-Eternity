@@ -211,6 +211,83 @@ def market_purchase(req: MarketPurchaseRequest):
         except ValueError as e:
             raise HTTPException(status_code=400, detail=str(e))
 
+# ─── Team Banner ─────────────────────────────────────────────────────
+# Template tiers unlock with the Wall's ART tier (the base LOOKS tier-3, so
+# tier-3 cloth is available) — but any unlocked lower tier stays equippable,
+# both for taste and for PvP mind games (flying tattered cloth at Wall 30).
+
+BANNER_EMBLEMS = [
+    "golden_lion", "crimson_skull", "divine_sun", "crescent_moon",
+    "black_rose", "sapphire_crown", "arcane_dragon", "lightning_bolt",
+    "bastion_shield", "iron_sword",
+    "creature_dragon", "creature_eagle", "creature_horse", "creature_wolf",
+]
+
+MAX_BANNER_PAINT_BYTES = 600_000  # dataURL cap — a 512px PNG layer is plenty
+
+
+def _banner_unlocked_tier(conn) -> int:
+    wall = conn.execute("SELECT level FROM facilities WHERE type = 'Wall' AND base_id = 1").fetchone()
+    lvl = wall["level"] if wall else 1
+    # Mirrors frontend facilityArtTier(): 1 / 5 / 15 / 30.
+    if lvl >= 30: return 4
+    if lvl >= 15: return 3
+    if lvl >= 5: return 2
+    return 1
+
+
+def _ensure_banner_column(conn):
+    try:
+        conn.execute("ALTER TABLE base ADD COLUMN banner_json TEXT")
+    except Exception:
+        pass
+
+
+@router.get("/banner")
+def get_banner():
+    with db() as conn:
+        _ensure_banner_column(conn)
+        row = conn.execute("SELECT banner_json FROM base WHERE id = 1").fetchone()
+        banner = {}
+        try:
+            banner = json.loads(row["banner_json"]) if row and row["banner_json"] else {}
+        except Exception:
+            banner = {}
+        return {
+            "template_tier": banner.get("template_tier", 1),
+            "emblem": banner.get("emblem"),
+            "paint": banner.get("paint"),
+            "unlocked_tier": _banner_unlocked_tier(conn),
+            "emblems": BANNER_EMBLEMS,
+        }
+
+
+class BannerRequest(BaseModel):
+    template_tier: int = 1
+    emblem: str | None = None
+    paint: str | None = None  # dataURL of the player's painted layer
+
+
+@router.post("/banner")
+def save_banner(req: BannerRequest):
+    with db() as conn:
+        _ensure_banner_column(conn)
+        unlocked = _banner_unlocked_tier(conn)
+        tier = max(1, min(4, req.template_tier))
+        if tier > unlocked:
+            raise HTTPException(status_code=400, detail=f"Tier {tier} cloth unlocks when the Wall reaches its next look (currently tier {unlocked}).")
+        if req.emblem is not None and req.emblem not in BANNER_EMBLEMS:
+            raise HTTPException(status_code=400, detail="Unknown emblem.")
+        if req.paint is not None:
+            if not req.paint.startswith("data:image/"):
+                raise HTTPException(status_code=400, detail="Paint layer must be an image data URL.")
+            if len(req.paint) > MAX_BANNER_PAINT_BYTES:
+                raise HTTPException(status_code=400, detail="Painted layer is too large — try a simpler design.")
+        banner = {"template_tier": tier, "emblem": req.emblem, "paint": req.paint}
+        conn.execute("UPDATE base SET banner_json = ? WHERE id = 1", (json.dumps(banner),))
+    return {"ok": True, **banner}
+
+
 # ─── Endgame facilities: Bestiary / Reliquary / Chronosphere / Core ──
 
 @router.get("/bestiary")

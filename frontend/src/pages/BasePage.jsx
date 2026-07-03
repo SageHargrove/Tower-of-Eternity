@@ -1,6 +1,10 @@
 import React, { useState, useEffect } from 'react'
 import { getBase, getFacilities, buildFacility, upgradeFacility, assignFacility, removeFacility, restHeroes, listHeroes, configTraining, getMageTowerUpgrades, buyResearchUpgrade, craftMaterialEquipment, craftBandages, getBaseFloors, assignBaseFloor, getLegacies, getChatLogs, renameBase, upgradeBase, getMarketCatalog, purchaseMarketItem, getBaseUpgrades, buyBaseUpgrade, getMailList, claimMail, getShip, buildShip, renameShip } from '../api/client'
 import MirrorOfFate from '../components/MirrorOfFate'
+import ItemIcon from '../components/ItemIcon'
+import TeamBanner from '../components/TeamBanner'
+import BannerStudio from '../components/BannerStudio'
+import { getBanner } from '../api/client'
 import { CookingPanel, RefineAetherPanel, BestiaryPanel, ReliquaryPanel, ChronospherePanel, TranscendencePanel } from '../components/EndgamePanels'
 import LoreJournal from '../components/LoreJournal'
 import GameIcon from '../components/GameIcon'
@@ -134,6 +138,8 @@ export default function BasePage({ onGoldChange, onSubTabChange, tourTargetSubTa
   const [upgradingId, setUpgradingId] = useState(null)
   
   // Mail
+  const [banner, setBanner] = useState(null)
+  const [showBannerStudio, setShowBannerStudio] = useState(false)
   const [mailList, setMailList] = useState([])
   const [claiming, setClaiming] = useState(false)
   
@@ -182,6 +188,7 @@ export default function BasePage({ onGoldChange, onSubTabChange, tourTargetSubTa
   }, [])
 
   async function loadAll() {
+    getBanner().then(setBanner).catch(() => {})
     try {
       const [b, fac, heroes, leg, flrs, ch, catalog, upgrades, mail] = await Promise.all([
         getBase(),
@@ -490,8 +497,16 @@ const getGenRate = (fac) => {
                     </span>
                   )}
                 </div>
-                <button className="btn" style={{ padding: '0.4rem', fontSize: '0.9rem' }} onClick={handleRenameBase} title="Rename Base">✎ Edit</button>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+                  <div style={{ cursor: 'pointer' }} onClick={() => setShowBannerStudio(true)} title="Customize your Team Banner">
+                    <TeamBanner banner={banner} size={72} />
+                  </div>
+                  <button className="btn" style={{ padding: '0.4rem', fontSize: '0.9rem' }} onClick={handleRenameBase} title="Rename Base">✎ Edit</button>
+                </div>
               </div>
+              <button className="btn" style={{ marginBottom: '1rem', fontSize: '0.8rem' }} onClick={() => setShowBannerStudio(true)}>
+                🚩 Banner Studio
+              </button>
               
               <div style={{ display: 'flex', gap: '2rem', marginBottom: '1.5rem', marginTop: '1rem' }}>
                 <div>
@@ -611,6 +626,11 @@ const getGenRate = (fac) => {
                     </div>
                   )}
                   <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(to bottom, rgba(0,0,0,0) 55%, rgba(10,10,14,0.95) 100%)' }} />
+                  {ship.tier > 0 && banner && (
+                    <div style={{ position: 'absolute', top: 8, right: 12 }} title="Your banner flies from the mast">
+                      <TeamBanner banner={banner} size={56} />
+                    </div>
+                  )}
                 </div>
                 <div style={{ padding: '1rem' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.5rem' }}>
@@ -627,7 +647,7 @@ const getGenRate = (fac) => {
                       <div title="Base defense rating for the coming Raid system: Wall + Bastion garrison + docked ship."
                         style={{ fontFamily: 'Cinzel, serif', fontSize: '0.8rem', color: 'var(--text-dim)', textAlign: 'right', cursor: 'help' }}>
                         Defense <span style={{ color: 'var(--gold)', fontSize: '1.1rem' }}>{ship.defense.total}</span>
-                        <div style={{ fontSize: '0.65rem' }}>Wall {ship.defense.wall} · Garrison {ship.defense.garrison} · Ship {ship.defense.ship}</div>
+                        <div style={{ fontSize: '0.65rem' }}>Wall {ship.defense.wall} · Garrison {ship.defense.garrison} · Ship {ship.defense.ship}{ship.defense.beasts > 0 && <> · Beasts {ship.defense.beasts}</>}</div>
                       </div>
                     )}
                   </div>
@@ -737,7 +757,7 @@ const getGenRate = (fac) => {
                       {fac.type === 'Forge' && (
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '0.2rem', marginLeft: '0.5rem' }}>
                           <button onClick={() => handleCraft(h.id, 'weapon')} disabled={crafting} className="btn btn-gold" style={{ padding: '0.2rem 0.5rem', fontSize: '0.75rem' }}>Weapon (100g, 3 Iron, 1 Bone)</button>
-                          <button onClick={() => handleCraft(h.id, 'armor')} disabled={crafting} className="btn btn-gold" style={{ padding: '0.2rem 0.5rem', fontSize: '0.75rem' }}>Armor (100g, 2 Slime, 2 Iron)</button>
+                          <button onClick={() => handleCraft(h.id, 'armor')} disabled={crafting} className="btn btn-gold" style={{ padding: '0.2rem 0.5rem', fontSize: '0.75rem' }}>Armor (100g, 2 Dark Crystal, 2 Iron)</button>
                           <button onClick={() => handleCraft(h.id, 'accessory')} disabled={crafting} className="btn btn-gold" style={{ padding: '0.2rem 0.5rem', fontSize: '0.75rem' }}>Accessory (100g, 3 Dust, 1 Ear)</button>
                         </div>
                       )}
@@ -772,10 +792,13 @@ const getGenRate = (fac) => {
                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))', gap: '0.5rem' }}>
                       {Object.entries(marketCatalog).map(([itemId, item]) => (
                         <div key={itemId} className="card" style={{ padding: '0.5rem', display: 'flex', flexDirection: 'column', gap: '0.3rem' }}>
-                          <div style={{ fontSize: '0.85rem', fontWeight: 'bold' }}>{item.name}</div>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                            <ItemIcon name={item.name} kind="material" size={26} />
+                            <div style={{ fontSize: '0.85rem', fontWeight: 'bold' }}>{item.name}</div>
+                          </div>
                           <button 
                             className="btn btn-gold" 
-                            onClick={() => handleBuyMarketItem(item.id)} 
+                            onClick={() => handleBuyMarketItem(itemId)} 
                             disabled={purchasing || (item.currency === 'gold' ? base.gold : base.gems) < item.cost}
                             style={{ fontSize: '0.75rem', padding: '0.3rem', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.3rem' }}
                           >
@@ -851,6 +874,13 @@ const getGenRate = (fac) => {
         </div>
 
         </>
+      )}
+
+      {showBannerStudio && (
+        <BannerStudio
+          onClose={() => setShowBannerStudio(false)}
+          onSaved={() => getBanner().then(setBanner).catch(() => {})}
+        />
       )}
 
       {activeTab === 'mail' && (

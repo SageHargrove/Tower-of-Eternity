@@ -81,9 +81,13 @@ file per profile). DB schema migrations run automatically at startup.
    the Vault facility to expand it. Consumables (potions, scrolls, summon
    tickets) are used from here.
 6. **Base** → between climbs: assign heroes to Facilities (you start with
-   the Training Grounds and Restaurant; build the Forge, Infirmary, Market,
-   and more), rest the roster, buy Base Upgrades, and read the Hero Chatter
-   log / Lore Journal. In the Base Hierarchy, every hero lives on a base
+   the Wall, Training Grounds, and Dining Hall; everything else — Farm,
+   Market, Forge, Infirmary, up through the floor-75 Transcendence Core —
+   is built with gold, all core facilities unlocked by floor 25), cook
+   Farm ingredients into consumables, refine Aether ship fuel, rest the
+   roster, design your Team Banner, and read the Hero Chatter log / Lore
+   Journal. The Wall is the foundation: no facility can be upgraded above
+   its level. In the Base Hierarchy, every hero lives on a base
    floor (Floor 1 by default; a new floor unlocks every 10 Tower floors) —
    spreading them out trades a bigger stat bonus per hero against coverage.
 7. **World** → everything multiplayer: PvP arena against snapshot teams,
