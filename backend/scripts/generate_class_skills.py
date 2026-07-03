@@ -29,8 +29,21 @@ EXISTING_KITS = {
 
 def get_missing_classes():
     missing = []
+    
+    # Load already generated so we can resume
+    generated_classes = set()
+    out_file = os.path.join(os.path.dirname(__file__), "generated_skills.json")
+    if os.path.exists(out_file):
+        try:
+            with open(out_file, "r") as f:
+                data = json.load(f)
+                for c in data:
+                    generated_classes.add(c["class_name"])
+        except Exception:
+            pass
+
     for cls in ALL_CLASSES:
-        if cls not in EXISTING_KITS:
+        if cls not in EXISTING_KITS and cls not in generated_classes:
             missing.append(cls)
     return missing
 
@@ -39,9 +52,15 @@ You are an expert game designer for a deep RPG auto-battler. Design skills
 that are MECHANICALLY INSANE and build-defining — not just flat stat buffs.
 The combat engine now supports a rich, composable effect system; USE IT.
 
-For each class, design exactly 5 unique skills (roughly 2 active, 3 passive —
-passives should lean class-agnostic-flavored, actives class-specific). Fights
-are auto-battled front-to-back; positioning and status effects matter.
+For each class, design exactly 30 unique skills distributed EXACTLY as follows: 
+10 Common, 8 Uncommon, 6 Rare, 4 Epic, and 2 Legendary. 
+CRITICAL RULES:
+1. Every single rarity tier MUST contain at least 1 "active" skill and at least 1 "passive" skill. For example, the 2 Legendaries must be exactly 1 Active and 1 Passive.
+2. Overall across the 30 skills, there should be fewer actives and more passives (e.g. ~10 actives, ~20 passives).
+3. Passives can be incredibly strong, game-changing conditional effects at higher rarities.
+Commons should be basic attacks or simple passives. 
+Legendary actives MUST be mechanically insane, fight-winning ultimates (massive AoE executes, team-wide revives). 
+Fights are auto-battled front-to-back; positioning and status effects matter.
 
 Output MUST be a valid JSON array, this exact structure:
 [
@@ -52,6 +71,7 @@ Output MUST be a valid JSON array, this exact structure:
         "id": "snake_case_id",
         "name": "Skill Name",
         "type": "active",              // "active" or "passive"
+        "rarity": "legendary",         // "common", "uncommon", "rare", "epic", or "legendary"
         "desc": "Punchy description (max 14 words)",
         "effect": {{ ... }}            // see schemas below
       }}
@@ -155,7 +175,9 @@ async def main():
     missing = get_missing_classes()
     print(f"Found {len(missing)} missing classes to generate.")
     
-    batch_size = 10
+    # We must drop the batch size to 1 because asking for 30 skills per class 
+    # will quickly blow past the 8192 output token limit of the LLM if we batch them.
+    batch_size = 1
     batches = [missing[i:i + batch_size] for i in range(0, len(missing), batch_size)]
     
     all_results = []
@@ -166,6 +188,13 @@ async def main():
         await asyncio.sleep(2) # rate limit buffer
         
     out_file = os.path.join(os.path.dirname(__file__), "generated_skills.json")
+    
+    # Load existing to append
+    if os.path.exists(out_file):
+        with open(out_file, "r") as f:
+            existing_data = json.load(f)
+            all_results = existing_data + all_results
+
     with open(out_file, "w") as f:
         json.dump(all_results, f, indent=2)
     print(f"Successfully generated {len(all_results)} class kits! Saved to {out_file}.")

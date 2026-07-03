@@ -325,20 +325,18 @@ def composite_card(hero_id: int, portrait_path: str, birth_star: int, hero_name:
     template = get_template(tier).convert("RGBA")
     portrait = Image.open(portrait_path).convert("RGBA")
 
+    # Portraits are now full-body (head-to-feet). Both card variants anchor
+    # at the TOP of the image, where the head/torso are — never center, which
+    # on a full body would frame the waist and cut the head off.
     if crop_face:
-        # Keep the top ~80% (full face through chin/neck, cropping out just
-        # the lower shoulders/chest) and zoom that into the same frame area
-        # the full card uses for the entire head-to-chest composition.
-        # NOTE: a tighter 58% crop was tried first and cut faces off at the
-        # mouth/chin on several real portraits — composition (how much
-        # headroom/hair sits above the face) varies enough between
-        # generations that a fixed crop needs real margin, not a precise gust.
-        crop_h = int(portrait.height * 0.80)
+        # Grid/mini card: a tight head-and-chest slice off the top of the
+        # full body, so the face fills the tiny thumbnail's pixel budget.
+        crop_h = int(portrait.height * 0.34)
         portrait = portrait.crop((0, 0, portrait.width, crop_h))
 
     w, h = template.size
 
-    # Crop to fill aspect ratio
+    # Crop to fill the card's aspect ratio, anchored at the TOP.
     target_ratio = w / h
     port_ratio = portrait.width / portrait.height
     if port_ratio > target_ratio:
@@ -346,9 +344,11 @@ def composite_card(hero_id: int, portrait_path: str, birth_star: int, hero_name:
         offset = (portrait.width - new_w) // 2
         portrait = portrait.crop((offset, 0, offset + new_w, portrait.height))
     else:
+        # Anchor the vertical crop at the top (offset 0) so the head is always
+        # kept — the full card shows head through mid-body, the grid card
+        # (already pre-sliced above) shows head/chest.
         new_h = int(portrait.width / target_ratio)
-        offset = (portrait.height - new_h) // 2
-        portrait = portrait.crop((0, offset, portrait.width, offset + new_h))
+        portrait = portrait.crop((0, 0, portrait.width, new_h))
 
     portrait = portrait.resize((w, h), Image.LANCZOS)
     canvas = portrait.copy()

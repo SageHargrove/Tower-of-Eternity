@@ -59,16 +59,22 @@ BASE_STYLE = (
     "highly detailed facial shading, multiple distinct shading tones, colored midtones in shadow, "
     "detailed hair strands, textured hair shading, "
     "rich saturated colors, vivid true-to-color hair, natural skin tone unaffected by lighting, "
-    "dark moody background with smooth even gradient lighting from corner to corner, "
-    "faint atmospheric haze, subtle background color variation, "
+    "plain simple dark background, uniform near-black backdrop, no scenery, no environment, "
     "sharp rim lighting along silhouette edge, intense contrast, "
     "intricate details, masterpiece, best quality, same universe aesthetic"
 )
 
+# Full-body, fixed framing. A single full-body asset is stored per hero and
+# cropped two ways in the UI (card = head/chest via object-position:top; the
+# expanded/leader view = the whole figure), so this framing must reliably
+# put the WHOLE character in frame — head through feet — on a plain backdrop
+# that composites/blends cleanly. The old "head and shoulders, close up"
+# framing is exactly what produced bust shots with no legs.
 FRAMING = (
-    "centered face, head and shoulders portrait, face focused, close up, "
-    "portrait, fully clothed, wearing detailed outfit, "
-    "hair fully contained within frame, hair tucked within the portrait bounds"
+    "(full body:1.35), (full-length character illustration:1.3), head to feet fully visible, "
+    "entire body inside the frame, standing heroic pose, feet near the bottom edge of the frame, "
+    "character centered horizontally, the character occupies about 70 percent of the frame height, "
+    "fully clothed, wearing a detailed outfit, plain empty background"
 )
 
 # Pushes generation away from the failure modes seen in practice:
@@ -104,6 +110,13 @@ NEGATIVE_STYLE = (
     "deformed, ugly, disfigured, worst quality, jpeg artifacts, "
     "hair extending beyond frame edges, hair cropped at image border, hair cut off by frame, "
     "long hair flowing out of frame, hair touching image edge, "
+    # Full-body framing enforcement — these bust/crop modes were ~20-30% of
+    # generations under the old close-up framing.
+    "(cropped:1.4), (close-up:1.4), (bust shot:1.4), (headshot:1.4), (portrait crop:1.3), "
+    "(upper body only:1.4), face close up, zoomed in on face, cut off at the waist, "
+    "cropped at chest, cropped legs, cut off legs, missing legs, missing feet, "
+    "feet out of frame, legs out of frame, out of frame, "
+    "detailed scenery background, busy background, environment background, landscape background, "
     "glowing orb behind character, glowing circle behind character, halo effect background, "
     "magic circle background, floating colored sphere background, spotlight circle background, "
     "vignette ring, glowing aura sphere, radial light burst background"
@@ -973,6 +986,69 @@ def _portrait_worker_loop():
 def start_cache_worker():
     t = threading.Thread(target=_portrait_worker_loop, daemon=True)
     t.start()
+
+# Bump when the generation PIPELINE itself changes shape (framing, aspect,
+# background) such that every existing portrait should be regenerated — as
+# opposed to CARD_STYLE_VERSION, which only rebuilds the composited card
+# over an unchanged portrait. v1 = the move to full-body framing.
+PORTRAIT_STYLE_VERSION = 1
+
+
+def maybe_reset_portrait_pipeline():
+    """One-time-per-profile wipe when PORTRAIT_STYLE_VERSION advances: the
+    old bust portraits and their cached cards are deleted and every hero is
+    reset to a placeholder so reconcile_pending_portraits regenerates them
+    full-body. Called on startup BEFORE reconcile. Safe/idempotent — guarded
+    by base.portrait_style_version so it runs exactly once per bump."""
+    try:
+        with db() as conn:
+            row = conn.execute("SELECT portrait_style_version FROM base WHERE id = 1").fetchone()
+            current = (row["portrait_style_version"] if row and row["portrait_style_version"] is not None else 0)
+            if current >= PORTRAIT_STYLE_VERSION:
+                return
+
+            # 1. Drop the unclaimed pre-generated pool (rows + files).
+            pool = conn.execute("SELECT path FROM portrait_cache").fetchall()
+            for p in pool:
+                try:
+                    if p["path"] and os.path.exists(p["path"]):
+                        os.remove(p["path"])
+                except Exception:
+                    pass
+            conn.execute("DELETE FROM portrait_cache")
+
+            # 2. Reset every hero's portrait to a placeholder so reconcile
+            #    re-queues it as full-body. Delete the old bust file too.
+            heroes = conn.execute("SELECT id, portrait_path, gender FROM heroes").fetchall()
+            for h in heroes:
+                pp = h["portrait_path"]
+                if pp and "default_" not in pp and os.path.exists(pp):
+                    try:
+                        os.remove(pp)
+                    except Exception:
+                        pass
+                g = h["gender"] if h["gender"] in ("male", "female") else "unknown"
+                conn.execute("UPDATE heroes SET portrait_path = ? WHERE id = ?",
+                             (f"static/portraits/default_{g}.png", h["id"]))
+
+            conn.execute("UPDATE base SET portrait_style_version = ? WHERE id = 1", (PORTRAIT_STYLE_VERSION,))
+
+        # 3. Nuke the composited card cache (all stale bust-framed cards).
+        try:
+            from services.card_template_service import CARD_CACHE_DIR
+            if os.path.isdir(CARD_CACHE_DIR):
+                for f in os.listdir(CARD_CACHE_DIR):
+                    try:
+                        os.remove(os.path.join(CARD_CACHE_DIR, f))
+                    except Exception:
+                        pass
+        except Exception:
+            pass
+
+        print(f"[Cache] Portrait pipeline v{PORTRAIT_STYLE_VERSION}: wiped old bust portraits + cards; heroes will regenerate full-body.")
+    except Exception as e:
+        print(f"[Cache] Portrait pipeline reset failed: {e}")
+
 
 def reconcile_pending_portraits():
     """Re-queue any hero still stuck on a placeholder portrait. The generation

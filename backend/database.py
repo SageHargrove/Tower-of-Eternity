@@ -472,6 +472,12 @@ WHERE NOT EXISTS (SELECT 1 FROM recipes WHERE name = 'Void Ring');
             pass
 
         try:
+            conn.execute("ALTER TABLE base ADD COLUMN portrait_style_version INTEGER DEFAULT 0")
+            print("[DB] Migrated: added column 'portrait_style_version' to base")
+        except sqlite3.OperationalError:
+            pass
+
+        try:
             conn.execute("ALTER TABLE base ADD COLUMN last_train_tick TIMESTAMP")
             print("[DB] Migrated: added column 'last_train_tick' to base")
         except sqlite3.OperationalError:

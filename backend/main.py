@@ -44,7 +44,8 @@ def _reconcile_loop():
 @app.on_event("startup")
 async def startup():
     init_db()
-    from services.portrait_cache import cleanup_portraits, start_cache_worker, reconcile_pending_portraits, queue_missing_enemy_portraits, queue_missing_boss_portraits, queue_missing_family_portraits
+    from services.portrait_cache import cleanup_portraits, start_cache_worker, reconcile_pending_portraits, queue_missing_enemy_portraits, queue_missing_boss_portraits, queue_missing_family_portraits, maybe_reset_portrait_pipeline
+    maybe_reset_portrait_pipeline()  # full-body pipeline bump — wipe old bust portraits before reconcile re-queues them
     cleanup_portraits()
     start_cache_worker()
     reconcile_pending_portraits()
