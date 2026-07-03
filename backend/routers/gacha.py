@@ -106,10 +106,19 @@ _names_in_flight_lock = threading.Lock()
 _name_gen_lock = threading.Lock()
 
 def finalize_hero_async(hero_id: int, birth_star: int, aptitudes: dict, extra_prompt: str,
-                         needs_custom_portrait: bool, fallback_gender: str, fallback_portrait_prompt: str):
+                         needs_custom_portrait: bool, fallback_gender: str, fallback_portrait_prompt: str,
+                         preserve_identity: bool = False):
     """
     Call the LLM in the background and enrich the hero's name/lore once it
     responds. Runs after the pull has already returned to the player.
+
+    preserve_identity: when True (used by reconcile_pending_profiles on
+    already-summoned heroes), the enrichment fills in backstory/personality/
+    title/ego but NEVER changes the hero's name, gender, or portrait — the
+    name and face the player first saw are permanent. Without this, a hero
+    whose first enrichment failed (LLM offline) would get RE-NAMED on the
+    next restart while keeping their original-named portrait, so the card's
+    name silently drifted away from the face (confirmed bug).
     """
     def _run():
         claimed_name = None
@@ -159,15 +168,27 @@ def finalize_hero_async(hero_id: int, birth_star: int, aptitudes: dict, extra_pr
             # fallback_gender IS that portrait's gender.
             final_gender = fallback_gender if fallback_gender in ("male", "female") else getattr(profile, "gender", "unknown")
             with db() as conn:
-                conn.execute("""
-                    UPDATE heroes SET name=?, title=?, backstory=?, personality=?, gender=?, ego_type=?, battle_tendency=?
-                    WHERE id=?
-                """, (
-                    profile.name, profile.title, profile.backstory, profile.personality,
-                    final_gender, getattr(profile, "ego_type", None),
-                    getattr(profile, "battle_tendency", None), hero_id
-                ))
-            if needs_custom_portrait:
+                if preserve_identity:
+                    # Enrich lore only — keep the name/gender/portrait the
+                    # player already saw. This is the re-enrichment path.
+                    conn.execute("""
+                        UPDATE heroes SET title=?, backstory=?, personality=?, ego_type=?, battle_tendency=?
+                        WHERE id=?
+                    """, (
+                        profile.title, profile.backstory, profile.personality,
+                        getattr(profile, "ego_type", None),
+                        getattr(profile, "battle_tendency", None), hero_id
+                    ))
+                else:
+                    conn.execute("""
+                        UPDATE heroes SET name=?, title=?, backstory=?, personality=?, gender=?, ego_type=?, battle_tendency=?
+                        WHERE id=?
+                    """, (
+                        profile.name, profile.title, profile.backstory, profile.personality,
+                        final_gender, getattr(profile, "ego_type", None),
+                        getattr(profile, "battle_tendency", None), hero_id
+                    ))
+            if needs_custom_portrait and not preserve_identity:
                 queue_custom_portrait(hero_id, profile.portrait_prompt, profile.name, final_gender)
         except Exception as e:
             print(f"[Gacha] Background LLM profile failed for hero {hero_id}: {e}")
@@ -209,6 +230,7 @@ def reconcile_pending_profiles():
         finalize_hero_async(
             hero["id"], hero["birth_star"], aptitudes, "",
             needs_custom_portrait=False, fallback_gender="unknown", fallback_portrait_prompt="",
+            preserve_identity=True,  # never rename a hero the player already saw
         )
     if rows:
         print(f"[Gacha] Re-queued {len(rows)} hero profile(s) left on placeholder identity from a previous session.")

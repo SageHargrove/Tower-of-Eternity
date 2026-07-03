@@ -681,6 +681,39 @@ WHERE NOT EXISTS (SELECT 1 FROM recipes WHERE name = 'Void Ring');
         except Exception as e:
             print(f"[DB] Migration error converting Mirror of Fate: {e}")
 
+        # One-time realignment: a hero whose first LLM enrichment failed kept
+        # a fallback name, got a portrait generated for THAT identity
+        # (custom_hero_{id}_{name}_{ts}.png), then was silently RE-NAMED by a
+        # later reconcile — leaving the card's name drifting off the face.
+        # Restore each such hero's name from the identity their portrait was
+        # actually made for, so name and face match again. (The forward fix
+        # in gacha.reconcile_pending_profiles stops this recurring.)
+        try:
+            import re as _re
+            hero_rows = conn.execute(
+                "SELECT id, name, portrait_path FROM heroes WHERE portrait_path LIKE '%custom_hero_%'"
+            ).fetchall()
+            realigned = 0
+            for hr in hero_rows:
+                m = _re.search(r"custom_hero_(\d+)_(.+?)_\d+\.png$", hr["portrait_path"] or "")
+                if not m or int(m.group(1)) != hr["id"]:
+                    continue
+                portrait_name = m.group(2).replace("_", " ").strip().title()
+                if portrait_name and portrait_name.lower() != (hr["name"] or "").lower():
+                    # Don't create a duplicate name in the roster.
+                    clash = conn.execute(
+                        "SELECT 1 FROM heroes WHERE LOWER(name) = ? AND id != ?",
+                        (portrait_name.lower(), hr["id"]),
+                    ).fetchone()
+                    if not clash:
+                        conn.execute("UPDATE heroes SET name = ? WHERE id = ?", (portrait_name, hr["id"]))
+                        realigned += 1
+            if realigned:
+                conn.commit()
+                print(f"[DB] Migrated: realigned {realigned} hero name(s) to match their portrait identity")
+        except Exception as e:
+            print(f"[DB] Migration error realigning hero names: {e}")
+
         # Supplies are retired. The Farm now grows alchemy INGREDIENTS (food,
         # herbs — cooking and potion crafting), and AETHER (Skydock-refined
         # ship fuel) covers what supplies did for expeditions. Existing
