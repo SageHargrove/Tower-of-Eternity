@@ -111,7 +111,7 @@ const CLASS_TOOLTIPS = {
   'Chef': 'Provides powerful morale and Health recovery buffs after combat.',
   'Medic': 'Heals wounds and significantly reduces trauma and stress.',
   'Quartermaster': 'Manages the party inventory, increasing gold and supply gains.',
-  'Farmer': 'A hardy worker who increases the Farm's ingredient yields for the base.',
+  "Farmer": "A hardy worker who increases the Farm's ingredient yields for the base.",
   'Merchant': 'A savvy trader who boosts gold income and finds better deals.',
   'Alchemist': 'Brews potent potions and increases rare material drop rates.',
   'Magic Engineer': 'A master of magical contraptions, building turrets and traps.',
