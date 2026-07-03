@@ -1,12 +1,7 @@
 import React, { useState, useEffect } from 'react'
-import { listProfiles, switchProfile, renameProfile, deleteProfile } from '../api/client'
+import { listProfiles, switchProfile, renameProfile, deleteProfile, setMasterName } from '../api/client'
 import { confirmDialog } from './DialogHost'
 
-const DIFFICULTY_OPTIONS = [
-  { id: 'easy', label: 'Easy', desc: 'Weaker enemies, +25% gold. Rare drops are less common.', note: 'Easy mode profiles are not eligible for leaderboard rankings.' },
-  { id: 'normal', label: 'Normal', desc: 'The baseline experience.', note: null },
-  { id: 'hard', label: 'Hard', desc: 'Stronger enemies, better rare drops. Gold stays at baseline.', note: 'Hard mode: full leaderboard access, separate prestige tier.' },
-]
 
 export default function ProfileSelect({ onSelect }) {
   const [profiles, setProfiles] = useState([])
@@ -48,12 +43,13 @@ export default function ProfileSelect({ onSelect }) {
     setPendingNewName(name)
   }
 
-  async function confirmCreate(difficulty) {
+  async function confirmCreate() {
     const name = pendingNewName
     setPendingNewName(null)
     try {
       setLoading(true)
-      await switchProfile(name, difficulty)
+      await switchProfile(name, 'normal')
+      try { await setMasterName(name) } catch(e) {}
       onSelect(name)
     } catch (e) { setMsg(e.message); setLoading(false) }
   }
@@ -157,7 +153,7 @@ export default function ProfileSelect({ onSelect }) {
           <form onSubmit={handleCreate} style={{ display: 'flex', gap: '0.5rem', marginBottom: '1.2rem', paddingBottom: '1.2rem', borderBottom: '1px solid rgba(255,255,255,0.07)' }}>
             <input
               type="text"
-              placeholder="New profile name..."
+              placeholder="Manager Name (Username)..."
               value={newProfile}
               onChange={e => setNewProfile(e.target.value)}
               style={{
@@ -242,27 +238,14 @@ export default function ProfileSelect({ onSelect }) {
             boxShadow: '0 8px 50px rgba(0,0,0,0.7)',
           }}>
             <div style={{ fontFamily: 'Cinzel, serif', fontSize: '1.3rem', color: 'var(--gold)', marginBottom: '0.4rem', textAlign: 'center' }}>
-              Choose Your Difficulty
+              Confirm Manager Name
             </div>
             <div style={{ fontSize: '0.78rem', color: 'rgba(255,255,255,0.5)', textAlign: 'center', marginBottom: '1.4rem' }}>
-              "{pendingNewName}" — this cannot be changed later.
+              You will be known as "{pendingNewName}" on the World server. This cannot be changed later.
             </div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
-              {DIFFICULTY_OPTIONS.map(opt => (
-                <button
-                  key={opt.id}
-                  className="btn"
-                  style={{ textAlign: 'left', padding: '0.75rem 0.9rem', borderRadius: 8 }}
-                  onClick={() => confirmCreate(opt.id)}
-                >
-                  <div style={{ fontFamily: 'Cinzel, serif', fontWeight: 'bold', fontSize: '0.95rem', color: opt.id === 'hard' ? '#e66' : opt.id === 'easy' ? '#6e6' : '#fff' }}>
-                    {opt.label}
-                  </div>
-                  <div style={{ fontSize: '0.78rem', color: 'rgba(255,255,255,0.65)', marginTop: '0.2rem' }}>{opt.desc}</div>
-                  {opt.note && <div style={{ fontSize: '0.7rem', color: 'rgba(201,168,76,0.7)', marginTop: '0.25rem' }}>{opt.note}</div>}
-                </button>
-              ))}
-            </div>
+            <button className="btn btn-gold" style={{ width: '100%', padding: '0.75rem 0.9rem', fontSize: '0.95rem', borderRadius: 8 }} onClick={() => confirmCreate()}>
+              Begin Journey
+            </button>
             <button className="btn" style={{ width: '100%', marginTop: '1rem', fontSize: '0.8rem' }} onClick={() => setPendingNewName(null)}>
               Cancel
             </button>

@@ -21,14 +21,19 @@ from database import db
 # stops the Hall filling with level-1 fodder that died on floor 2.
 LEGACY_MIN_UNIQUE_FLOORS = 10
 LEGACY_MIN_LEVEL = 30
+# A mentor earns remembrance for a real teaching CAREER, not one lesson:
+# many students raised, or a truly large amount of growth given.
+LEGACY_MIN_MENTORSHIPS = 5
+LEGACY_MIN_MENTOR_XP = 3000
 
 
 def qualifies_for_legacy(hero: dict, is_sacrifice: bool = False) -> bool:
     """Whether a fallen hero is worth enshrining. Sacrifices always are.
     Ordinary deaths must have cleared 10+ unique tower floors, reached
-    level 30, or served as a mentor (mentored_count > 0 — the Training
-    Grounds mentorship track, so a support hero who never fought still earns
-    remembrance for the students they raised)."""
+    level 30, or been a CAREER mentor at the Training Grounds — either
+    mentoring many students (5+) or transferring a great deal of growth
+    (3000+ XP total). A single mentoring session no longer counts; the Hall
+    is for those who left a real mark."""
     if is_sacrifice:
         return True
     if hero.get("level", 1) >= LEGACY_MIN_LEVEL:
@@ -36,7 +41,9 @@ def qualifies_for_legacy(hero: dict, is_sacrifice: bool = False) -> bool:
     unique_floors = hero.get("unique_floor_clears", 0) or hero.get("unique_floors_cleared", 0) or 0
     if unique_floors >= LEGACY_MIN_UNIQUE_FLOORS:
         return True
-    if (hero.get("mentored_count", 0) or 0) > 0:
+    if (hero.get("mentored_count", 0) or 0) >= LEGACY_MIN_MENTORSHIPS:
+        return True
+    if (hero.get("mentor_xp_given", 0) or 0) >= LEGACY_MIN_MENTOR_XP:
         return True
     return False
 

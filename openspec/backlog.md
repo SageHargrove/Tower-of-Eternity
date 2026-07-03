@@ -70,3 +70,6 @@ when ready; nothing here is scheduled.
 - **Crafting flexibility review**: kept strict recipes for now (Forge slot
   recipes + discoverable blueprint recipes + LLM creative crafting already
   covers the "creative" niche); revisit if playtesters find it rigid.
+
+## Universes (True Randomness)
+- Instead of manual difficulty selection, each player's save file represents a random "Universe" with a hidden difficulty modifier. Higher difficulty universes could spawn stronger boss variants, but yield vastly higher rewards. Tied to the Manhwa concept.

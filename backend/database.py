@@ -466,6 +466,18 @@ WHERE NOT EXISTS (SELECT 1 FROM recipes WHERE name = 'Void Ring');
             pass
 
         try:
+            conn.execute("ALTER TABLE base ADD COLUMN last_tournament_time REAL DEFAULT 0")
+            print("[DB] Migrated: added column 'last_tournament_time' to base")
+        except sqlite3.OperationalError:
+            pass
+
+        try:
+            conn.execute("ALTER TABLE base ADD COLUMN last_train_tick TIMESTAMP")
+            print("[DB] Migrated: added column 'last_train_tick' to base")
+        except sqlite3.OperationalError:
+            pass
+
+        try:
             conn.execute("ALTER TABLE base ADD COLUMN fairy_gender TEXT")
             print("[DB] Migrated: added column 'fairy_gender' to base")
         except sqlite3.OperationalError:
@@ -804,6 +816,9 @@ WHERE NOT EXISTS (SELECT 1 FROM recipes WHERE name = 'Void Ring');
             # has mentored. Used by the legacy qualification gate (a career
             # mentor earns remembrance even if they never cleared a floor).
             ("mentored_count", "ALTER TABLE heroes ADD COLUMN mentored_count INTEGER DEFAULT 0"),
+            # Total XP this hero has transferred as a mentor — feeds the
+            # legacy gate (a mentor who gave great gains is remembered).
+            ("mentor_xp_given", "ALTER TABLE heroes ADD COLUMN mentor_xp_given INTEGER DEFAULT 0"),
             # Sparring (Training Grounds) per-hero cooldown timestamp.
             ("last_spar_time", "ALTER TABLE heroes ADD COLUMN last_spar_time REAL DEFAULT 0"),
             # Training Grounds solo-drill state (see services/training_service.py).
@@ -851,5 +866,16 @@ WHERE NOT EXISTS (SELECT 1 FROM recipes WHERE name = 'Void Ring');
         if "spar_sessions" not in existing_hb:
             conn.execute("ALTER TABLE hero_bonds ADD COLUMN spar_sessions INTEGER DEFAULT 0")
             print("[DB] Migrated: added column 'hero_bonds.spar_sessions'")
+
+        # Directional mentor->student relationships (hero-card display).
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS mentorships (
+                mentor_id INTEGER,
+                student_id INTEGER,
+                sessions INTEGER DEFAULT 0,
+                xp_given INTEGER DEFAULT 0,
+                PRIMARY KEY (mentor_id, student_id)
+            )
+        """)
 
     print("Database initialized.")

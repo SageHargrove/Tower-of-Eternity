@@ -28,6 +28,24 @@ def get_team_snapshot(team_id: int):
     return {"team": processed}
 
 
+class ArenaResultRequest(BaseModel):
+    win: bool
+    new_elo: int
+
+@router.post("/result")
+def record_arena_result(req: ArenaResultRequest):
+    """
+    Called by the frontend after a match on the arena_server finishes,
+    so the local save file can track wins/losses for achievements.
+    """
+    with db() as conn:
+        if req.win:
+            conn.execute("UPDATE base SET arena_wins = arena_wins + 1, arena_elo = ? WHERE id = 1", (req.new_elo,))
+        else:
+            conn.execute("UPDATE base SET arena_losses = arena_losses + 1, arena_elo = ? WHERE id = 1", (req.new_elo,))
+    return {"ok": True}
+
+
 from pydantic import BaseModel
 import json
 
@@ -54,32 +72,37 @@ def apply_training(req: ApplyTrainingRequest):
             raise HTTPException(status_code=404, detail="Student hero not found.")
             
         student = dict(student)
-        
+
         # Deduct gems
         conn.execute("UPDATE base SET gems = gems - ? WHERE id = 1", (req.gem_cost,))
-        
-        # Calculate stat growth based on teacher's raw stats vs student's raw stats
-        # A simple model: if the teacher's stat is higher, the student has a chance to gain 1 point.
-        # Plus flat XP.
-        stat_gains = {"health": 0, "attack": 0, "defense": 0, "speed": 0}
-        
-        if req.teacher_stats.get("max_health", 0) > student["max_health"]:
-            stat_gains["health"] += 2
-        if req.teacher_stats.get("attack", 0) > student["attack"]:
-            stat_gains["attack"] += 1
-        if req.teacher_stats.get("defense", 0) > student["defense"]:
-            stat_gains["defense"] += 1
-        if req.teacher_stats.get("speed", 0) > student["speed"]:
-            stat_gains["speed"] += 1
-            
-        # Skill XP
+
+        # Stat growth: for each core stat where the teacher clearly outclasses
+        # the student, the student gains a point (health gains two). Uses the
+        # REAL stat columns — the old code referenced attack/speed columns that
+        # don't exist on heroes, so hiring a teacher used to crash outright.
+        # teacher_stats keys come from the Arena snapshot / listing payload;
+        # tolerate a legacy listing that still sends attack/speed by mapping
+        # them onto strength/agility.
+        ts = dict(req.teacher_stats)
+        ts.setdefault("strength", ts.get("attack", 0))
+        ts.setdefault("agility", ts.get("speed", 0))
+        ts.setdefault("endurance", ts.get("defense", 0))
+
+        stat_cols = {
+            "max_health": 2, "strength": 1, "intelligence": 1,
+            "agility": 1, "endurance": 1, "willpower": 1,
+        }
+        stat_gains = {}
+        for col, amount in stat_cols.items():
+            if ts.get(col, 0) > (student.get(col) or 0):
+                stat_gains[col] = amount
+
+        # Skill XP — a shared skill with the teacher gets a big boost.
         skills = json.loads(student["skills"]) if student["skills"] else []
-        teacher_skill_ids = [s["id"] for s in req.teacher_skills]
-        
+        teacher_skill_ids = {s.get("id") for s in req.teacher_skills}
         skill_log = []
         for s in skills:
-            if s["id"] in teacher_skill_ids:
-                # The teacher also has this skill, big bonus!
+            if s.get("id") in teacher_skill_ids:
                 s["xp"] = s.get("xp", 0) + 100
                 skill_log.append(f"{s['name']} XP +100")
                 if s["xp"] >= s.get("max_xp", 100):
@@ -87,25 +110,36 @@ def apply_training(req: ApplyTrainingRequest):
                     s["xp"] -= s.get("max_xp", 100)
                     s["max_xp"] = int(s.get("max_xp", 100) * 1.5)
                     skill_log.append(f"{s['name']} leveled up to {s['level']}!")
-                    
-        # General hero XP
+
         xp_gain = 500
-        
-        conn.execute(
-            """UPDATE heroes 
-               SET xp = xp + ?, max_health = max_health + ?, health = health + ?, attack = attack + ?, defense = defense + ?, speed = speed + ?, skills = ?
-               WHERE id = ?""",
-            (
-                xp_gain, 
-                stat_gains["health"], stat_gains["health"],
-                stat_gains["attack"],
-                stat_gains["defense"],
-                stat_gains["speed"],
-                json.dumps(skills),
-                req.student_id
-            )
-        )
-        
+
+        # Build the UPDATE from whichever stats actually gained, so we never
+        # reference a column that isn't there.
+        set_parts = ["xp = xp + ?"]
+        params = [xp_gain]
+        for col, amount in stat_gains.items():
+            set_parts.append(f"{col} = {col} + ?")
+            params.append(amount)
+            if col == "max_health":
+                set_parts.append("health = health + ?")
+                params.append(amount)
+            if col == "endurance":
+                # defense is a legacy mirror of endurance (see database.py).
+                set_parts.append("defense = defense + ?")
+                params.append(amount)
+        set_parts.append("skills = ?")
+        params.append(json.dumps(skills))
+        params.append(req.student_id)
+        conn.execute(f"UPDATE heroes SET {', '.join(set_parts)} WHERE id = ?", params)
+
+        # Recalculate level in case the XP pushed a threshold.
+        from services.level_service import recalculate_hero_level
+        fresh = conn.execute("SELECT * FROM heroes WHERE id = ?", (req.student_id,)).fetchone()
+        if fresh:
+            new_level = recalculate_hero_level(dict(fresh))
+            if new_level != fresh["level"]:
+                conn.execute("UPDATE heroes SET level = ? WHERE id = ?", (new_level, req.student_id))
+
     return {
         "ok": True,
         "xp": xp_gain,

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react'
-import { regenerateProfile, getHeroAptitudes } from '../api/client'
+import { regenerateProfile, getHeroAptitudes, getHeroRelationships } from '../api/client'
 import { EquipmentTypeIcon } from './EquipmentTypeIcon'
 import GameIcon from './GameIcon'
 // Keep in sync with InventoryPage's ladder: common gray -> uncommon green ->
@@ -288,6 +288,59 @@ function AscensionStars({ count }) {
           textShadow: i < count ? '0 0 4px rgba(201,168,76,0.5)' : 'none',
         }}>◆</span>
       ))}
+    </div>
+  )
+}
+
+const KIND_STYLE = {
+  rival: { label: 'Rival', color: '#e0913c' },
+  comrade: { label: 'Comrade', color: '#4f92e8' },
+}
+
+// Mentors / students / sparring bonds, shown on the full hero card. A
+// student who's trained a lot under one mentor grows real attachment
+// ("looks up to", "reveres"), which is why we lead with mentors.
+function RelationshipsDisplay({ hero }) {
+  const [data, setData] = useState(null)
+
+  useEffect(() => {
+    let cancelled = false
+    getHeroRelationships(hero.id).then(d => { if (!cancelled) setData(d) }).catch(() => {})
+    return () => { cancelled = true }
+  }, [hero.id])
+
+  if (!data) return null
+  const { mentors = [], students = [], bonds = [] } = data
+  // Bonds that aren't already represented as a mentor/student pairing.
+  const otherBonds = bonds.filter(b => !b.is_mentor_pair)
+  if (mentors.length === 0 && students.length === 0 && otherBonds.length === 0) return null
+
+  return (
+    <div className="story-block" style={{ marginTop: '1em', paddingTop: '0.75em', borderTop: '1px solid var(--border)' }}>
+      <div style={{ fontFamily: 'Cinzel, serif', color: 'var(--gold)', fontSize: '0.95em', marginBottom: '0.4em' }}>Bonds & Mentorship</div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.3em', fontSize: '0.9em' }}>
+        {mentors.map(m => (
+          <div key={`m${m.id}`} className="text-dim">
+            <span style={{ color: '#c9a84c' }}>★ Mentor:</span> {hero.name} {m.attachment} <span className="text-hi">{m.name}</span>
+            <span style={{ opacity: 0.6 }}> ({m.sessions} session{m.sessions === 1 ? '' : 's'})</span>
+          </div>
+        ))}
+        {students.map(s => (
+          <div key={`s${s.id}`} className="text-dim">
+            <span style={{ color: '#6fba6f' }}>✎ Student:</span> raised <span className="text-hi">{s.name}</span>
+            <span style={{ opacity: 0.6 }}> ({s.sessions} session{s.sessions === 1 ? '' : 's'})</span>
+          </div>
+        ))}
+        {otherBonds.map(b => {
+          const st = KIND_STYLE[b.kind] || KIND_STYLE.comrade
+          return (
+            <div key={`b${b.id}`} className="text-dim">
+              <span style={{ color: st.color }}>◆ {st.label}:</span> <span className="text-hi">{b.name}</span>
+              <span style={{ opacity: 0.6 }}> (Bond Lv.{b.bond_level})</span>
+            </div>
+          )
+        })}
+      </div>
     </div>
   )
 }
@@ -933,6 +986,8 @@ export default function HeroCard({ hero, onAssign, onManageEquipment, onManageCo
                   {hero.personality}
                 </div>
               </div>
+
+              <RelationshipsDisplay hero={hero} />
 
               {actions && (
                 <div style={{ marginTop: '1.2em', paddingTop: '0.8em', borderTop: '1px solid rgba(255,255,255,0.05)' }}>

@@ -129,6 +129,96 @@ def list_bonds():
         """).fetchall()
     return [dict(r) for r in rows]
 
+# Must be registered BEFORE /{hero_id} — a static two-segment path like
+# /{id}/relationships is fine, but keeping relationship routes grouped here
+# with the other list routes above /{hero_id} avoids any future ambiguity.
+def _attachment_label(sessions: int) -> str:
+    """Flavor for how a student feels about a mentor, by how much they've
+    trained together — a lot of sessions builds real attachment."""
+    if sessions >= 10:
+        return "reveres"
+    if sessions >= 5:
+        return "looks up to"
+    if sessions >= 2:
+        return "learns from"
+    return "trained under"
+
+
+@router.get("/{hero_id}/relationships")
+def hero_relationships(hero_id: int):
+    """Who this hero is bonded to — mentors they learned under, students
+    they raised, and rivals/comrades from sparring and battle. Powers the
+    Bonds section on the hero card."""
+    with db() as conn:
+        hero = conn.execute("SELECT id, name FROM heroes WHERE id = ?", (hero_id,)).fetchone()
+        if not hero:
+            raise HTTPException(status_code=404, detail="Hero not found")
+
+        # Ensure the mentorships table exists (old saves).
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS mentorships (
+                mentor_id INTEGER, student_id INTEGER,
+                sessions INTEGER DEFAULT 0, xp_given INTEGER DEFAULT 0,
+                PRIMARY KEY (mentor_id, student_id)
+            )
+        """)
+
+        mentors = conn.execute("""
+            SELECT m.mentor_id AS id, h.name, m.sessions, m.xp_given
+            FROM mentorships m JOIN heroes h ON h.id = m.mentor_id
+            WHERE m.student_id = ? AND h.is_alive = 1
+            ORDER BY m.sessions DESC
+        """, (hero_id,)).fetchall()
+
+        students = conn.execute("""
+            SELECT m.student_id AS id, h.name, m.sessions, m.xp_given
+            FROM mentorships m JOIN heroes h ON h.id = m.student_id
+            WHERE m.mentor_id = ? AND h.is_alive = 1
+            ORDER BY m.sessions DESC
+        """, (hero_id,)).fetchall()
+
+        # Bonds (excluding pure mentor/student pairs, which are shown above).
+        mentor_ids = {r["id"] for r in mentors} | {r["id"] for r in students}
+        bond_rows = conn.execute("""
+            SELECT hb.hero_a_id, hb.hero_b_id, hb.bond_level, hb.floors_together,
+                   COALESCE(hb.spar_sessions, 0) AS spar_sessions,
+                   h1.name AS a_name, h2.name AS b_name,
+                   h1.is_alive AS a_alive, h2.is_alive AS b_alive
+            FROM hero_bonds hb
+            JOIN heroes h1 ON h1.id = hb.hero_a_id
+            JOIN heroes h2 ON h2.id = hb.hero_b_id
+            WHERE (hb.hero_a_id = ? OR hb.hero_b_id = ?) AND hb.bond_level > 0
+            ORDER BY hb.bond_level DESC
+        """, (hero_id, hero_id)).fetchall()
+
+        bonds = []
+        for r in bond_rows:
+            other_id = r["hero_b_id"] if r["hero_a_id"] == hero_id else r["hero_a_id"]
+            other_name = r["b_name"] if r["hero_a_id"] == hero_id else r["a_name"]
+            other_alive = r["b_alive"] if r["hero_a_id"] == hero_id else r["a_alive"]
+            if not other_alive:
+                continue
+            # Sparring-forged (rival) vs battle-forged (comrade).
+            kind = "rival" if r["spar_sessions"] > r["floors_together"] else "comrade"
+            bonds.append({
+                "id": other_id, "name": other_name, "bond_level": int(r["bond_level"]),
+                "kind": kind, "is_mentor_pair": other_id in mentor_ids,
+            })
+
+        return {
+            "mentors": [
+                {"id": m["id"], "name": m["name"], "sessions": m["sessions"],
+                 "xp_given": m["xp_given"], "attachment": _attachment_label(m["sessions"])}
+                for m in mentors
+            ],
+            "students": [
+                {"id": s["id"], "name": s["name"], "sessions": s["sessions"], "xp_given": s["xp_given"]}
+                for s in students
+            ],
+            "bonds": bonds,
+        }
+
+
 @router.get("/{hero_id}")
 def get_hero(hero_id: int):
     with db() as conn:

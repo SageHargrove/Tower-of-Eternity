@@ -1092,9 +1092,23 @@ def training_status():
     """Full Training Grounds state — assigned heroes, their regimens,
     conditioning cap, and per-hero skills for the weapon-drill picker."""
     from services.training_service import process_training, get_training_status
+    from services.sparring_service import tournament_status
     with db() as conn:
         process_training(conn)  # settle any pending ticks before reporting
-        return get_training_status(conn)
+        status = get_training_status(conn)
+        status["tournament"] = tournament_status(conn)
+        return status
+
+@router.post("/facilities/training/tournament")
+def run_training_tournament():
+    """Hold an internal sparring tournament among all Training-Grounds heroes.
+    Once per day; morale lift for all entrants, prizes for the top finishers."""
+    from services.sparring_service import run_tournament
+    with db() as conn:
+        try:
+            return run_tournament(conn)
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
 
 class RegimenReq(BaseModel):
     hero_id: int

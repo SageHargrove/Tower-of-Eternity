@@ -43,6 +43,31 @@ def _training_level(conn) -> int:
     return row["level"] if row else 0
 
 
+# Traits that mark a hero as a gifted teacher (see traits_service).
+TEACHER_TRAIT_IDS = {"mentors_heart"}
+
+
+def teaching_multiplier(hero: dict) -> float:
+    """How effective this hero is as a MENTOR. Some heroes just lean toward
+    teaching: a natural leader (high Leadership aptitude), a patient,
+    thorough worker (high Diligence), or one born with the Mentor's Heart
+    trait. Scales the XP a mentorship transfers and the teach-a-skill chance.
+    Ranges ~1.0 (unremarkable teacher) to ~2.5 (a legendary mentor)."""
+    import json as _json
+    mult = 1.0
+    if (hero.get("apt_leadership") or 50) >= 75:
+        mult += 0.3
+    if (hero.get("apt_diligence") or 50) >= 75:
+        mult += 0.2
+    try:
+        traits = _json.loads(hero.get("traits") or "[]")
+        if any(t.get("id") in TEACHER_TRAIT_IDS for t in traits):
+            mult += 0.7
+    except Exception:
+        pass
+    return mult
+
+
 def _build_bond(conn, hero_a_id: int, hero_b_id: int):
     """Training together builds the same bond fighting together does. Bond
     level is derived from floors_together + spar_sessions combined, so a
@@ -66,12 +91,33 @@ def _build_bond(conn, hero_a_id: int, hero_b_id: int):
     return new_level
 
 
-def _teach_skill(conn, mentor: dict, student: dict) -> str | None:
+def _record_mentorship(conn, mentor_id: int, student_id: int, xp_given: int):
+    """Directional mentor->student relationship, for hero-card display and
+    attachment flavor. Self-migrates its table so old saves gain it."""
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS mentorships (
+            mentor_id INTEGER,
+            student_id INTEGER,
+            sessions INTEGER DEFAULT 0,
+            xp_given INTEGER DEFAULT 0,
+            PRIMARY KEY (mentor_id, student_id)
+        )
+    """)
+    conn.execute("""
+        INSERT INTO mentorships (mentor_id, student_id, sessions, xp_given)
+        VALUES (?, ?, 1, ?)
+        ON CONFLICT(mentor_id, student_id) DO UPDATE SET
+            sessions = sessions + 1,
+            xp_given = xp_given + ?
+    """, (mentor_id, student_id, xp_given, xp_given))
+
+
+def _teach_skill(conn, mentor: dict, student: dict, teach_mult: float = 1.0) -> str | None:
     """A mentor may pass down one of their OWN skills the student doesn't yet
-    know — the "shape your roster's kit across generations" idea. 40% chance
-    per mentorship session. Returns the taught skill's name, or None."""
+    know — the "shape your roster's kit across generations" idea. Base 40%
+    chance, scaled by the mentor's teaching gift. Returns the skill name."""
     import random
-    if random.random() > 0.4:
+    if random.random() > min(0.9, 0.4 * teach_mult):
         return None
     mentor_skills = json.loads(mentor.get("skills") or "[]")
     student_skills = json.loads(student.get("skills") or "[]")
@@ -134,11 +180,22 @@ def spar(conn, hero_a_id: int, hero_b_id: int) -> dict:
     if gap >= MENTOR_LEVEL_GAP:
         # ── Mentorship ──
         mentor, student = (a, b) if a["level"] > b["level"] else (b, a)
-        # Transfer scales with the mentor's level and the Training Grounds
-        # level — a big chunk, since the mentor "spends" a session teaching.
-        transfer = int((50 + mentor["level"] * 6) * (1 + 0.1 * (tg_level - 1)))
+        # Transfer scales with the mentor's level, the Training Grounds level,
+        # AND the mentor's teaching gift (Leadership/Diligence aptitude or the
+        # Mentor's Heart trait — a natural teacher gives far more).
+        teach_mult = teaching_multiplier(mentor)
+        transfer = int((50 + mentor["level"] * 6) * (1 + 0.1 * (tg_level - 1)) * teach_mult)
         conn.execute("UPDATE heroes SET xp = xp + ? WHERE id = ?", (transfer, student["id"]))
-        conn.execute("UPDATE heroes SET mentored_count = COALESCE(mentored_count, 0) + 1 WHERE id = ?", (mentor["id"],))
+        # Aggregate mentor stats: how many sessions, and total XP given —
+        # both feed the legacy gate (a great mentor is remembered).
+        conn.execute(
+            "UPDATE heroes SET mentored_count = COALESCE(mentored_count, 0) + 1, "
+            "mentor_xp_given = COALESCE(mentor_xp_given, 0) + ? WHERE id = ?",
+            (transfer, mentor["id"]),
+        )
+        # Directional per-pair mentorship record (drives hero-card "mentor"/
+        # "students" display and attachment flavor).
+        _record_mentorship(conn, mentor["id"], student["id"], transfer)
 
         student_reload = _hero(conn, student["id"])
         skill_name = _bump_skill(student_reload, guaranteed=True)
@@ -151,8 +208,9 @@ def spar(conn, hero_a_id: int, hero_b_id: int) -> dict:
             conn.execute("UPDATE heroes SET level = ? WHERE id = ?", (new_level, student["id"]))
             messages.extend(level_up_summary(old_level, new_level, student["name"]))
 
-        # The mentor may pass down one of their own skills (kit lineage).
-        taught = _teach_skill(conn, mentor, _hero(conn, student["id"]))
+        # The mentor may pass down one of their own skills (kit lineage) —
+        # a gifted teacher does so more readily.
+        taught = _teach_skill(conn, mentor, _hero(conn, student["id"]), teach_mult)
         if taught:
             messages.append(f"{mentor['name']} taught {student['name']} the ways of {taught}!")
 
@@ -161,6 +219,8 @@ def spar(conn, hero_a_id: int, hero_b_id: int) -> dict:
         result["student"] = student["name"]
         result["xp_transferred"] = transfer
         result["taught_skill"] = taught
+        if teach_mult >= 1.5:
+            messages.append(f"{mentor['name']} is a gifted teacher — the lesson runs deep.")
         messages.insert(0, f"{mentor['name']} drilled {student['name']} hard — {transfer} XP transferred."
                           + (f" {student['name']}'s {skill_name} sharpened." if skill_name else ""))
     else:
@@ -196,3 +256,126 @@ def spar(conn, hero_a_id: int, hero_b_id: int) -> dict:
 
     conn.execute("UPDATE heroes SET last_spar_time = ? WHERE id IN (?, ?)", (now, hero_a_id, hero_b_id))
     return result
+
+
+# ── Internal Sparring Tournament ─────────────────────────────────────
+
+TOURNAMENT_COOLDOWN_SECONDS = 24 * 3600
+TOURNAMENT_MIN_ENTRANTS = 3
+
+
+def _spar_score(h: dict) -> float:
+    """A hero's raw sparring strength — level-weighted, plus their physical
+    stats, with a Luck-influenced random swing so upsets happen and the
+    tournament stays worth watching."""
+    import random
+    base = h.get("level", 1) * 10
+    base += (h.get("strength", 10) + h.get("agility", 10) + h.get("endurance", 5)
+             + h.get("willpower", 6) + h.get("intelligence", 5))
+    swing = random.uniform(0.75, 1.25) + (h.get("luck", 5) / 100.0)
+    return base * swing
+
+
+def run_tournament(conn) -> dict:
+    """A round-robin sparring tournament among every hero assigned to the
+    Training Grounds. Pure motivation/reward event: the whole roster of
+    entrants gets a morale lift (competition is good for them), the champion
+    gets a big XP + morale + permanent stat prize, runners-up get a smaller
+    cut. Once per day."""
+    from services.morale_service import get_morale_state
+
+    tg = conn.execute("SELECT id, level FROM facilities WHERE type = 'Training Grounds' AND base_id = 1").fetchone()
+    if not tg:
+        raise ValueError("Build the Training Grounds first.")
+
+    entrants = [dict(r) for r in conn.execute("""
+        SELECT h.* FROM facility_assignments fa
+        JOIN heroes h ON fa.hero_id = h.id
+        WHERE fa.facility_id = ? AND h.is_alive = 1
+    """, (tg["id"],)).fetchall()]
+    if len(entrants) < TOURNAMENT_MIN_ENTRANTS:
+        raise ValueError(f"A tournament needs at least {TOURNAMENT_MIN_ENTRANTS} heroes assigned to the Training Grounds.")
+
+    now = time.time()
+    base = conn.execute("SELECT last_tournament_time FROM base WHERE id = 1").fetchone()
+    last = (base["last_tournament_time"] or 0) if base else 0
+    if now - last < TOURNAMENT_COOLDOWN_SECONDS:
+        rem = int(TOURNAMENT_COOLDOWN_SECONDS - (now - last))
+        raise ValueError(f"The next tournament can be held in {rem // 3600}h {(rem % 3600) // 60}m.")
+
+    # Round robin: everyone spars everyone once, best score wins each match.
+    wins = {h["id"]: 0 for h in entrants}
+    for i in range(len(entrants)):
+        for j in range(i + 1, len(entrants)):
+            a, b = entrants[i], entrants[j]
+            winner = a if _spar_score(a) >= _spar_score(b) else b
+            wins[winner["id"]] += 1
+
+    standings = sorted(entrants, key=lambda h: wins[h["id"]], reverse=True)
+    champion = standings[0]
+    tg_level = max(1, tg["level"])
+
+    log = [f"🏆 The Training Grounds tournament begins — {len(entrants)} fighters enter!"]
+    prizes = []
+
+    # Everyone who competed gets a morale lift (win or lose — the thrill of it).
+    for h in entrants:
+        conn.execute(
+            "UPDATE heroes SET morale = ?, morale_state = ?, xp = xp + ? WHERE id = ?",
+            (min(100, h["morale"] + 8), get_morale_state(min(100, h["morale"] + 8)),
+             40 * tg_level, h["id"]),
+        )
+
+    # Champion: big XP, big morale, and one permanent stat point.
+    import random
+    champ_stat = random.choice(["strength", "agility", "endurance", "willpower", "intelligence"])
+    champ_xp = 200 * tg_level
+    conn.execute(
+        f"UPDATE heroes SET xp = xp + ?, morale = ?, morale_state = ?, {champ_stat} = {champ_stat} + 1 WHERE id = ?",
+        (champ_xp, min(100, champion["morale"] + 20), get_morale_state(min(100, champion["morale"] + 20)), champion["id"]),
+    )
+    log.append(f"🥇 {champion['name']} is crowned Champion — {wins[champion['id']]} wins! (+{champ_xp} XP, +1 {champ_stat.title()}, morale soars)")
+    prizes.append({"hero": champion["name"], "prize": f"+{champ_xp} XP, +1 {champ_stat.title()}"})
+
+    if len(standings) > 1:
+        runner = standings[1]
+        r_xp = 100 * tg_level
+        conn.execute("UPDATE heroes SET xp = xp + ? WHERE id = ?", (r_xp, runner["id"]))
+        log.append(f"🥈 {runner['name']} takes second ({wins[runner['id']]} wins, +{r_xp} XP).")
+        prizes.append({"hero": runner["name"], "prize": f"+{r_xp} XP"})
+
+    # Level recalcs for everyone who might have crossed a threshold.
+    for h in entrants:
+        fresh = conn.execute("SELECT * FROM heroes WHERE id = ?", (h["id"],)).fetchone()
+        if fresh:
+            new_level = recalculate_hero_level(dict(fresh))
+            if new_level != fresh["level"]:
+                conn.execute("UPDATE heroes SET level = ? WHERE id = ?", (new_level, h["id"]))
+
+    conn.execute("UPDATE base SET last_tournament_time = ? WHERE id = 1", (now,))
+    return {
+        "champion": champion["name"],
+        "standings": [{"name": h["name"], "wins": wins[h["id"]]} for h in standings],
+        "prizes": prizes,
+        "log": log,
+    }
+
+
+def tournament_status(conn) -> dict:
+    tg = conn.execute("SELECT id FROM facilities WHERE type = 'Training Grounds' AND base_id = 1").fetchone()
+    if not tg:
+        return {"ready": False, "entrants": 0, "cooldown_remaining": 0}
+    entrants = conn.execute("""
+        SELECT COUNT(*) AS c FROM facility_assignments fa
+        JOIN heroes h ON fa.hero_id = h.id
+        WHERE fa.facility_id = ? AND h.is_alive = 1
+    """, (tg["id"],)).fetchone()["c"]
+    base = conn.execute("SELECT last_tournament_time FROM base WHERE id = 1").fetchone()
+    last = (base["last_tournament_time"] or 0) if base else 0
+    remaining = max(0, int(TOURNAMENT_COOLDOWN_SECONDS - (time.time() - last)))
+    return {
+        "entrants": entrants,
+        "min_entrants": TOURNAMENT_MIN_ENTRANTS,
+        "cooldown_remaining": remaining,
+        "ready": entrants >= TOURNAMENT_MIN_ENTRANTS and remaining == 0,
+    }

@@ -379,11 +379,18 @@ export default function App() {
                 setShowSettings(false)
                 setActiveProfile(null)
               }}>
-                <GameIcon name="compass" size={16} /> Main Menu
+                <GameIcon name="compass" size={16} /> Save & Return to Menu
+              </button>
+
+              <button className="btn" style={{ background: 'rgba(150,0,0,0.15)', border: '1px solid rgba(255,60,60,0.2)', color: '#f88' }} onClick={async () => {
+                try { await fetch('/api/quit', {method: 'POST'}) } catch(e) {}
+                window.close()
+              }}>
+                Save & Quit to Desktop
               </button>
               
               <button className="btn" style={{ marginTop: '1rem', background: 'var(--border)' }} onClick={() => setShowSettings(false)}>
-                Close
+                Close Settings
               </button>
             </div>
             

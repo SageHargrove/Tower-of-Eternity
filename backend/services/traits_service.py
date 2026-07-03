@@ -7,6 +7,9 @@ TRAITS_POOL = {
         {"id": "prodigy", "name": "Prodigy", "desc": "Incredible talent capacity, rare"},
         {"id": "iron_constitution", "name": "Iron Constitution", "desc": "+10% Max Health, slower fatigue"},
         {"id": "fearless", "name": "Fearless", "desc": "Immune to fear and morale drops"},
+        # Teaching-leaning trait — makes a hero a gifted mentor at the
+        # Training Grounds (see sparring_service.teaching_multiplier).
+        {"id": "mentors_heart", "name": "Mentor's Heart", "desc": "A gifted teacher — mentoring transfers far more XP and teaches skills more readily"},
     ],
     "neutral": [
         {"id": "stubborn", "name": "Stubborn", "desc": "+10% DEF, -10% SPD"},

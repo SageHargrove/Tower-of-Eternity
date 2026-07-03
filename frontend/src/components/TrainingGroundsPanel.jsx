@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react'
-import { getTrainingStatus, setTrainingRegimen, sparHeroes } from '../api/client'
+import { getTrainingStatus, setTrainingRegimen, sparHeroes, runTrainingTournament } from '../api/client'
 
 // The full Training Grounds management panel, rendered inside the facility
 // card. Two halves:
@@ -35,6 +35,11 @@ export default function TrainingGroundsPanel({ onChanged }) {
   const [sparBusy, setSparBusy] = useState(false)
   const [sparMsg, setSparMsg] = useState(null)
 
+  // Tournament state
+  const [tourBusy, setTourBusy] = useState(false)
+  const [tourResult, setTourResult] = useState(null)
+  const [tourMsg, setTourMsg] = useState(null)
+
   async function refresh() {
     try { setData(await getTrainingStatus()) } catch (e) { setMsg({ text: e.message, err: true }) }
   }
@@ -57,6 +62,21 @@ export default function TrainingGroundsPanel({ onChanged }) {
       setMsg({ text: e.message, err: true })
     } finally {
       setBusyHero(null)
+    }
+  }
+
+  async function handleTournament() {
+    setTourBusy(true)
+    setTourMsg(null)
+    try {
+      const res = await runTrainingTournament()
+      setTourResult(res)
+      await refresh()
+      if (onChanged) onChanged()
+    } catch (e) {
+      setTourMsg(e.message)
+    } finally {
+      setTourBusy(false)
     }
   }
 
@@ -203,6 +223,45 @@ export default function TrainingGroundsPanel({ onChanged }) {
           </>
         ),
         'sparring'
+      )}
+
+      {/* ── Internal Tournament ── */}
+      {panelBox(
+        <>
+          <div style={{ color: 'var(--gold)', fontFamily: 'Cinzel, serif', marginBottom: '0.4rem' }}>🏆 Sparring Tournament</div>
+          <div className="text-dim text-sm" style={{ marginBottom: '0.5rem' }}>
+            A round-robin among every hero here (min {data.tournament?.min_entrants ?? 3}). Everyone who competes gets a morale lift; the champion earns big XP, a permanent stat, and glory. Once per day.
+          </div>
+          {(() => {
+            const t = data.tournament || {}
+            const hrs = Math.floor((t.cooldown_remaining || 0) / 3600)
+            const mins = Math.floor(((t.cooldown_remaining || 0) % 3600) / 60)
+            return (
+              <button className="btn btn-gold" disabled={tourBusy || !t.ready} onClick={handleTournament} style={{ fontSize: '0.85rem' }}>
+                {tourBusy ? 'Holding tournament…'
+                  : t.cooldown_remaining > 0 ? `Next tournament in ${hrs}h ${mins}m`
+                  : t.entrants < (t.min_entrants ?? 3) ? `Need ${t.min_entrants ?? 3}+ heroes assigned (${t.entrants} now)`
+                  : `Hold Tournament (${t.entrants} entrants)`}
+              </button>
+            )
+          })()}
+          {tourMsg && <div style={{ color: '#f87', fontSize: '0.82rem', marginTop: '0.5rem' }}>{tourMsg}</div>}
+          {tourResult && (
+            <div style={{ marginTop: '0.6rem', fontSize: '0.85rem' }}>
+              <div style={{ color: '#8e8', display: 'flex', flexDirection: 'column', gap: '0.15rem', marginBottom: '0.4rem' }}>
+                {(tourResult.log || []).map((l, i) => <div key={i}>{l}</div>)}
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.1rem' }}>
+                {(tourResult.standings || []).map((s, i) => (
+                  <div key={i} className="text-dim" style={{ fontSize: '0.8rem' }}>
+                    {i + 1}. {s.name} <span style={{ opacity: 0.6 }}>— {s.wins} win{s.wins === 1 ? '' : 's'}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </>,
+        'tournament'
       )}
     </>
   )

@@ -7,7 +7,7 @@ import {
   arenaRegister, arenaLogin, arenaSubmitTeam, arenaChallenge, arenaMatchmake, arenaLeaderboard,
   arenaMyRewards, arenaClaimReward, arenaMarketList, arenaMarketGet, arenaMarketHire
 } from '../api/arenaServerClient'
-import { receiveMail, applyTraining, listHeroes } from '../api/client'
+import { receiveMail, applyTraining, listHeroes, recordArenaResult } from '../api/client'
 
 export default function ArenaPage() {
   const [serverUrl, setServerUrl] = useState(getArenaServerUrl())
@@ -155,6 +155,11 @@ export default function ArenaPage() {
     try {
       const result = await arenaChallenge(opponent.trim())
       setFightResult(result)
+      if (result.winner === username && result.elo_change?.[username] != null) {
+        recordArenaResult(true, result.elo_change[username]).catch(() => {})
+      } else if (result.loser === username && result.elo_change?.[username] != null) {
+        recordArenaResult(false, result.elo_change[username]).catch(() => {})
+      }
       refreshLeaderboard()
     } catch (err) {
       setMsg(err.message)
@@ -171,6 +176,11 @@ export default function ArenaPage() {
       const result = await arenaMatchmake()
       setFightResult(result)
       setMsg(`Matched against ${result.opponent}!`)
+      if (result.winner === username && result.elo_change?.[username] != null) {
+        recordArenaResult(true, result.elo_change[username]).catch(() => {})
+      } else if (result.loser === username && result.elo_change?.[username] != null) {
+        recordArenaResult(false, result.elo_change[username]).catch(() => {})
+      }
       refreshLeaderboard()
     } catch (err) {
       setMsg(err.message)
@@ -187,7 +197,10 @@ export default function ArenaPage() {
       const h = allHeroes.find(x => x.id === Number(marketTeacherId))
       if (!h) throw new Error("Hero not found.")
       
-      const stats = { max_health: h.max_health, attack: h.attack, defense: h.defense, speed: h.speed }
+      const stats = {
+        max_health: h.max_health, strength: h.strength, intelligence: h.intelligence,
+        agility: h.agility, endurance: h.endurance, willpower: h.willpower,
+      }
       const skills = h.skills ? JSON.parse(h.skills) : []
       
       await arenaMarketList(h.name, h.hero_class, stats, skills, Number(marketGemCost))
