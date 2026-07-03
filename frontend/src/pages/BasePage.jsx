@@ -27,11 +27,18 @@ function facilityArtTier(level) {
   return 1
 }
 
+// Late-game facilities never look "tier 1" — by the floor you can build
+// them, the base around them is already grand, so their art STARTS at a
+// higher tier (no tattered-shack Transcendence Core). Art below these
+// minimums intentionally doesn't exist.
+const MIN_ART_TIER = { 'Bestiary': 2, 'Reliquary': 2, 'Chronosphere': 3, 'Transcendence Core': 4 }
+
 function FacilityBanner({ type, level, style }) {
   const slug = type.toLowerCase().replace(/ /g, '_')
-  const tier = facilityArtTier(level || 1)
+  const minTier = MIN_ART_TIER[type] || 1
+  const tier = Math.max(minTier, facilityArtTier(level || 1))
   const candidates = []
-  for (let t = tier; t >= 1; t--) {
+  for (let t = tier; t >= minTier; t--) {
     candidates.push(`/static/facilities/${slug}_tier${t}.png`)
     candidates.push(`/static/facilities/${slug}s_tier${t}.png`)
   }

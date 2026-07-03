@@ -191,7 +191,7 @@ HUMANOID_ENEMY_NAMES = {
     "The Hobgoblin Warlord", "The Grave Sovereign", "Bullhorn the Minotaur Lord",
     "The Ashen Colossus", "Stoneheart the Unbroken", "The Obsidian Tyrant",
     "The Drowned Naga Queen", "Knight-Captain Mordrek", "Pit Fiend Commander",
-    "Goblin King",
+    "Goblin King", "Vaelor, the Fallen Ascendant",
     "Kobold", "Skeleton", "Feral Ghoul", "Wraith", "Vampire Spawn", "Primordial Vampire",
     "Demon Lord", "Archdemon", "Ancient Guardian",
     "Gorrath the Bonebreaker", "The Rotcaller, Warlord of the Fester Host",
@@ -698,6 +698,9 @@ ENEMY_PORTRAIT_HINTS = {
     "The Obsidian Tyrant": "an imposing obsidian golem tyrant standing tall, gleaming black volcanic-glass body clearly lit with glowing molten-orange cracks, a sharp angular carved face, gripping a massive obsidian warblade, molten cavern-throne background",
     "The Drowned Naga Queen": "a regal naga queen with a humanoid torso and a long coiled serpent tail, scaled deep-teal skin clearly lit with shimmering iridescent patterns, an ornate coral crown, slitted golden eyes, gripping a trident wreathed in mist, sunken temple background",
     "Knight-Captain Mordrek": "an armored death knight captain standing tall, blackened plate armor clearly lit with glowing icy-blue runic engravings and a captain's sash, a closed helm with piercing blue eye slits, gripping a massive runed greatsword raised high, frosty battlefield background",
+    # The "Evil 7★" — written to read like a corrupted 7-star HERO portrait
+    # (the pipeline's best output), not a monster: beautiful, regal, wrong.
+    "Vaelor, the Fallen Ascendant": "a breathtakingly beautiful fallen hero ascendant standing in regal menace, an androgynous godlike face clearly lit with cold serene contempt, long silver-white hair drifting weightlessly, ornate celestial white-and-gold plate armor corrupted by spreading veins of void-black crystal, a cracked golden halo tilted behind his head, one arm wreathed in radiant light and the other dissolving into black flame, glowing violet eyes with faint tear-streaks of light, a magnificent greatsword of fractured starlight held point-down, ruined cathedral background with drifting golden embers",
     "Pit Fiend Commander": "a towering armored pit fiend commander standing upright, charred dark-red skin clearly lit beneath ornate spiked black armor and a commander's cape, large curved horns, gripping a flaming greatsword, glowing orange eyes, molten cavern-throne background",
 
     # beast/monster-style entries (MONSTER_STYLE) from the same pass

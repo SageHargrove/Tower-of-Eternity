@@ -473,8 +473,13 @@ def _enemy_portrait_path(name: str, subfolder: str = "") -> str:
     family's art together — e.g. enemies/normal/wave1/slime.png) — checked
     after the tier folder's own root so moving a file into a wave folder
     for review never breaks the lookup."""
-    import os, glob
-    slug = name.lower().replace(' ', '_')
+    import os, glob, re
+    # MUST match _generate_enemy_portrait's slug (re.sub, punctuation -> _):
+    # the old .replace(' ', '_') kept commas/hyphens, so generated art for
+    # "Knight-Captain Mordrek" / "The Rotcaller, Warlord..." sat on disk
+    # under the regex slug while this lookup asked for a name that could
+    # never exist — those bosses silently fell back to random art.
+    slug = re.sub(r'[^a-z0-9]', '_', name.lower())
     for sf in filter(None, [subfolder, "normal"]):
         tiered = f"static/portraits/enemies/{sf}/{slug}.png"
         if os.path.exists(tiered):

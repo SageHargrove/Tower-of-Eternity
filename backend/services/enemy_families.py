@@ -189,12 +189,12 @@ NIGHTWING_DEVOURER = {
 # Floor 35: the "Evil 7★" — a corrupted god-tier climber. 7★ HERO art is
 # the best thing the portrait pipeline produces, so this enemy deliberately
 # reads as a fallen 7★ hero rather than a monster: humanoid, regal, wrong.
-# Drop art at static/portraits/enemies/miniboss/boss_fallen_ascendant.png
-# (until then it falls back like any other missing miniboss portrait).
+# No portrait_path pin — leaving it unset lets portrait_cache's startup
+# queue auto-generate his art locally like every other named unique (a pin
+# means "preserved art, never generate" and would block that).
 FALLEN_ASCENDANT = {
     "name": "Vaelor, the Fallen Ascendant",
     "abilities": ["team_buff_aura", "crushing_blow", "enrage", "last_stand"],
-    "portrait_path": "static/portraits/enemies/miniboss/boss_fallen_ascendant.png",
     "stat_mod": {"atk": 1.35, "def": 1.15, "spd": 1.25, "health": 1.25},
 }
 

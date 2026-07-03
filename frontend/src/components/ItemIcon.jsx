@@ -18,7 +18,7 @@ const NAME_OVERRIDES = {
   'Greater Mana Draught': 'high_mana_potion',
   // food (cooking_service FOOD_CATALOG)
   "Traveler's Rations": 'travelers_rations',
-  "Hero's Feast": 'rations',
+  "Hero's Feast": 'hero_feast',
   // market shop bundles
   'Ingredient Basket': 'mystic_wheat',
   'Ingredient Cart': 'mystic_wheat',

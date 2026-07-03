@@ -45,11 +45,21 @@ tiers → flat file → hidden.
 | `images/battleships/` | Skydock ship art `ship_{1-5}.png` |
 | `bgm.mp3`, `tower_limitless_wide.png` | Music, tower background |
 
+### Late-facility minimum art tiers
+
+Facilities that unlock deep in the climb never show low-tier art — the
+base around them is already grand. `MIN_ART_TIER` in BasePage.jsx:
+Bestiary/Reliquary start at **tier 2**, Chronosphere at **tier 3**,
+Transcendence Core at **tier 4**. Art below those tiers intentionally
+doesn't exist.
+
 ## Art still wanted (placeholders or fallbacks in place)
 
-- `backend/static/facilities/{bestiary,reliquary,chronosphere,transcendence_core}_tier{1-4}.png` — "ART PENDING" placeholders live there now
-- `backend/static/portraits/enemies/miniboss/boss_fallen_ascendant.png` — the Evil 7★ (Vaelor); falls back to generic miniboss art until it exists
-- `frontend/public/icons/heros_feast.png` — the tier-4 cooked food (falls back to `rations.png`)
+- `backend/static/facilities/bestiary_tier{2,3,4}.png` — still "ART
+  PENDING" placeholders (the prompts need the interior-wall attachments)
+- Vaelor, the Fallen Ascendant — AUTO-GENERATES on launch now, into
+  `enemies/miniboss/vaelor__the_fallen_ascendant.png` (delete that file to
+  re-roll his look)
 - Real `Tavern.png` / `Wall.png` flat banners (placeholders) — tier art exists, so these barely show
 
 ## Adding new item icons
