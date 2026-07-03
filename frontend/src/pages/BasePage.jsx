@@ -5,7 +5,7 @@ import ItemIcon from '../components/ItemIcon'
 import TeamBanner from '../components/TeamBanner'
 import UpgradeTreePanel from '../components/UpgradeTreePanel'
 import RecipeBookPanel from '../components/RecipeBookPanel'
-import SparringPanel from '../components/SparringPanel'
+import TrainingGroundsPanel from '../components/TrainingGroundsPanel'
 import BannerStudio from '../components/BannerStudio'
 import { getBanner } from '../api/client'
 import { CookingPanel, RefineAetherPanel, BestiaryPanel, ReliquaryPanel, ChronospherePanel, TranscendencePanel } from '../components/EndgamePanels'
@@ -84,7 +84,7 @@ const UPGRADE_BANNERS = {
 const FACILITY_TOOLTIPS = {
   "Market": "Generates passive gold (scales with level) and stocks a small shop for ingredients, materials, and bandages. Merchants and Quartermasters give the biggest generation bonus; anyone assigned helps a little and earns passive XP.",
   "Farm": "Grows alchemy INGREDIENTS passively (scales with level) — cook them into consumables at the Dining Hall, or brew them into potions at the Alchemist Lab. Farmers and Druids give the biggest generation bonus.",
-  "Training Grounds": "Assigned heroes passively earn XP over time (scales with level) — level up the bench without risking them in the Tower.",
+  "Training Grounds": "Where the bench gets stronger without risking the Tower. Each assigned hero runs a solo DRILL — Focus (XP), Conditioning (permanently raise a stat, capped by this facility's level), Meditation (Mental aptitude + reveal hidden ones), or Weapon Drills (grind a specific skill). Set an intensity to trade faster gains for fatigue & stress. Two heroes can also SPAR: peers (similar level) both gain, or a veteran can MENTOR a rookie — pouring in XP, teaching a skill, and building a combat bond.",
   "Dining Hall": "Assigned cooks passively restore MORALE for the entire living roster, and the kitchen COOKS Farm ingredients into early consumables (rations, stews) heroes can carry into the Tower. Chefs are worth triple anyone else in the kitchen.",
   "Forge": "Crafts weapons, armor, and accessories. Craft quality is capped by your single best Blacksmith — extra smiths of the same tier add a smaller bonus on top.",
   "Infirmary": "Passively heals TRAUMA over time and crafts Bandages (auto-used on your most injured heroes before the next floor). Medics and Priests heal fastest.",
@@ -891,9 +891,9 @@ const getGenRate = (fac) => {
                   </>
                 )}
 
-                {/* Training Grounds sparring (peer + mentorship) */}
+                {/* Training Grounds — solo drills + sparring */}
                 {fac.type === 'Training Grounds' && (
-                  <SparringPanel assignedHeroes={fac.heroes} onSparred={() => { loadAll() }} />
+                  <TrainingGroundsPanel onChanged={() => { loadAll() }} />
                 )}
 
                 {/* Economy + endgame facility panels */}

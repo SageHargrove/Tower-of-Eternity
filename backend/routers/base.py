@@ -14,6 +14,7 @@ def get_base():
     from services.restaurant_service import process_restaurant
     from services.infirmary_service import process_infirmary
     from services.sanctum_service import process_tavern, process_shrine
+    from services.training_service import process_training
     from routers.gacha import maybe_reconcile_pending_profiles
     maybe_reconcile_pending_profiles()
     with db() as conn:
@@ -25,6 +26,7 @@ def get_base():
         process_infirmary(conn)
         process_tavern(conn)
         process_shrine(conn)
+        process_training(conn)
         row = conn.execute("SELECT * FROM base WHERE id = 1").fetchone()
         result = dict(row)
         # Locked once per profile on first load — a 50/50 roll that then
@@ -1082,6 +1084,35 @@ def spar_heroes(req: SparReq):
     with db() as conn:
         try:
             return spar(conn, req.hero_a_id, req.hero_b_id)
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+
+@router.get("/facilities/training")
+def training_status():
+    """Full Training Grounds state — assigned heroes, their regimens,
+    conditioning cap, and per-hero skills for the weapon-drill picker."""
+    from services.training_service import process_training, get_training_status
+    with db() as conn:
+        process_training(conn)  # settle any pending ticks before reporting
+        return get_training_status(conn)
+
+class RegimenReq(BaseModel):
+    hero_id: int
+    regimen: str | None = None
+    focus: str | None = None
+    intensity: str = "moderate"
+
+@router.post("/facilities/training/regimen")
+def set_training_regimen(req: RegimenReq):
+    """Set a Training-Grounds-assigned hero's solo drill (regimen), its focus
+    (stat for conditioning / skill id for weapon drills), and intensity."""
+    from services.training_service import set_regimen, process_training
+    with db() as conn:
+        try:
+            # Settle current regimen's gains first so switching mid-tick
+            # doesn't credit the new regimen for old elapsed time.
+            process_training(conn)
+            return set_regimen(conn, req.hero_id, req.regimen, req.focus, req.intensity)
         except ValueError as e:
             raise HTTPException(status_code=400, detail=str(e))
 

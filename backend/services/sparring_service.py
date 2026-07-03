@@ -43,6 +43,51 @@ def _training_level(conn) -> int:
     return row["level"] if row else 0
 
 
+def _build_bond(conn, hero_a_id: int, hero_b_id: int):
+    """Training together builds the same bond fighting together does. Bond
+    level is derived from floors_together + spar_sessions combined, so a
+    pair who spar often grow a real combat bond (see bonds_service /
+    get_team_bonds_multiplier). Returns the new integer bond level."""
+    a, b = min(hero_a_id, hero_b_id), max(hero_a_id, hero_b_id)
+    conn.execute("""
+        INSERT INTO hero_bonds (hero_a_id, hero_b_id, bond_level, floors_together, spar_sessions)
+        VALUES (?, ?, 0, 0, 1)
+        ON CONFLICT(hero_a_id, hero_b_id) DO UPDATE SET spar_sessions = spar_sessions + 1
+    """, (a, b))
+    row = conn.execute(
+        "SELECT floors_together, spar_sessions FROM hero_bonds WHERE hero_a_id = ? AND hero_b_id = ?",
+        (a, b),
+    ).fetchone()
+    new_level = int((row["floors_together"] + row["spar_sessions"]) / 5)
+    conn.execute(
+        "UPDATE hero_bonds SET bond_level = ? WHERE hero_a_id = ? AND hero_b_id = ?",
+        (new_level, a, b),
+    )
+    return new_level
+
+
+def _teach_skill(conn, mentor: dict, student: dict) -> str | None:
+    """A mentor may pass down one of their OWN skills the student doesn't yet
+    know — the "shape your roster's kit across generations" idea. 40% chance
+    per mentorship session. Returns the taught skill's name, or None."""
+    import random
+    if random.random() > 0.4:
+        return None
+    mentor_skills = json.loads(mentor.get("skills") or "[]")
+    student_skills = json.loads(student.get("skills") or "[]")
+    known = {s.get("name") for s in student_skills}
+    teachable = [s for s in mentor_skills if s.get("name") not in known]
+    if not teachable:
+        return None
+    taught = dict(random.choice(teachable))
+    taught["level"] = 1
+    taught["xp"] = 0
+    taught["max_xp"] = taught.get("max_xp", 100)
+    student_skills.append(taught)
+    conn.execute("UPDATE heroes SET skills = ? WHERE id = ?", (json.dumps(student_skills), student["id"]))
+    return taught["name"]
+
+
 def _bump_skill(hero_dict: dict, guaranteed: bool, chance: float = 0.6) -> str | None:
     """Level up one random skill on the hero (in-place on the dict's skills
     JSON). Returns the skill name if one leveled, else None. Caller persists."""
@@ -106,10 +151,16 @@ def spar(conn, hero_a_id: int, hero_b_id: int) -> dict:
             conn.execute("UPDATE heroes SET level = ? WHERE id = ?", (new_level, student["id"]))
             messages.extend(level_up_summary(old_level, new_level, student["name"]))
 
+        # The mentor may pass down one of their own skills (kit lineage).
+        taught = _teach_skill(conn, mentor, _hero(conn, student["id"]))
+        if taught:
+            messages.append(f"{mentor['name']} taught {student['name']} the ways of {taught}!")
+
         result["mode"] = "mentorship"
         result["mentor"] = mentor["name"]
         result["student"] = student["name"]
         result["xp_transferred"] = transfer
+        result["taught_skill"] = taught
         messages.insert(0, f"{mentor['name']} drilled {student['name']} hard — {transfer} XP transferred."
                           + (f" {student['name']}'s {skill_name} sharpened." if skill_name else ""))
     else:
@@ -137,6 +188,11 @@ def spar(conn, hero_a_id: int, hero_b_id: int) -> dict:
         result["mode"] = "peer"
         result["each_xp"] = each_xp
         messages.insert(0, f"{a['name']} and {b['name']} sparred to a standstill — {each_xp} XP each.")
+
+    # Time on the training floor together deepens their bond, win or lose.
+    new_bond = _build_bond(conn, hero_a_id, hero_b_id)
+    result["bond_level"] = new_bond
+    messages.append(f"{a['name']} and {b['name']} grow closer — Bond Lv.{new_bond}.")
 
     conn.execute("UPDATE heroes SET last_spar_time = ? WHERE id IN (?, ?)", (now, hero_a_id, hero_b_id))
     return result

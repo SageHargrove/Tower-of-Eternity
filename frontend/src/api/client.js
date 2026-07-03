@@ -104,6 +104,10 @@ export const grantResources = (gold = 0, gems = 0, ingredients = 0, aether = 0) 
 // Training Grounds sparring (peer + mentorship, auto-detected by level gap)
 export const sparHeroes = (heroAId, heroBId) => request('/base/facilities/spar', { method: 'POST', body: JSON.stringify({ hero_a_id: heroAId, hero_b_id: heroBId }) })
 
+// Training Grounds solo drills (regimens)
+export const getTrainingStatus = () => request('/base/facilities/training')
+export const setTrainingRegimen = (heroId, regimen, focus, intensity) => request('/base/facilities/training/regimen', { method: 'POST', body: JSON.stringify({ hero_id: heroId, regimen, focus, intensity }) })
+
 // Forge Recipe Book (blueprint recipes discovered in the Tower)
 export const getForgeRecipes = () => request('/forge/recipes')
 export const craftPremadeRecipe = (crafterId, recipeId) => request('/forge/craft/premade', { method: 'POST', body: JSON.stringify({ crafter_id: crafterId, recipe_id: recipeId }) })

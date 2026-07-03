@@ -82,7 +82,7 @@ def process_passive_generation(conn):
     if ticks <= 0:
         return
         
-    facilities = conn.execute("SELECT id, type, level FROM facilities WHERE type IN ('Market', 'Farm', 'Vault', 'Training Grounds', 'Skydock')").fetchall()
+    facilities = conn.execute("SELECT id, type, level FROM facilities WHERE type IN ('Market', 'Farm', 'Vault', 'Skydock')").fetchall()
 
     PREFERRED_CLASSES = {
         'Market': ('Merchant', 'Quartermaster'),
@@ -123,14 +123,9 @@ def process_passive_generation(conn):
             # path; raids should feel like an expedition you PROVISION for.
             base_amt = 2 * f["level"]
             aether_gen += int(base_amt * multiplier) * ticks
-        elif f["type"] == 'Training Grounds':
-            xp_per_tick = int(50 * f["level"] * multiplier)
-            training_heroes = conn.execute("""
-                SELECT fa.hero_id FROM facility_assignments fa
-                WHERE fa.facility_id = ? AND fa.hero_id IN (SELECT id FROM heroes WHERE is_alive = 1)
-            """, (f["id"],)).fetchall()
-            for h in training_heroes:
-                conn.execute("UPDATE heroes SET xp = COALESCE(xp, 0) + ? WHERE id = ?", (xp_per_tick * ticks, h["hero_id"]))
+        # Training Grounds XP is handled by services/training_service.py
+        # now (regimen-aware — flat XP is just the "focus" default), so it's
+        # no longer processed here to avoid double-ticking.
 
     if gold_gen > 0 or ingredients_gen > 0 or aether_gen > 0:
         conn.execute(

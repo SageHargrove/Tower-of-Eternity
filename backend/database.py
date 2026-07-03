@@ -806,6 +806,16 @@ WHERE NOT EXISTS (SELECT 1 FROM recipes WHERE name = 'Void Ring');
             ("mentored_count", "ALTER TABLE heroes ADD COLUMN mentored_count INTEGER DEFAULT 0"),
             # Sparring (Training Grounds) per-hero cooldown timestamp.
             ("last_spar_time", "ALTER TABLE heroes ADD COLUMN last_spar_time REAL DEFAULT 0"),
+            # Training Grounds solo-drill state (see services/training_service.py).
+            # regimen: which drill a TG-assigned hero is running; focus: the
+            # stat (conditioning) or skill id (weapon drill) it targets;
+            # intensity: light/moderate/intense (gain vs fatigue/stress trade);
+            # training_gains: cumulative base-stat points earned from drills,
+            # tracked so the per-stat cap (scales with TG level) is enforceable.
+            ("training_regimen", "ALTER TABLE heroes ADD COLUMN training_regimen TEXT"),
+            ("training_focus", "ALTER TABLE heroes ADD COLUMN training_focus TEXT"),
+            ("training_intensity", "ALTER TABLE heroes ADD COLUMN training_intensity TEXT DEFAULT 'moderate'"),
+            ("training_gains", "ALTER TABLE heroes ADD COLUMN training_gains TEXT DEFAULT '{}'"),
         ]
         for col, sql in migrations:
             if col not in existing:
@@ -833,5 +843,13 @@ WHERE NOT EXISTS (SELECT 1 FROM recipes WHERE name = 'Void Ring');
             if col not in existing_eq:
                 conn.execute(sql)
                 print(f"[DB] Migrated: added column 'equipment.{col}'")
+
+        # hero_bonds.spar_sessions: sparring/training together builds the same
+        # bond as fighting together (see sparring_service). Bond level is now
+        # derived from floors_together + spar_sessions combined.
+        existing_hb = [r[1] for r in conn.execute("PRAGMA table_info(hero_bonds)").fetchall()]
+        if "spar_sessions" not in existing_hb:
+            conn.execute("ALTER TABLE hero_bonds ADD COLUMN spar_sessions INTEGER DEFAULT 0")
+            print("[DB] Migrated: added column 'hero_bonds.spar_sessions'")
 
     print("Database initialized.")

@@ -678,12 +678,16 @@ def enter_floor(req: EnterFloorRequest):
             for i in range(len(surviving_ids)):
                 for j in range(i + 1, len(surviving_ids)):
                     a, b = min(surviving_ids[i], surviving_ids[j]), max(surviving_ids[i], surviving_ids[j])
+                    # Bond level combines time fought together AND time trained
+                    # together (spar_sessions) — sparring bonds must survive the
+                    # next shared fight instead of being overwritten. COALESCE
+                    # guards rows created before the spar_sessions column existed.
                     conn.execute("""
-                        INSERT INTO hero_bonds (hero_a_id, hero_b_id, bond_level, floors_together)
-                        VALUES (?, ?, 1, 1)
+                        INSERT INTO hero_bonds (hero_a_id, hero_b_id, bond_level, floors_together, spar_sessions)
+                        VALUES (?, ?, 0, 1, 0)
                         ON CONFLICT(hero_a_id, hero_b_id) DO UPDATE SET
                             floors_together = floors_together + 1,
-                            bond_level = floors_together / 5
+                            bond_level = (floors_together + 1 + COALESCE(spar_sessions, 0)) / 5
                     """, (a, b))
 
         # Between-floor recovery applied immediately since we return to base
