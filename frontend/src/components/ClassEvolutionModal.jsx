@@ -5,11 +5,11 @@ import { alertDialog } from './DialogHost'
 
 const CLASS_LORE = {
   // Support Base Classes
-  "Farmer": { desc: "Tends to the crops, providing steady supplies for the base.", team: "Non-combatant. Keep in the Farm." },
+  "Farmer": { desc: "Tends to the crops, growing a steady stream of ingredients for the base.", team: "Non-combatant. Keep in the Farm." },
   "Master Farmer": { desc: "An expert in agriculture. Harvests bountiful crops with unmatched efficiency.", team: "Non-combatant. Keep in the Farm." },
   "Harvest Lord": { desc: "Commands the very earth to yield its fruits. The pinnacle of agriculture.", team: "Non-combatant. Keep in the Farm." },
   "Nature's Chosen": { desc: "One with the flora. Plants grow instantly at their touch.", team: "Non-combatant. Keep in the Farm." },
-  "Beast Tamer": { desc: "Tames wild beasts to plow fields rapidly, but can also bring them to battle.", team: "Hybrid. Generates supplies, or fights alongside a summoned beast." },
+  "Beast Tamer": { desc: "Tames wild beasts to plow fields rapidly, but can also bring them to battle.", team: "Hybrid. Works the Farm, or fights alongside a summoned beast." },
   "Apex Predator": { desc: "Commands the most terrifying monsters of the tower.", team: "Combat Summoner. Overwhelms enemies with beastly companions." },
   "Wild Master": { desc: "A harmonious bond with nature allows for incredible utility and damage.", team: "Hybrid Support/DPS." },
   "Merchant": { desc: "A shrewd trader who generates gold for the base.", team: "Non-combatant. Keep in the Market." },
