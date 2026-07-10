@@ -23,3 +23,24 @@ def claim(req: ClaimRequest):
     if "error" in result:
         raise HTTPException(status_code=400, detail=result["error"])
     return result
+
+
+# ─── Daily & Weekly Rites (the DAILIES / WEEKLIES tabs) ──────────────
+
+@router.get("/rites")
+def get_rites():
+    from services.quests_service import rites
+    return rites()
+
+
+class RiteClaimRequest(BaseModel):
+    quest_id: str
+
+
+@router.post("/rites/claim")
+def claim_rite(req: RiteClaimRequest):
+    from services.quests_service import claim as claim_quest
+    try:
+        return claim_quest(req.quest_id)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))

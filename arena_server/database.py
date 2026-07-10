@@ -75,6 +75,74 @@ def init_db():
             gem_cost INTEGER NOT NULL,
             listed_at REAL NOT NULL
         );
+
+        -- ─── Raids (PvP base sieges) ──────────────────────────────
+        -- One row per resolved siege. capture_candidates_json holds the
+        -- losing side's roster snapshot; the victor gets one claim
+        -- (prisoner_json) — see /arena/raid/claim_prisoner.
+        CREATE TABLE IF NOT EXISTS raids (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            attacker TEXT NOT NULL,
+            defender TEXT NOT NULL,
+            winner TEXT NOT NULL,
+            spoils_json TEXT,
+            capture_candidates_json TEXT,
+            prisoner_json TEXT,
+            prisoner_claimed INTEGER DEFAULT 0,
+            log_json TEXT,
+            timestamp REAL NOT NULL
+        );
+
+        -- Per-player raid inbox: the other side of a siege learns what
+        -- happened to them (resources lost, hero captured) the next time
+        -- their client polls /arena/raid/events and applies it locally.
+        CREATE TABLE IF NOT EXISTS raid_events (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            event_type TEXT NOT NULL,
+            payload_json TEXT NOT NULL,
+            seen INTEGER DEFAULT 0,
+            created_at REAL NOT NULL
+        );
+
+        -- ─── Server-wide tournaments ──────────────────────────────
+        CREATE TABLE IF NOT EXISTS tournament_entries (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            week_key TEXT NOT NULL,
+            format TEXT NOT NULL,
+            username TEXT NOT NULL,
+            team_json TEXT NOT NULL,
+            points INTEGER DEFAULT 0,
+            wins INTEGER DEFAULT 0,
+            losses INTEGER DEFAULT 0,
+            placement INTEGER,
+            paid_out INTEGER DEFAULT 0,
+            registered_at REAL NOT NULL,
+            UNIQUE(week_key, format, username)
+        );
+
+        CREATE TABLE IF NOT EXISTS tournament_matches (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            week_key TEXT NOT NULL,
+            format TEXT NOT NULL,
+            round INTEGER NOT NULL,
+            player1 TEXT NOT NULL,
+            player2 TEXT,
+            winner TEXT,
+            log_json TEXT,
+            timestamp REAL NOT NULL
+        );
+
+        -- Tracks which (week, format) brackets have already been resolved /
+        -- paid so lazy resolution stays idempotent.
+        CREATE TABLE IF NOT EXISTS tournament_state (
+            week_key TEXT NOT NULL,
+            format TEXT NOT NULL,
+            resolved INTEGER DEFAULT 0,
+            paid_out INTEGER DEFAULT 0,
+            resolved_at REAL,
+            PRIMARY KEY (week_key, format)
+        );
     """)
 
     # Attempt to add highest_floor column if it doesn't exist (for existing DBs)
@@ -87,6 +155,29 @@ def init_db():
         conn.execute("ALTER TABLE arena_players ADD COLUMN elo INTEGER DEFAULT 1000")
     except sqlite3.OperationalError:
         pass # Column already exists
+
+    # Raid opt-in + world-map placement + the defense snapshot the client
+    # submits (base defense ratings, defending team, lootable resources).
+    for col, ddl in (
+        ("is_raider", "INTEGER DEFAULT 0"),
+        ("coord_x", "INTEGER"),
+        ("coord_y", "INTEGER"),
+        ("defense_json", "TEXT"),
+        ("defense_updated_at", "REAL"),
+        ("last_raided_at", "REAL"),   # raid shield: recently-hit bases can't be immediately re-hit
+        ("raid_wins", "INTEGER DEFAULT 0"),
+        ("raid_losses", "INTEGER DEFAULT 0"),
+        ("defense_wins", "INTEGER DEFAULT 0"),
+        ("defense_losses", "INTEGER DEFAULT 0"),
+        # The player's standard (cloth/cut/frame/sigil/emblem JSON from the
+        # local Banner Studio) — carried so opponents see your banner on
+        # leaderboards and the raid map.
+        ("banner_json", "TEXT"),
+    ):
+        try:
+            conn.execute(f"ALTER TABLE arena_players ADD COLUMN {col} {ddl}")
+        except sqlite3.OperationalError:
+            pass # Column already exists
     conn.commit()
     conn.close()
     print("[Arena] Database initialized.")

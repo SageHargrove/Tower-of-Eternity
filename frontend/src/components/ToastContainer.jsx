@@ -52,7 +52,12 @@ export default function ToastContainer() {
               {t.title}
             </div>
           )}
-          {t.lines.map((line, i) => (
+          {/* simple string-message toasts */}
+          {t.message && (
+            <div style={{ fontSize: '0.9rem', color: 'var(--text-hi)' }}>{t.message}</div>
+          )}
+          {/* structured reward toasts */}
+          {(t.lines || []).map((line, i) => (
             <div key={i} style={{ display: 'flex', justifyContent: 'space-between', gap: '1.5rem', fontSize: '0.9rem' }}>
               <span style={{ color: 'var(--text-hi)' }}>{line.label}</span>
               <span style={{ color: line.color || 'var(--gold)', fontWeight: 'bold', fontFamily: 'Cinzel, serif' }}>{line.value}</span>

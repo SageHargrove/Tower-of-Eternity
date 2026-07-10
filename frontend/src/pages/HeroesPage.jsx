@@ -1,14 +1,16 @@
 import React, { useState, useEffect } from 'react'
 import { listHeroes, setTeam, removeHeroFromTeam, reorderTeam, dismissHero, dismissHeroesBulk, synthesizeHero, ascendHero, getAscensionInfo, promoteHero, getEvolutionInfo, regeneratePortraits, evolveHero, listEquipment, equipItem, unequipItem, autoEquipHero, unequipAllHero, egoAutoTeam, getEgoRecommendation, assignTeamLeader, getBonds, equipConsumable, getInventory, getBase, toggleFavorite } from '../api/client'
 import { emitToast } from '../toastBus'
-import HeroCard from '../components/HeroCard'
+import { CLASS_FAMILIES, FRONTLINE_FAMILIES } from '../components/HeroCard'
+import HeroDetail from '../components/HeroDetail'
 import ClassEvolutionModal from '../components/ClassEvolutionModal'
 import { HeroCompareModal, TeamCompareModal } from '../components/CompareModal'
 import { confirmDialog } from '../components/DialogHost'
 import SynthesisChamber from '../components/SynthesisChamber'
 import GiftModal from '../components/GiftModal'
-import { GiftIcon, HeartIcon } from '../components/ActionIcons'
+import { HeartIcon } from '../components/ActionIcons'
 import GameIcon from '../components/GameIcon'
+import Sigil from '../components/Sigil'
 
 // Small % rolls are real now (a D-tier ring's 1.4% crit matters at that
 // level) — toFixed(0) rendered anything under 0.5% as a nonsense "+0%",
@@ -38,19 +40,148 @@ function formatEquipmentStats(eq) {
   return parts.length ? parts.join(' ') : 'No bonus stats'
 }
 
-export default function HeroesPage() {
+// ── Squad Overview spec vocabulary ─────────────────────────────────────────
+const ROMAN = { 1: 'I', 2: 'II', 3: 'III', 4: 'IV', 5: 'V' }
+
+// Teams carry NAMES (the mock's "TEAM · ECHO") — renameable, kept per
+// browser until teams live server-side. Defaults are the design's cadence.
+const DEFAULT_TEAM_NAMES = { 1: 'ECHO', 2: 'EMBER', 3: 'ONYX', 4: 'GALE', 5: 'VOW' }
+function loadTeamNames() {
+  try { return { ...DEFAULT_TEAM_NAMES, ...JSON.parse(localStorage.getItem('toe_team_names') || '{}') } }
+  catch { return { ...DEFAULT_TEAM_NAMES } }
+}
+const RANK_LETTER = ['', 'E', 'D', 'C', 'B', 'A', 'S', 'SS']
+// Star rarity accents from the mockup: 1 gray → 6 red; 7★ renders rainbow.
+const STAR_ACCENT = { 1: '#9aa0ad', 2: '#8fbf9f', 3: '#1e90ff', 4: '#b84dff', 5: '#ffb300', 6: '#ff3333', 7: '#e0aaff' }
+
+function familyOf(cls) {
+  for (const [fam, d] of Object.entries(CLASS_FAMILIES)) if (d.members.includes(cls)) return fam
+  return 'Classless'
+}
+function sigilNameOf(cls) {
+  const fam = familyOf(cls)
+  return fam === 'Magic Engineer' ? 'M_ENGINEER' : fam.toUpperCase().replace(/ /g, '_')
+}
+
+function StarSpan({ count, size = 10 }) {
+  if (count >= 7) {
+    return <span className="rainbow-text" style={{ fontSize: size, letterSpacing: '.12em' }}>★★★★★★★</span>
+  }
+  const accent = STAR_ACCENT[count] || '#9aa0ad'
+  return (
+    <span style={{ fontSize: size }}>
+      <span style={{ color: accent, textShadow: `0 0 5px ${accent}99`, letterSpacing: '.12em' }}>{'★'.repeat(count)}</span>
+      <span style={{ color: '#453c5c', letterSpacing: '.12em' }}>{'★'.repeat(Math.max(0, 7 - count))}</span>
+    </span>
+  )
+}
+
+// Rotated-diamond portrait (the mockup's roster monogram) that prefers the
+// hero's own art: backend composite → raw portrait → accent monogram.
+function DiamondArt({ hero, size = 38 }) {
+  const [stage, setStage] = useState(0)
+  const star = hero.current_star || hero.birth_star || 1
+  const accent = STAR_ACCENT[Math.min(star, 7)] || '#9aa0ad'
+  const hasArt = hero.portrait_path && !hero.portrait_path.includes('default_')
+  return (
+    <span style={{
+      position: 'relative', width: size, height: size, transform: 'rotate(45deg)', flex: 'none',
+      border: `1px solid ${accent}`, background: 'linear-gradient(135deg,#1c1030,#0c0718)',
+      display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 0 8px rgba(0,0,0,.4)', overflow: 'hidden',
+    }}>
+      {hasArt && stage < 2 ? (
+        <img
+          src={stage === 0 ? `/heroes/${hero.id}/card-image?mini=1` : `/${hero.portrait_path}`}
+          alt={hero.name} draggable={false} onError={() => setStage(s => s + 1)}
+          style={{ width: '142%', height: '142%', objectFit: 'cover', transform: 'rotate(-45deg)', flex: 'none' }}
+        />
+      ) : (
+        <span style={{ transform: 'rotate(-45deg)', fontFamily: "'Cinzel',serif", fontWeight: 700, fontSize: Math.round(size * 0.34), color: accent }}>
+          {(hero.name || '?')[0]}
+        </span>
+      )}
+    </span>
+  )
+}
+
+// Rectangular art for the party cards. Uses the RAW portrait only — NEVER the
+// backend card-image, which is a fully composited card (frame + name + stars +
+// class all baked in). Rendering that composite behind our own name plate/stars
+// double-stamped everything and, at panel size, overflowed the screen (the
+// "INCREDIBLY wrong" leader card). Raw portrait → class-icon fallback.
+function PanelArt({ hero, style }) {
+  const [failed, setFailed] = useState(false)
+  const hasArt = hero.portrait_path && !hero.portrait_path.includes('default_')
+  if (!hasArt || failed) {
+    return (
+      <div style={{ ...style, display: 'flex', alignItems: 'center', justifyContent: 'center', opacity: .3 }}>
+        <Sigil set="class-base" name={sigilNameOf(hero.hero_class)} size={52} color="var(--lavender)"
+          fallback={<GameIcon name="class_warrior" size={44} />} />
+      </div>
+    )
+  }
+  return (
+    <img
+      src={`/${hero.portrait_path}`}
+      alt={hero.name} draggable={false} onError={() => setFailed(true)}
+      style={{ objectFit: 'cover', ...style }}
+    />
+  )
+}
+
+// A hero's rough power score — used for the team summary strip (mock: "POWER
+// 21,430"). Cheap sum of the seven plus a level weight; not combat-exact,
+// just a single legible number that grows sensibly.
+function heroPower(h) {
+  const stats = (h.strength || 0) + (h.intelligence || 0) + (h.endurance || 0) + (h.agility || 0) + (h.willpower || 0) + (h.luck || 0)
+  return Math.round((h.level || 1) * 40 + stats * 12 + (h.max_health || 0) * 1.5)
+}
+
+const chipStyle = (color, border) => ({
+  cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 7,
+  fontFamily: "'Cinzel',serif", fontSize: 9, letterSpacing: '.16em',
+  color, border: `1px solid ${border}`, background: 'none', padding: '5px 12px',
+})
+const menuItemStyle = (active) => ({
+  cursor: 'pointer', fontFamily: "'Cinzel',serif", letterSpacing: '.14em', fontSize: 9,
+  padding: '8px 14px', color: active ? '#ffd88a' : '#c9bfa8',
+  background: active ? 'rgba(184,151,98,.12)' : 'transparent',
+  borderBottom: '1px solid rgba(184,151,98,.12)', whiteSpace: 'nowrap',
+})
+
+const FILTERS = [
+  ['ALL', 'ALL HEROES'],
+  ['DEPLOYED', 'DEPLOYED'],
+  ['AVAILABLE', 'AVAILABLE'],
+  ['R5', '5★ AND UP'],
+  ['R4', '4★ AND UP'],
+  ['MELEE', 'MELEE (STR)'],
+  ['RANGED', 'RANGED / ARCANE'],
+]
+const SORTS = [['rarity', 'RARITY'], ['level', 'LEVEL'], ['name', 'A–Z']]
+
+export default function HeroesPage({ onNavigate }) {
   const [heroes, setHeroes] = useState([])
   const [selected, setSelected] = useState(new Set())
-  const [activeTab, setActiveTab] = useState('all') // 'all' | 'favorites' | 1 | 2 | ... | 10
-  // Team tabs get drag-reorder, frontline badges, and leader crowns;
-  // 'all' and 'favorites' are plain roster views.
+  const [activeTab, setActiveTab] = useState('all') // 'all' | 'favorites' | 1 | 2 | ... | 5
   const isTeamTab = typeof activeTab === 'number'
   const [assignTargetTeam, setAssignTargetTeam] = useState(1)
   const [searchQuery, setSearchQuery] = useState('')
-  
-  const [starFilter, setStarFilter] = useState('any')
-  const [classFilter, setClassFilter] = useState('any')
-  const [sortBy, setSortBy] = useState('level')
+
+  const [teamNames, setTeamNames] = useState(loadTeamNames)
+  function renameTeam(id) {
+    const next = window.prompt('Name this team', teamNames[id] || '')
+    if (next == null || !next.trim()) return
+    const updated = { ...teamNames, [id]: next.trim().toUpperCase().slice(0, 14) }
+    setTeamNames(updated)
+    try { localStorage.setItem('toe_team_names', JSON.stringify(updated)) } catch {}
+  }
+
+  const [filterBy, setFilterBy] = useState('ALL')
+  const [sortBy, setSortBy] = useState('rarity')
+  const [sortOpen, setSortOpen] = useState(false)
+  const [filterOpen, setFilterOpen] = useState(false)
+  const [assignOpen, setAssignOpen] = useState(false)
 
   const [expandedId, setExpandedId] = useState(null)
   const [saving, setSaving] = useState(false)
@@ -62,26 +193,16 @@ export default function HeroesPage() {
   const [consModal, setConsModal] = useState(null)
   const [consOptions, setConsOptions] = useState([])
 
-  // Synthesis state — synthChamberOpen drives the new full-screen chamber;
-  // the older in-grid synthMode plumbing below is retained but no longer
-  // has an entry point.
   const [synthChamberOpen, setSynthChamberOpen] = useState(false)
   const [giftHero, setGiftHero] = useState(null)
-  const [synthMode, setSynthMode] = useState(false)
-  const [synthTarget, setSynthTarget] = useState(null)
-  const [synthSacrifice, setSynthSacrifice] = useState(null)
-  const [synthResult, setSynthResult] = useState(null)
-  const [synthesizing, setSynthesizing] = useState(false)
 
   // Ascension & Promotion state
   const [ascending, setAscending] = useState(false)
   const [promoting, setPromoting] = useState(false)
   const [evolving, setEvolving] = useState(false)
 
-  // Comparison — reuses the existing `selected` checkbox set for Hero vs
-  // Hero (no separate selection mode to learn); Team vs Team is a
-  // standalone picker since it compares whole rosters, not individual
-  // hero checkboxes.
+  // Comparison — reuses the `selected` checkbox set for Hero vs Hero;
+  // Team vs Team is a standalone picker since it compares whole rosters.
   const [compareHeroesOpen, setCompareHeroesOpen] = useState(false)
   const [compareTeamsOpen, setCompareTeamsOpen] = useState(false)
   const [compareTeamsResultOpen, setCompareTeamsResultOpen] = useState(false)
@@ -93,10 +214,9 @@ export default function HeroesPage() {
   async function load() {
     const data = await listHeroes(true)
     try {
-      // Attach each hero's own bonds so HeroCard's heart-icon tooltip (and the
-      // bond-driven combat stat boost — 1% per total bond level shared with
-      // current teammates, see bonds_service.py) can actually show real data
-      // instead of an always-undefined hero.bonds.
+      // Attach each hero's own bonds so the bond-driven combat stat boost
+      // (1% per total bond level shared with current teammates, see
+      // bonds_service.py) can show real data in the detail view.
       const allBonds = await getBonds()
       data.forEach(h => {
         h.bonds = allBonds.filter(b => b.hero_a_id === h.id || b.hero_b_id === h.id)
@@ -130,21 +250,21 @@ export default function HeroesPage() {
     setMsg(null)
   }
 
-  async function saveTeamFromAll() {
+  async function saveTeamFromAll(team = assignTargetTeam) {
     setSaving(true)
     try {
-      const currentTeam = heroes.filter(h => h.is_on_team === assignTargetTeam).map(h => h.id)
+      const currentTeam = heroes.filter(h => h.is_on_team === team).map(h => h.id)
       const toAdd = Array.from(selected).filter(id => !currentTeam.includes(id))
       const nextTeam = [...currentTeam, ...toAdd]
-      
+
       if (nextTeam.length > 5) {
-        setMsg(`Cannot assign. Team ${assignTargetTeam} would exceed 5 heroes (currently ${currentTeam.length}, adding ${toAdd.length}).`)
+        setMsg(`Cannot assign. Team ${team} would exceed 5 heroes (currently ${currentTeam.length}, adding ${toAdd.length}).`)
         setSaving(false)
         return
       }
-      
-      await setTeam(assignTargetTeam, nextTeam)
-      setMsg(`Added ${toAdd.length} heroes to Team ${assignTargetTeam}.`)
+
+      await setTeam(team, nextTeam)
+      setMsg(`Added ${toAdd.length} heroes to Team ${team}.`)
       setSelected(new Set())
       await load()
     } catch (e) {
@@ -159,7 +279,7 @@ export default function HeroesPage() {
     try {
       const currentTeam = heroes.filter(h => h.is_on_team === activeTab).map(h => h.id)
       const nextTeam = currentTeam.filter(id => !selected.has(id))
-      
+
       await setTeam(activeTab, nextTeam)
       setMsg(`Removed ${selected.size} heroes from Team ${activeTab}.`)
       setSelected(new Set())
@@ -188,28 +308,13 @@ export default function HeroesPage() {
     }
   }
 
-  async function handleDismiss(id, e) {
-    e.stopPropagation()
-    if (!(await confirmDialog('Dismiss this hero permanently?'))) return
-    try {
-      await dismissHero(id)
-      setSelected(prev => { const n = new Set(prev); n.delete(id); return n })
-      setMsg('Hero dismissed.')
-      load()
-    } catch (err) {
-      setMsg(`Failed to dismiss: ${err.message}`)
-      console.error('Dismiss failed:', err)
-    }
-  }
-
   // --- Dismiss Selected ---
   async function handleDismissSelected() {
     if (selected.size === 0) return
-    
-    // Check for high rank heroes
+
     const selectedHeroes = heroes.filter(h => selected.has(h.id))
     const highestStar = Math.max(...selectedHeroes.map(h => h.current_star || h.birth_star))
-    
+
     if (highestStar >= 6) {
       if (!(await confirmDialog(`CRITICAL WARNING: You have selected a ${highestStar}★ hero for dismissal! This action is PERMANENT. Are you absolutely sure?`))) return
     } else if (highestStar >= 4) {
@@ -217,7 +322,7 @@ export default function HeroesPage() {
     } else {
       if (!(await confirmDialog(`Dismiss ${selected.size} selected heroes permanently?`))) return
     }
-    
+
     setSaving(true)
     try {
       const res = await dismissHeroesBulk(selectedHeroes.map(h => h.id))
@@ -235,10 +340,9 @@ export default function HeroesPage() {
   // --- Dismiss Filtered ---
   async function handleDismissFiltered() {
     if (displayHeroes.length === 0) return
-    
-    // Check for high rank heroes
+
     const highestStar = Math.max(...displayHeroes.map(h => h.current_star || h.birth_star))
-    
+
     if (highestStar >= 6) {
       if (!(await confirmDialog(`CRITICAL WARNING: The current filter includes a ${highestStar}★ hero! This action will dismiss ALL ${displayHeroes.length} heroes displayed. This is PERMANENT. Are you absolutely sure?`))) return
     } else if (highestStar >= 4) {
@@ -246,7 +350,7 @@ export default function HeroesPage() {
     } else {
       if (!(await confirmDialog(`Dismiss ALL ${displayHeroes.length} currently displayed heroes permanently?`))) return
     }
-    
+
     setSaving(true)
     try {
       const res = await dismissHeroesBulk(displayHeroes.map(h => h.id))
@@ -258,68 +362,6 @@ export default function HeroesPage() {
       console.error(e)
     } finally {
       setSaving(false)
-    }
-  }
-
-  // --- Clear portrait cache ---
-  async function handleClearCache() {
-    if (!(await confirmDialog('Clear all cached portraits? New ones will regenerate automatically.'))) return
-    try {
-      const result = await regeneratePortraits()
-      setMsg(result.message || 'Portrait cache cleared.')
-    } catch (e) {
-      setMsg(e.message)
-    }
-  }
-
-  // --- Synthesis ---
-  function enterSynthMode() {
-    setSynthMode(true)
-    setSynthTarget(null)
-    setSynthSacrifice(null)
-    setSynthResult(null)
-    setExpandedId(null)
-    setMsg(null)
-  }
-
-  function exitSynthMode() {
-    setSynthMode(false)
-    setSynthTarget(null)
-    setSynthSacrifice(null)
-    setSynthResult(null)
-  }
-
-  function handleSynthClick(heroId) {
-    if (!synthTarget) {
-      setSynthTarget(heroId)
-      setSynthSacrifice(null)
-    } else if (heroId === synthTarget) {
-      setSynthTarget(null)
-      setSynthSacrifice(null)
-    } else if (!synthSacrifice) {
-      setSynthSacrifice(heroId)
-    } else if (heroId === synthSacrifice) {
-      setSynthSacrifice(null)
-    } else {
-      setSynthSacrifice(heroId)
-    }
-  }
-
-  async function executeSynthesis() {
-    if (!synthTarget || !synthSacrifice) return
-    setSynthesizing(true)
-    setSynthResult(null)
-    try {
-      const result = await synthesizeHero(synthTarget, synthSacrifice)
-      setSynthResult(result)
-      setMsg(`Synthesis complete! ${result.message || ''}`)
-      setSynthTarget(null)
-      setSynthSacrifice(null)
-      await load()
-    } catch (e) {
-      setMsg(e.message)
-    } finally {
-      setSynthesizing(false)
     }
   }
 
@@ -351,8 +393,6 @@ export default function HeroesPage() {
     }
   }
 
-
-
   // --- Promotion (Evolution) ---
   async function handlePromote(heroId, e) {
     e.stopPropagation()
@@ -368,6 +408,9 @@ export default function HeroesPage() {
     try {
       const result = await promoteHero(heroId)
       setMsg(result.message || 'Evolution successful!')
+      // A star rose — a new Chronicle passage unseals (see HeroDetail).
+      const promoted = heroes.find(x => x.id === heroId)
+      if (promoted) emitToast(`A memory returns to ${promoted.name} — a new Chronicle passage is revealed.`, 'success')
       await load()
     } catch (e) {
       setMsg(e.message)
@@ -377,7 +420,7 @@ export default function HeroesPage() {
   }
 
   async function handleAssignLeader(heroId, e) {
-    e.stopPropagation()
+    if (e) e.stopPropagation()
     try {
       const result = await assignTeamLeader(heroId)
       setMsg(result.message || '')
@@ -387,24 +430,25 @@ export default function HeroesPage() {
     }
   }
 
-  // --- Drag and Drop ---
+  // --- Drag and Drop (team tabs reorder frontline/backline) ---
   const [draggedHeroId, setDraggedHeroId] = useState(null)
   const [dragOverHeroId, setDragOverHeroId] = useState(null)
+  const [dragOverLeader, setDragOverLeader] = useState(false)
 
   function handleDragStart(e, heroId) {
-    if (!isTeamTab || synthMode) return;
+    if (!isTeamTab) return;
     setDraggedHeroId(heroId);
   }
 
   function handleDragOver(e, heroId) {
     e.preventDefault();
-    if (!isTeamTab || synthMode || heroId === draggedHeroId) return;
+    if (!isTeamTab || heroId === draggedHeroId) return;
     setDragOverHeroId(heroId);
   }
 
   async function handleDrop(e, targetHeroId) {
     e.preventDefault();
-    if (!isTeamTab || synthMode) return;
+    if (!isTeamTab) return;
     if (draggedHeroId && draggedHeroId !== targetHeroId) {
       const currentTeam = [...displayHeroes];
       const draggedIdx = currentTeam.findIndex(h => h.id === draggedHeroId);
@@ -412,7 +456,7 @@ export default function HeroesPage() {
       const [dragged] = currentTeam.splice(draggedIdx, 1);
       currentTeam.splice(targetIdx, 0, dragged);
       const newIds = currentTeam.map(h => h.id);
-      
+
       try {
         await reorderTeam(activeTab, newIds);
         await load();
@@ -424,27 +468,10 @@ export default function HeroesPage() {
     setDragOverHeroId(null);
   }
 
-
-  // --- Evolution ---
-  async function handleEvolve(heroId, targetClass, e) {
-    e.stopPropagation()
-    if (!(await confirmDialog(`Evolve to ${targetClass}? This change is permanent!`))) return
-    setEvolving(true)
-    try {
-      const result = await evolveHero(heroId, targetClass)
-      setMsg(`Hero evolved to ${result.new_class}!`)
-      await load()
-    } catch (e) {
-      setMsg(e.message)
-    } finally {
-      setEvolving(false)
-    }
-  }
-
   const STAR_CAPS = { 1: 10, 2: 20, 3: 40, 4: 60, 5: 80, 6: 99, 7: 120 }
 
   const baseHeroes = heroes.filter(h => h.is_alive)
-  
+
   // Filter by Tab
   let displayHeroes = baseHeroes
   if (isTeamTab) {
@@ -452,19 +479,21 @@ export default function HeroesPage() {
   } else if (activeTab === 'favorites') {
     displayHeroes = displayHeroes.filter(h => h.is_favorite)
   }
-  
-  // Apply visual filters
-  if (starFilter !== 'any') {
-    displayHeroes = displayHeroes.filter(h => (h.current_star || h.birth_star) === Number(starFilter))
-  }
-  if (classFilter !== 'any') {
-    displayHeroes = displayHeroes.filter(h => h.hero_class === classFilter)
+
+  // Spec filter menu: DEPLOYED / AVAILABLE / rarity floors / MELEE / RANGED
+  if (!isTeamTab) {
+    if (filterBy === 'DEPLOYED') displayHeroes = displayHeroes.filter(h => h.is_on_team > 0)
+    else if (filterBy === 'AVAILABLE') displayHeroes = displayHeroes.filter(h => !h.is_on_team)
+    else if (filterBy === 'R5') displayHeroes = displayHeroes.filter(h => (h.current_star || h.birth_star) >= 5)
+    else if (filterBy === 'R4') displayHeroes = displayHeroes.filter(h => (h.current_star || h.birth_star) >= 4)
+    else if (filterBy === 'MELEE') displayHeroes = displayHeroes.filter(h => FRONTLINE_FAMILIES.includes(familyOf(h.hero_class)))
+    else if (filterBy === 'RANGED') displayHeroes = displayHeroes.filter(h => !FRONTLINE_FAMILIES.includes(familyOf(h.hero_class)))
   }
 
   if (searchQuery.trim()) {
     const q = searchQuery.toLowerCase()
-    displayHeroes = displayHeroes.filter(h => 
-      h.name.toLowerCase().includes(q) || 
+    displayHeroes = displayHeroes.filter(h =>
+      h.name.toLowerCase().includes(q) ||
       h.hero_class.toLowerCase().includes(q) ||
       (h.synergy_group && h.synergy_group.toLowerCase().includes(q))
     )
@@ -475,25 +504,13 @@ export default function HeroesPage() {
     displayHeroes.sort((a, b) => (a.team_position || 0) - (b.team_position || 0))
   } else {
     displayHeroes.sort((a, b) => {
+      if (sortBy === 'rarity') return ((b.current_star || b.birth_star) - (a.current_star || a.birth_star)) || (b.level - a.level)
       if (sortBy === 'level') return b.level - a.level
-      if (sortBy === 'rarity') return (b.current_star || b.birth_star) - (a.current_star || a.birth_star)
       if (sortBy === 'name') return a.name.localeCompare(b.name)
       return 0
     })
   }
 
-  const unknownCount = heroes.filter(h => h.is_alive && (h.name || '').startsWith('Unknown')).length
-
-  function getSynthBorderStyle(heroId) {
-    if (!synthMode) return {}
-    if (heroId === synthTarget) {
-      return { outline: '2px solid var(--gold)', outlineOffset: '-2px', boxShadow: '0 0 12px rgba(201,168,76,0.4)' }
-    }
-    if (heroId === synthSacrifice) {
-      return { outline: '2px solid var(--red)', outlineOffset: '-2px', boxShadow: '0 0 12px rgba(192,64,64,0.4)' }
-    }
-    return {}
-  }
   async function handleToggleFavorite(heroId, e) {
     e.stopPropagation()
     // Optimistic flip — the roster reload would make the heart feel laggy.
@@ -501,191 +518,460 @@ export default function HeroesPage() {
     try { await toggleFavorite(heroId) } catch { load() }
   }
 
-  const renderHeroCard = (hero, index) => {
+  // ── Compact roster row-card (the mockup's 4-column list tile) ────────────
+  function renderRosterRow(hero) {
+    const star = hero.current_star || hero.birth_star || 1
+    const accent = STAR_ACCENT[Math.min(star, 7)] || '#9aa0ad'
+    const sel = selected.has(hero.id)
+    const deployed = hero.is_on_team > 0
+
     return (
       <div key={hero.id}
-           style={{
-             position: 'relative',
-             width: isTeamTab ? '260px' : '220px',
-             height: '100%',
-             display: 'flex',
-             flexDirection: 'column',
-             ...getSynthBorderStyle(hero.id),
-             borderRadius: 6,
-             cursor: isTeamTab && !synthMode && hero.condition !== 'Retired' ? 'grab' : 'pointer',
-             opacity: hero.is_alive ? 1 : 0.6,
-             filter: synthMode && !selectedForSynth.includes(hero.id) && !hero.is_on_team && hero.birth_star !== 7 ? 'grayscale(0.6)' : 'none',
-             transform: dragOverHeroId === hero.id ? 'scale(1.05)' : 'scale(1)',
-             transition: 'transform 0.1s ease',
-             boxShadow: dragOverHeroId === hero.id ? '0 0 15px rgba(200,160,48,0.8)' : 'none'
-           }}
-           draggable={isTeamTab && !synthMode && hero.condition !== 'Retired'}
-           onDragStart={(e) => handleDragStart(e, hero.id)}
-           onDragOver={(e) => handleDragOver(e, hero.id)}
-           onDrop={(e) => handleDrop(e, hero.id)}
-           onDragEnd={() => { setDraggedHeroId(null); setDragOverHeroId(null); }}
-      >
-        {isTeamTab && (
-          <div style={{
-            position: 'absolute', top: -10, left: '50%', transform: 'translateX(-50%)',
-            background: index < 2 ? 'rgba(201, 168, 76, 0.9)' : 'rgba(74, 154, 106, 0.9)',
-            color: index < 2 ? '#000' : '#fff',
-            padding: '2px 8px', borderRadius: 12, fontSize: '0.7rem',
-            fontFamily: 'Cinzel, serif', fontWeight: 'bold', zIndex: 10,
-            boxShadow: '0 2px 4px rgba(0,0,0,0.5)'
-          }}>
-            {index < 2 ? 'FRONTLINE' : 'BACKLINE'}
+        onClick={() => setExpandedId(hero.id)}
+        className={dragOverHeroId === hero.id ? 'dragover' : ''}
+        style={{
+          cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 11, padding: '9px 12px',
+          border: sel ? '1px solid #c8a9f5' : (deployed ? '1px solid rgba(216,187,132,.5)' : '1px solid rgba(184,151,98,.25)'),
+          background: sel ? 'linear-gradient(90deg,rgba(124,58,214,.2),rgba(12,7,24,.5))' : (deployed ? 'linear-gradient(90deg,rgba(184,151,98,.1),rgba(12,7,24,.5))' : 'rgba(12,7,24,.45)'),
+          boxShadow: sel ? '0 0 14px rgba(124,58,214,.3)' : 'none',
+          opacity: hero.condition === 'Retired' ? .6 : 1,
+        }}>
+        <DiamondArt hero={hero} size={50} />
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ display: 'flex', alignItems: 'baseline', gap: 6 }}>
+            <span style={{ fontFamily: "'Cinzel',serif", fontWeight: 700, fontSize: 13, letterSpacing: '.06em', color: 'var(--text-hi)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{hero.name}</span>
+            <span style={{ flex: 1 }} />
+            <span style={{ fontFamily: "'Cinzel',serif", fontSize: 9, letterSpacing: '.1em', color: '#c9bfa8' }}>LV {hero.level}</span>
           </div>
-        )}
-        {hero.is_alive && !synthMode && (
-          <button
-            className="hero-chip-btn"
-            title={`Give ${hero.name} a gift`}
-            onClick={(e) => { e.stopPropagation(); setGiftHero(hero) }}
-            style={{
-              position: 'absolute', top: -10, right: isTeamTab ? 80 : 44,
-              background: 'rgba(20,20,24,0.9)', border: '1px solid var(--border)',
-              color: '#c9a84c', padding: '2px 6px', borderRadius: 12,
-              fontSize: '0.75rem', zIndex: 10, cursor: 'pointer',
-            }}
-          >
-            <GiftIcon size={13} />
+          <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginTop: 3 }}>
+            <span style={{ width: 18, height: 18, transform: 'rotate(45deg)', flex: 'none', border: `1px solid ${accent}66`, background: 'linear-gradient(135deg,#1c1030,#0e0918)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <Sigil set="class-base" name={sigilNameOf(hero.hero_class)} size={12} color={accent} style={{ transform: 'rotate(-45deg)' }}
+                fallback={<span style={{ transform: 'rotate(-45deg)', fontSize: 7, color: accent }}>{(hero.hero_class || '?').slice(0, 2).toUpperCase()}</span>} />
+            </span>
+            <span style={{ fontFamily: "'Cinzel',serif", letterSpacing: '.2em', fontSize: 8, color: 'var(--muted)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{(hero.hero_class || '').toUpperCase()}</span>
+            {!!hero.is_team_leader && <span title="Team Leader" style={{ fontSize: 9, color: '#ffd88a' }}>♛</span>}
+          </div>
+          <div style={{ marginTop: 3 }}><StarSpan count={star} /></div>
+        </div>
+        <button
+          title={hero.is_favorite ? 'Remove from Favorites' : 'Add to Favorites'}
+          onClick={(e) => handleToggleFavorite(hero.id, e)}
+          style={{ width: 16, height: 16, flex: 'none', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'none', border: 'none', cursor: 'pointer', color: hero.is_favorite ? '#e0708a' : 'rgba(154,134,184,.35)' }}>
+          <HeartIcon size={11} filled={!!hero.is_favorite} />
+        </button>
+        <button
+          title={sel ? 'Deselect' : 'Select'}
+          onClick={(e) => { e.stopPropagation(); toggleSelect(hero.id) }}
+          style={{
+            width: 18, height: 18, flex: 'none', display: 'flex', alignItems: 'center', justifyContent: 'center',
+            fontSize: 10, cursor: 'pointer', color: sel ? '#0a0710' : '#8fbf9f',
+            background: sel ? '#c8a9f5' : 'transparent',
+            border: sel ? '1px solid #c8a9f5' : '1px solid rgba(154,134,184,.25)',
+            borderRadius: sel ? 2 : '50%',
+          }}>
+          {sel ? '✓' : (deployed ? '●' : '')}
+        </button>
+      </div>
+    )
+  }
+
+  // ── ALL HEROES / FAVORITES view ───────────────────────────────────────────
+  function renderAllView() {
+    const filterLabel = (FILTERS.find(f => f[0] === filterBy) || FILTERS[0])[1]
+    const sortLabel = (SORTS.find(x => x[0] === sortBy) || SORTS[0])[1]
+    const one = selected.size === 1 ? [...selected][0] : null
+    return (
+      <>
+        {/* header — the new Squad mock: ROSTER over ghost LEGION, souls sworn.
+            position/zIndex here keeps its dropdowns above the roster grid: the
+            ent-* entrance animations end on transform:translateY(0), so every
+            ent-* block is its own stacking context — without this the later
+            grid (.ent-2) painted over this header's menus. */}
+        <div className="ent-1" style={{ position: 'relative', zIndex: 20, display: 'flex', alignItems: 'flex-end', gap: 18, flexWrap: 'wrap', marginBottom: 14 }}>
+          <div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 2 }}>
+              <span style={{ width: 9, height: 9, transform: 'rotate(45deg)', background: 'var(--gold)', display: 'inline-block' }} />
+              <span style={{ fontFamily: "'Cinzel',serif", fontWeight: 600, letterSpacing: '.5em', fontSize: 13, color: 'var(--gold)' }}>SQUAD OVERVIEW</span>
+              <span style={{ fontFamily: "'Cinzel',serif", letterSpacing: '.22em', fontSize: 11, color: 'var(--muted)' }}>
+                {baseHeroes.length} SOULS SWORN
+              </span>
+            </div>
+            <div className="ilm-title-stack">
+              <div className="ghost">{activeTab === 'favorites' ? 'BELOVED' : 'LEGION'}</div>
+              <div className="solid">{activeTab === 'favorites' ? 'FAVORITES' : 'ROSTER'}</div>
+            </div>
+          </div>
+          <button onClick={() => setSynthChamberOpen(true)} title="Fuse heroes"
+            style={{ ...chipStyle('#e08585', 'rgba(192,64,64,.4)'), letterSpacing: '.14em', padding: '6px 14px', marginBottom: 24 }}>
+            ⚗ SYNTHESIS ›
           </button>
-        )}
-        {hero.is_alive && (
-          <button
-            className="hero-chip-btn"
-            title={hero.is_favorite ? 'Remove from Favorites' : 'Add to Favorites (favorites are protected from Synthesis)'}
-            onClick={(e) => handleToggleFavorite(hero.id, e)}
-            style={{
-              position: 'absolute', top: -10, right: isTeamTab ? 44 : 8,
-              background: 'rgba(20,20,24,0.9)',
-              border: hero.is_favorite ? '1px solid #e06080' : '1px solid var(--border)',
-              color: hero.is_favorite ? '#e06080' : 'var(--text-dim)',
-              padding: '2px 6px', borderRadius: 12, fontSize: '0.75rem',
-              zIndex: 10, cursor: 'pointer',
-              boxShadow: hero.is_favorite ? '0 0 8px rgba(224,96,128,0.5)' : 'none',
-            }}
-          >
-            <HeartIcon size={13} filled={!!hero.is_favorite} />
-          </button>
-        )}
-        {isTeamTab && hero.is_alive && (
-          <button
-            title={hero.is_team_leader ? 'Team Leader' : 'Make Team Leader'}
-            onClick={(e) => handleAssignLeader(hero.id, e)}
-            style={{
-              position: 'absolute', top: -10, right: 8,
-              background: hero.is_team_leader ? 'rgba(201, 168, 76, 0.95)' : 'rgba(20,20,24,0.9)',
-              border: hero.is_team_leader ? 'none' : '1px solid var(--border)',
-              color: hero.is_team_leader ? '#000' : 'var(--text-dim)',
-              padding: '2px 6px', borderRadius: 12, fontSize: '0.75rem',
-              zIndex: 10, cursor: 'pointer',
-              boxShadow: hero.is_team_leader ? '0 0 8px rgba(201,168,76,0.6)' : 'none'
-            }}
-          >
-            👑
-          </button>
-        )}
-        <HeroCard
-          hero={hero}
-          selected={!synthMode && selected.has(hero.id)}
-          onClick={() => {
-            if (synthMode) {
-              if (hero.is_alive) handleSynthClick(hero.id)
-              return
-            }
-            setExpandedId(hero.id)
-          }}
-          onToggleSelect={!synthMode ? () => toggleSelect(hero.id) : undefined}
-          showFull={false}
-          scale={isTeamTab ? 1.15 : 1}
-          onRegenerateProfile={() => load()}
-          onManageEquipment={(h, s, e) => setEqModal({ hero: h, slot: s, currentEq: e })}
-          onManageConsumable={(h) => setConsModal({ hero: h })}
-          onAutoEquip={async (h, mode) => {
-            try {
-              if (mode === 'auto') await autoEquipHero(h.id)
-              else await unequipAllHero(h.id)
-              load()
-            } catch (e) {
-              emitToast({ title: 'Equipment Error', lines: [{ label: e.message, value: '' }], borderColor: 'var(--red)' })
-            }
-          }}
-          actions={!synthMode && hero.is_alive && (
-            <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'flex-end', alignItems: 'center' }}>
-              {isTeamTab && (
-                <button
-                  className="btn"
-                  style={{
-                    border: hero.is_team_leader ? '1px solid var(--gold)' : '1px solid var(--border)',
-                    color: hero.is_team_leader ? 'var(--gold)' : 'var(--text-dim)',
-                    background: hero.is_team_leader ? 'rgba(201,168,76,0.15)' : 'transparent',
-                    fontFamily: 'Cinzel, serif', padding: '0.3rem 0.7rem', fontSize: '0.72rem', borderRadius: 4
-                  }}
-                  onClick={(e) => handleAssignLeader(hero.id, e)}
-                  title={hero.battle_tendency ? `Battle Tendency: ${hero.battle_tendency}` : undefined}
-                >
-                  👑 {hero.is_team_leader ? 'Leader' : 'Make Leader'}
+          <span style={{ flex: 1 }} />
+
+          {selected.size > 0 && (
+            <>
+              <span style={{ fontFamily: "'Cinzel',serif", fontSize: 9, letterSpacing: '.14em', color: '#8fbf9f' }}>{selected.size} SELECTED</span>
+              {selected.size === 2 && (
+                <button onClick={() => setCompareHeroesOpen(true)} style={chipStyle('#c9bfa8', 'rgba(184,151,98,.35)')}>⇄ COMPARE</button>
+              )}
+              {one && heroes.find(h => h.id === one)?.is_on_team > 0 && (
+                <button onClick={(e) => handleAssignLeader(one, e)}
+                  style={{ ...chipStyle('#ffd88a', 'rgba(255,216,138,.5)'), fontWeight: 600, letterSpacing: '.14em' }}>
+                  ★ SET LEADER
                 </button>
               )}
-              {(hero.ascension_star || 0) < 7 && (
-                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end' }}>
-                  <button className="btn" style={{ border: '1px solid var(--gold)', color: 'var(--gold)', background: 'rgba(201,168,76,0.1)', fontFamily: 'Cinzel, serif', padding: '0.3rem 0.8rem', fontSize: '0.75rem', borderRadius: 4 }} onClick={(e) => { e.preventDefault(); e.stopPropagation(); handleAscend(hero.id, e); }} disabled={ascending || promoting || evolving}>
-                    {ascending ? '...' : `◆ Ascend`}
-                  </button>
-                  <div className="text-dim" style={{ fontSize: '0.6rem', marginTop: '0.2rem' }}>Costs materials · risk of failure</div>
+              <div style={{ position: 'relative' }}>
+                <button onClick={() => { setAssignOpen(o => !o); setSortOpen(false); setFilterOpen(false) }} disabled={saving}
+                  style={{ cursor: 'pointer', fontFamily: "'Cinzel',serif", fontWeight: 700, fontSize: 9, letterSpacing: '.14em', color: '#0a0710', background: 'linear-gradient(120deg,#c8a9f5,#8b46d6)', border: 'none', padding: '6px 14px', clipPath: 'polygon(6px 0,100% 0,calc(100% - 6px) 100%,0 100%)' }}>
+                  {saving ? 'ASSIGNING…' : `ASSIGN TO TEAM ${ROMAN[assignTargetTeam]} ▾`}
+                </button>
+                {assignOpen && (
+                  <div style={{ position: 'absolute', right: 0, top: 28, zIndex: 9, border: '1px solid rgba(184,151,98,.45)', background: '#140b22', boxShadow: '0 12px 30px rgba(0,0,0,.6)', minWidth: 130 }}>
+                    {[1, 2, 3, 4, 5].map(t => (
+                      <div key={t} style={menuItemStyle(t === assignTargetTeam)}
+                        onClick={() => { setAssignOpen(false); setAssignTargetTeam(t); saveTeamFromAll(t) }}>
+                        TEAM {ROMAN[t]}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+              <button onClick={removeFromTeamFromAll} disabled={saving} style={chipStyle('#e08585', 'rgba(192,64,64,.4)')}>REMOVE</button>
+              <button onClick={handleDismissSelected} disabled={saving} style={chipStyle('#e08585', 'rgba(192,64,64,.4)')}>✕ DISMISS</button>
+              <span style={{ width: 1, height: 18, background: 'rgba(184,151,98,.3)' }} />
+            </>
+          )}
+
+          <div style={{ position: 'relative' }}>
+            <button onClick={() => { setSortOpen(o => !o); setFilterOpen(false); setAssignOpen(false) }} style={chipStyle('#c9bfa8', 'rgba(184,151,98,.35)')}>
+              SORT · {sortLabel} <span style={{ fontSize: 8, color: 'var(--muted)' }}>▾</span>
+            </button>
+            {sortOpen && (
+              <div style={{ position: 'absolute', right: 0, top: 28, zIndex: 9, border: '1px solid rgba(184,151,98,.45)', background: '#140b22', boxShadow: '0 12px 30px rgba(0,0,0,.6)', minWidth: 130 }}>
+                {SORTS.map(([k, label]) => (
+                  <div key={k} style={menuItemStyle(k === sortBy)} onClick={() => { setSortBy(k); setSortOpen(false) }}>{label}</div>
+                ))}
+              </div>
+            )}
+          </div>
+          <div style={{ position: 'relative' }}>
+            <button onClick={() => { setFilterOpen(o => !o); setSortOpen(false); setAssignOpen(false) }} style={chipStyle('#c9bfa8', 'rgba(184,151,98,.35)')}>
+              FILTER · {filterLabel} <span style={{ fontSize: 8, color: 'var(--muted)' }}>▾</span>
+            </button>
+            {filterOpen && (
+              <div style={{ position: 'absolute', right: 0, top: 28, zIndex: 9, border: '1px solid rgba(184,151,98,.45)', background: '#140b22', boxShadow: '0 12px 30px rgba(0,0,0,.6)', minWidth: 150 }}>
+                {FILTERS.map(([k, label]) => (
+                  <div key={k} style={menuItemStyle(k === filterBy)} onClick={() => { setFilterBy(k); setFilterOpen(false) }}>{label}</div>
+                ))}
+                <div style={{ ...menuItemStyle(false), color: '#e08585', borderBottom: 'none' }}
+                  onClick={() => { setFilterOpen(false); handleDismissFiltered() }}>
+                  ✕ DISMISS ALL SHOWN ({displayHeroes.length})
                 </div>
-              )}
-              {hero.evolution_options?.length > 0 && (
-                <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', justifyContent: 'flex-end', marginLeft: '1rem' }}>
-                  <button className="btn" style={{ border: '1px solid #9d4edd', color: '#e0aaff', background: 'rgba(157, 78, 221, 0.1)', fontFamily: 'Cinzel, serif', padding: '0.4rem 1rem', fontSize: '0.85rem', borderRadius: 4, boxShadow: '0 0 8px rgba(157,78,221,0.5)' }} onClick={(e) => { e.preventDefault(); e.stopPropagation(); setEvoModal({ hero }); }} disabled={evolving || ascending || promoting}>
-                    ✨ Class Advancement Available! ✨
-                  </button>
-                </div>
-              )}
-              {hero.level >= STAR_CAPS[hero.current_star || hero.birth_star] && (hero.current_star || hero.birth_star) < 7 && (
-                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end' }}>
-                  <button className="btn" style={{ border: '1px solid var(--star5)', color: 'var(--star5)', background: 'rgba(201,168,76,0.1)', fontFamily: 'Cinzel, serif', padding: '0.3rem 0.8rem', fontSize: '0.75rem', boxShadow: '0 0 5px var(--star5)', borderRadius: 4 }} onClick={(e) => { e.preventDefault(); e.stopPropagation(); handlePromote(hero.id, e); }} disabled={ascending || promoting}>
-                    {promoting ? '...' : `★ Promote`}
-                  </button>
-                  <div className="text-dim" style={{ fontSize: '0.6rem', marginTop: '0.2rem' }}>{(hero.current_star || hero.birth_star) * 5000} Gold · {(hero.current_star || hero.birth_star) * 10} Elemental Stones</div>
-                </div>
-              )}
+              </div>
+            )}
+          </div>
+          <input
+            type="text"
+            placeholder="Search…"
+            value={searchQuery}
+            onChange={e => setSearchQuery(e.target.value)}
+            style={{ width: 130, fontFamily: "'Cormorant Garamond',serif", fontStyle: 'italic', fontSize: 14, color: 'var(--text-hi)', background: 'rgba(12,7,24,.5)', border: '1px solid rgba(184,151,98,.35)', padding: '4px 10px', outline: 'none' }}
+          />
+        </div>
+
+        {msg && (
+          <div style={{ fontStyle: 'italic', fontSize: 14, marginBottom: 10, color: /saved|complete|Added|Removed|successful|Dismissed|cleared|leader/i.test(msg) ? '#8fbf9f' : '#e08585' }}>
+            {msg}
+          </div>
+        )}
+
+        {/* roster grid — the spec's 4-column compact rows */}
+        <div className="ent-2" style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: '9px 12px', alignContent: 'start' }}>
+          {displayHeroes.length === 0 && (
+            <div className="empty-state" style={{ gridColumn: '1 / -1' }}>
+              <div className="empty-state-icon">{activeTab === 'favorites' ? '♡' : <GameIcon name="classless_runestone" size={52} />}</div>
+              <div className="empty-state-title">
+                {activeTab === 'favorites' ? 'No Favorites Yet' : heroes.length === 0 ? 'No Heroes Yet' : 'No Heroes Match These Filters'}
+              </div>
+              <div className="empty-state-hint">
+                {activeTab === 'favorites'
+                  ? "Click the ♡ on any hero's row to pin them here."
+                  : heroes.length === 0
+                    ? 'Visit the Summoning Gate to call your first heroes into the Tower.'
+                    : 'Try clearing the search or the filter.'}
+              </div>
             </div>
           )}
-        />
-        {/* Synthesis role labels */}
-        {synthMode && hero.id === synthTarget && (
-          <div style={{ position: 'absolute', top: 6, right: 8, color: 'var(--gold)', fontSize: '0.65rem', fontFamily: 'Cinzel, serif', background: 'rgba(0,0,0,0.7)', padding: '0.15rem 0.4rem', borderRadius: 2, zIndex: 10 }}>TARGET</div>
+          {displayHeroes.map(hero => renderRosterRow(hero))}
+        </div>
+      </>
+    )
+  }
+
+  // ── Party card (team view, 158×300 ornate frame) ──────────────────────────
+  function renderPartyCard(hero, teamIndex) {
+    const star = hero.current_star || hero.birth_star || 1
+    const front = teamIndex < 2
+    return (
+      <div key={hero.id}
+        draggable
+        onDragStart={(e) => handleDragStart(e, hero.id)}
+        onDragOver={(e) => handleDragOver(e, hero.id)}
+        onDrop={(e) => handleDrop(e, hero.id)}
+        onDragEnd={() => { setDraggedHeroId(null); setDragOverHeroId(null) }}
+        onClick={() => setExpandedId(hero.id)}
+        style={{
+          position: 'relative', width: 158, height: 300, flex: 'none', cursor: 'grab',
+          transform: dragOverHeroId === hero.id ? 'scale(1.03)' : 'none',
+          filter: draggedHeroId === hero.id ? 'brightness(1.2)' : 'none',
+        }}>
+        <div style={{ position: 'absolute', inset: 0, border: '1px solid rgba(184,151,98,.55)', background: 'linear-gradient(#150c26,#0c0718)' }} />
+        <div style={{ position: 'absolute', inset: 6, border: '1px solid rgba(124,58,214,.5)', boxShadow: 'inset 0 0 24px rgba(124,58,214,.25)' }} />
+        {/* class medallion */}
+        <div style={{ position: 'absolute', top: -14, left: '50%', width: 30, height: 30, transform: 'translateX(-50%) rotate(45deg)', background: '#0c0718', border: '1px solid var(--gold)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 3 }}>
+          <Sigil set="class-base" name={sigilNameOf(hero.hero_class)} size={14} color="var(--gold-hi)" style={{ transform: 'rotate(-45deg)' }}
+            fallback={<span style={{ transform: 'rotate(-45deg)', color: 'var(--gold-hi)', fontFamily: "'Cinzel',serif", fontSize: 13 }}>⚔</span>} />
+        </div>
+        <PanelArt hero={hero} style={{ position: 'absolute', left: 12, top: 22, width: 'calc(100% - 24px)', height: 196 }} />
+        <div style={{ position: 'absolute', left: 12, right: 12, top: 22, height: 196, pointerEvents: 'none', boxShadow: 'inset 0 -46px 40px -20px #0c0718' }} />
+        {/* corner notches */}
+        <div style={{ position: 'absolute', left: 0, top: 0, width: 10, height: 10, borderLeft: '2px solid var(--gold-hi)', borderTop: '2px solid var(--gold-hi)' }} />
+        <div style={{ position: 'absolute', right: 0, top: 0, width: 10, height: 10, borderRight: '2px solid var(--gold-hi)', borderTop: '2px solid var(--gold-hi)' }} />
+        {/* front/back + level */}
+        <div style={{ position: 'absolute', top: 26, left: 16, fontFamily: "'Cinzel',serif", fontSize: 8, letterSpacing: '.2em', color: front ? '#ffd88a' : '#8fbf9f', background: 'rgba(10,7,16,.8)', border: `1px solid ${front ? 'rgba(255,216,138,.4)' : 'rgba(143,191,159,.4)'}`, padding: '2px 6px', zIndex: 3 }}>
+          {front ? 'FRONT' : 'BACK'}
+        </div>
+        <div style={{ position: 'absolute', top: 26, right: 16, fontFamily: "'Cinzel',serif", fontSize: 11, letterSpacing: '.14em', color: '#e7ddc9', background: 'rgba(10,7,16,.8)', border: '1px solid rgba(184,151,98,.5)', padding: '2px 7px', zIndex: 3 }}>
+          LV {hero.level}
+        </div>
+        {/* name plate — lifted a touch so the bottom crown never touches the class line */}
+        <div style={{ position: 'absolute', left: 6, right: 6, bottom: 16 }}>
+          <div style={{ textAlign: 'center', fontSize: 12, letterSpacing: '.2em', marginBottom: 3 }}><StarSpan count={star} size={12} /></div>
+          <div style={{ background: '#0a0710', borderTop: '1px solid var(--gold)', borderBottom: '1px solid var(--gold)', padding: '7px 0', textAlign: 'center', clipPath: 'polygon(8px 0,calc(100% - 8px) 0,100% 50%,calc(100% - 8px) 100%,8px 100%,0 50%)' }}>
+            <div style={{ fontFamily: "'Cinzel',serif", fontWeight: 700, letterSpacing: '.12em', fontSize: 15, color: 'var(--text-hi)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', padding: '0 10px' }}>{hero.name?.toUpperCase()}</div>
+            <div style={{ fontFamily: "'Cinzel',serif", letterSpacing: '.3em', fontSize: 9, color: 'var(--muted)', marginTop: 2 }}>{(hero.hero_class || '').toUpperCase()}</div>
+          </div>
+        </div>
+        {/* leader crown — a BOTTOM medallion mirroring the class sigil on top
+            (symmetry). Filled + glowing on the current leader, faint click-to-
+            promote on everyone else. */}
+        <button
+          title={hero.is_team_leader ? 'Team Leader' : `Make ${hero.name} the leader`}
+          onClick={(e) => { e.stopPropagation(); if (!hero.is_team_leader) handleAssignLeader(hero.id, e) }}
+          style={{ position: 'absolute', bottom: -18, left: '50%', transform: 'translateX(-50%) rotate(45deg)', zIndex: 4,
+            width: 30, height: 30, padding: 0, display: 'flex', alignItems: 'center', justifyContent: 'center',
+            background: hero.is_team_leader ? 'linear-gradient(135deg,#241a10,#120d08)' : '#0c0718',
+            border: `1px solid ${hero.is_team_leader ? 'var(--gold-hi)' : 'rgba(184,151,98,.4)'}`,
+            boxShadow: hero.is_team_leader ? '0 0 12px rgba(184,151,98,.4)' : 'none',
+            cursor: hero.is_team_leader ? 'default' : 'pointer' }}>
+          <span style={{ transform: 'rotate(-45deg)', fontSize: 13, color: hero.is_team_leader ? '#ffd88a' : 'rgba(201,191,168,.55)', textShadow: hero.is_team_leader ? '0 0 8px rgba(255,216,138,.7)' : 'none' }}>♛</span>
+        </button>
+      </div>
+    )
+  }
+
+  // ── Leader panel (team view) — the VESPER-style spotlight (mock parity):
+  // a stats column | vertical divider | full-body render. Name wraps (never
+  // truncates), the tendency is a short chip (not the long personality blurb).
+  function renderLeaderPanel(leader) {
+    const star = leader.current_star || leader.birth_star || 1
+    const hpPct = leader.max_health ? Math.max(0, Math.min(100, (leader.health / leader.max_health) * 100)) : 100
+    const manaPct = leader.max_mana ? Math.max(0, Math.min(100, ((leader.mana ?? leader.max_mana) / leader.max_mana) * 100)) : 0
+    const fmt = n => (n ?? 0).toLocaleString()
+    const condition = (leader.condition || 'Steady').toUpperCase()
+    const condBad = /INJUR|CRITICAL|BROKEN|SICK/.test(condition)
+    const hasArt = leader.portrait_path && !leader.portrait_path.includes('default_')
+    const name = (leader.name || '').toUpperCase()
+    // Size the name to fit without truncating (it used to clip to "ORION SH…").
+    const nameSize = name.length > 15 ? 30 : name.length > 11 ? 36 : 44
+    const tendency = leader.battle_tendency || (Array.isArray(leader.traits) ? leader.traits[0]?.name : null)
+    // No box — the leader floats on the page ink like the mock; only the
+    // vertical divider separates the stats from the render. It's ALSO a drop
+    // target: drag any party card onto it to crown that hero the leader.
+    return (
+      <div className="ent-3"
+        onDragOver={(e) => { if (draggedHeroId) { e.preventDefault(); setDragOverLeader(true) } }}
+        onDragLeave={() => setDragOverLeader(false)}
+        onDrop={(e) => { e.preventDefault(); setDragOverLeader(false); const id = draggedHeroId; setDraggedHeroId(null); setDragOverHeroId(null); if (id && id !== leader.id) handleAssignLeader(id) }}
+        style={{ position: 'relative', display: 'flex', flex: '1 1 620px', minWidth: 540, minHeight: 540, overflow: 'hidden',
+          outline: dragOverLeader ? '2px dashed var(--gold-hi)' : 'none', outlineOffset: -4,
+          background: dragOverLeader ? 'radial-gradient(60% 60% at 50% 40%, rgba(184,151,98,.12), transparent 70%)' : 'none',
+          transition: 'outline-color .12s' }}>
+        {/* drag-to-crown hint */}
+        {dragOverLeader && (
+          <div style={{ position: 'absolute', inset: 0, zIndex: 5, display: 'flex', alignItems: 'center', justifyContent: 'center', pointerEvents: 'none' }}>
+            <span style={{ fontFamily: "'Cinzel',serif", fontWeight: 700, letterSpacing: '.24em', fontSize: 15, color: '#ffd88a', background: 'rgba(10,7,16,.85)', border: '1px solid var(--gold-hi)', padding: '10px 20px', clipPath: 'polygon(10px 0,100% 0,calc(100% - 10px) 100%,0 100%)' }}>♛ CROWN AS LEADER</span>
+          </div>
         )}
-        {synthMode && hero.id === synthSacrifice && (
-          <div style={{ position: 'absolute', top: 6, right: 8, color: 'var(--red)', fontSize: '0.65rem', fontFamily: 'Cinzel, serif', background: 'rgba(0,0,0,0.7)', padding: '0.15rem 0.4rem', borderRadius: 2, zIndex: 10 }}>SACRIFICE</div>
+        {/* ── stats column ── */}
+        <div style={{ flex: '1.15 1 320px', minWidth: 300, padding: '24px 24px 22px', display: 'flex', flexDirection: 'column' }}>
+          <div style={{ display: 'flex', alignItems: 'baseline', gap: 10 }}>
+            <span style={{ fontFamily: "'Cinzel',serif", fontSize: 11, letterSpacing: '.32em', color: 'var(--gold)' }}>LV {leader.level}</span>
+            <span style={{ height: 1, flex: 1, background: 'rgba(184,151,98,.4)' }} />
+            <span style={{ fontFamily: "'Cinzel',serif", fontSize: 11, letterSpacing: '.24em', color: 'var(--muted)' }}>RANK</span>
+            {/* star-ranked — the diamond shows the star tier, not a letter grade */}
+            <span style={{ width: 28, height: 28, transform: 'rotate(45deg)', background: star >= 7 ? 'linear-gradient(135deg,#fff,#c8a9f5)' : `linear-gradient(135deg,${STAR_ACCENT[Math.min(star, 7)]},#0c0718)`, border: `1px solid ${STAR_ACCENT[Math.min(star, 7)]}`, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <span className={star >= 7 ? 'rainbow-text' : undefined} style={{ transform: 'rotate(-45deg)', fontFamily: "'Cinzel',serif", fontWeight: 900, fontSize: 13, color: star >= 7 ? undefined : '#f3ecdd' }}>{star}★</span>
+            </span>
+          </div>
+          <div style={{ fontFamily: "'Cinzel',serif", fontWeight: 900, fontSize: nameSize, letterSpacing: '.02em', lineHeight: 1, color: 'var(--text-hi)', marginTop: 8, textShadow: '0 4px 30px rgba(124,58,214,.5)', wordBreak: 'break-word' }}>
+            {name}
+          </div>
+          {leader.title && <div style={{ fontSize: 15, fontStyle: 'italic', color: 'var(--muted)', marginTop: 3 }}>"{leader.title}"</div>}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginTop: 6, flexWrap: 'wrap' }}>
+            <StarSpan count={star} size={13} />
+            <span style={{ fontFamily: "'Cinzel',serif", letterSpacing: '.3em', fontSize: 12, color: 'var(--violet)' }}>{(leader.hero_class || '').toUpperCase()}</span>
+            {tendency && <span style={{ fontFamily: "'Cinzel',serif", letterSpacing: '.16em', fontSize: 10, color: '#7c6f92' }}>{String(tendency).toUpperCase()}</span>}
+          </div>
+          {/* vitals */}
+          <div style={{ marginTop: 16 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 3 }}>
+              <span style={{ fontFamily: "'Cinzel',serif", letterSpacing: '.24em', fontSize: 9, color: 'var(--muted)' }}>HEALTH</span>
+              <span style={{ fontFamily: "'Cormorant Garamond',serif", fontWeight: 700, fontSize: 15, color: 'var(--text-hi)' }}>{fmt(leader.health)} / {fmt(leader.max_health)}</span>
+            </div>
+            <div style={{ height: 6, background: 'rgba(0,0,0,.5)', border: '1px solid rgba(192,64,64,.4)' }}>
+              <div style={{ width: `${hpPct}%`, height: '100%', background: 'linear-gradient(90deg,#7a3030,#c04040)' }} />
+            </div>
+            {leader.max_mana != null && (
+              <>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', margin: '8px 0 3px' }}>
+                  <span style={{ fontFamily: "'Cinzel',serif", letterSpacing: '.24em', fontSize: 9, color: 'var(--muted)' }}>MANA</span>
+                  <span style={{ fontFamily: "'Cormorant Garamond',serif", fontWeight: 700, fontSize: 15, color: '#8fb8ff' }}>{fmt(leader.mana ?? leader.max_mana)} / {fmt(leader.max_mana)}</span>
+                </div>
+                <div style={{ height: 6, background: 'rgba(0,0,0,.5)', border: '1px solid rgba(74,122,170,.4)' }}>
+                  <div style={{ width: `${manaPct}%`, height: '100%', background: '#3a7bd5' }} />
+                </div>
+              </>
+            )}
+          </div>
+          {/* the seven */}
+          <div style={{ marginTop: 16, display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '10px 14px', borderTop: '1px solid rgba(184,151,98,.2)', paddingTop: 14 }}>
+            {[['STR', leader.strength], ['INT', leader.intelligence], ['AGI', leader.agility], ['END', leader.endurance], ['WIL', leader.willpower], ['LCK', leader.luck, 'var(--gold-hi)']].map(([k, v, c]) => (
+              <div key={k}>
+                <div style={{ fontFamily: "'Cinzel',serif", letterSpacing: '.26em', fontSize: 9, color: 'var(--muted)' }}>{k}</div>
+                <div style={{ fontFamily: "'Cormorant Garamond',serif", fontWeight: 700, fontSize: 21, color: c || 'var(--text-hi)', lineHeight: 1.1 }}>{Math.round(v ?? 0)}</div>
+              </div>
+            ))}
+          </div>
+          {/* state chips */}
+          <div style={{ display: 'flex', gap: 7, marginTop: 14, flexWrap: 'wrap' }}>
+            <span style={{ fontFamily: "'Cinzel',serif", fontSize: 9, letterSpacing: '.16em', color: condBad ? '#e08585' : '#8fbf9f', border: `1px solid ${condBad ? 'rgba(192,64,64,.45)' : 'rgba(74,154,106,.45)'}`, padding: '2px 8px' }}>{condition}</span>
+            {leader.fatigue != null && (
+              <span style={{ fontFamily: "'Cinzel',serif", fontSize: 9, letterSpacing: '.16em', color: 'var(--gold-hi)', border: '1px solid rgba(184,151,98,.45)', padding: '2px 8px' }}>FATIGUE {leader.fatigue}/10</span>
+            )}
+            {tendency && (
+              <span style={{ fontFamily: "'Cinzel',serif", fontSize: 9, letterSpacing: '.16em', color: 'var(--lavender)', border: '1px solid rgba(150,110,230,.45)', padding: '2px 8px' }}>{String(tendency).toUpperCase()}</span>
+            )}
+          </div>
+          <span style={{ flex: 1, minHeight: 12 }} />
+          {/* leader badge */}
+          <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8, padding: '7px 14px', border: '1px solid rgba(255,216,138,.5)', background: 'rgba(184,151,98,.1)', clipPath: 'polygon(8px 0,100% 0,calc(100% - 8px) 100%,0 100%)', alignSelf: 'flex-start' }}>
+            <span style={{ color: '#ffd88a', fontSize: 13, textShadow: '0 0 8px rgba(255,216,138,.7)' }}>♛</span>
+            <span style={{ fontFamily: "'Cinzel',serif", fontWeight: 700, letterSpacing: '.2em', fontSize: 10, color: '#ffd88a' }}>TEAM LEADER</span>
+            <span style={{ fontFamily: "'Cinzel',serif", fontSize: 9, letterSpacing: '.1em', color: 'var(--muted)' }}>· ♛ any card to reassign</span>
+          </div>
+        </div>
+
+        {/* ── vertical divider ── */}
+        <div style={{ width: 1, alignSelf: 'stretch', margin: '22px 0', background: 'linear-gradient(rgba(150,110,230,0),rgba(150,110,230,.4),rgba(150,110,230,0))', flex: 'none' }} />
+
+        {/* ── full-body render ── */}
+        <div onClick={() => setExpandedId(leader.id)} title={`Inspect ${leader.name}`}
+          style={{ flex: '1 1 300px', minWidth: 220, position: 'relative', overflow: 'hidden', cursor: 'pointer' }}>
+          <div style={{ position: 'absolute', inset: 0, background: 'radial-gradient(65% 60% at 55% 44%, rgba(140,70,214,.3), rgba(0,0,0,0) 72%)', animation: 'toe-glow 6s ease-in-out infinite' }} />
+          {hasArt ? (
+            <PanelArt hero={leader} style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'contain', objectPosition: 'center bottom' }} />
+          ) : (
+            <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 8, opacity: .55 }}>
+              <span style={{ width: 34, height: 34, border: '1px solid rgba(200,169,245,.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--lavender)', fontSize: 18 }}>▤</span>
+              <span style={{ fontFamily: 'monospace', fontSize: 11, color: '#7a6f92' }}>full-body leader render</span>
+            </div>
+          )}
+          <div style={{ position: 'absolute', left: 0, right: 0, bottom: 0, height: 120, pointerEvents: 'none', background: 'linear-gradient(rgba(9,6,15,0),#0b0716)' }} />
+        </div>
+      </div>
+    )
+  }
+
+  // ── TEAM view — the mock's spotlight layout: left column (title, DEPLOY/
+  // MANAGE, the 4 party cards) + the big leader panel on the right. ──────────
+  function renderTeamView() {
+    const teamHeroes = displayHeroes
+    const leader = teamHeroes.find(h => h.is_team_leader) || teamHeroes[0] || null
+    const party = teamHeroes.filter(h => h !== leader).slice(0, 4)
+    const goManage = () => { setAssignTargetTeam(activeTab); setActiveTab('all'); setFilterBy('AVAILABLE') }
+    const emptyPartySlots = leader ? Math.max(0, 4 - party.length) : 0
+
+    return (
+      <div className="ent-1" style={{ display: 'flex', gap: 26, alignItems: 'stretch', flexWrap: 'wrap' }}>
+        {/* ── LEFT: title + actions + party cards ── */}
+        <div style={{ flex: '1 1 620px', minWidth: 0, display: 'flex', flexDirection: 'column' }}>
+          <div style={{ display: 'flex', alignItems: 'flex-start', gap: 22, flexWrap: 'wrap' }}>
+            <div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 6 }}>
+                <span style={{ width: 9, height: 9, transform: 'rotate(45deg)', background: 'var(--gold)', display: 'inline-block' }} />
+                <span style={{ fontFamily: "'Cinzel',serif", fontWeight: 600, letterSpacing: '.5em', fontSize: 13, color: 'var(--gold)' }}>SQUAD OVERVIEW · TEAM</span>
+              </div>
+              <div className="ilm-title-stack">
+                <div className="ghost">FORMATION</div>
+                <div className="solid">{teamNames[activeTab] || `TEAM ${ROMAN[activeTab]}`}</div>
+              </div>
+              <button onClick={() => renameTeam(activeTab)} title="Rename this team"
+                style={{ background: 'none', border: 'none', cursor: 'pointer', fontFamily: "'Cinzel',serif", fontSize: 9, letterSpacing: '.2em', color: 'var(--muted)', padding: 0, marginTop: 2 }}>
+                TEAM {ROMAN[activeTab]} · ✎ RENAME
+              </button>
+            </div>
+            <span style={{ flex: 1 }} />
+            <div style={{ display: 'flex', gap: 14 }}>
+              <button onClick={() => onNavigate && onNavigate('tower')} disabled={teamHeroes.length === 0}
+                style={{ cursor: teamHeroes.length ? 'pointer' : 'not-allowed', opacity: teamHeroes.length ? 1 : .5, fontFamily: "'Cinzel',serif", fontWeight: 700, letterSpacing: '.28em', fontSize: 15, color: '#0a0710', background: 'linear-gradient(120deg,#c8a9f5,#8b46d6)', border: 'none', padding: '11px 26px 11px 22px', clipPath: 'polygon(10px 0,100% 0,calc(100% - 10px) 100%,0 100%)', boxShadow: '0 8px 24px rgba(124,58,214,.4)' }}>
+                DEPLOY
+              </button>
+              <button onClick={goManage}
+                style={{ cursor: 'pointer', fontFamily: "'Cinzel',serif", fontWeight: 600, letterSpacing: '.28em', fontSize: 15, color: '#cdbfe4', background: 'none', border: '1px solid rgba(150,110,230,.4)', padding: '11px 24px', clipPath: 'polygon(10px 0,100% 0,calc(100% - 10px) 100%,0 100%)' }}>
+                MANAGE
+              </button>
+            </div>
+          </div>
+
+          {msg && <div style={{ fontStyle: 'italic', fontSize: 14, marginTop: 8, color: '#8fbf9f' }}>{msg}</div>}
+          <div style={{ fontStyle: 'italic', color: 'var(--muted)', fontSize: 13, marginTop: 12 }}>
+            {teamHeroes.length > 0
+              ? 'Drag the cards to rearrange — the first two positions hold the frontline. ♛ makes a hero the leader.'
+              : `Team ${ROMAN[activeTab]} is empty. Use MANAGE to draw heroes from the roster.`}
+          </div>
+
+          {/* party cards (the 4 non-leader members) */}
+          <div style={{ display: 'flex', alignItems: 'flex-end', gap: 16, marginTop: 32, flexWrap: 'wrap', rowGap: 30 }}>
+            {party.map(h => renderPartyCard(h, teamHeroes.indexOf(h)))}
+            {Array.from({ length: emptyPartySlots }).map((_, i) => (
+              <div key={`empty-${i}`} onClick={goManage}
+                style={{ position: 'relative', width: 158, height: 300, flex: 'none', cursor: 'pointer', border: '1px dashed rgba(150,110,230,.4)', background: 'rgba(12,7,24,.3)', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 10 }}>
+                <span style={{ width: 26, height: 26, transform: 'rotate(45deg)', border: '1px dashed rgba(200,169,245,.5)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  <span style={{ transform: 'rotate(-45deg)', color: 'var(--lavender)', fontFamily: "'Cinzel',serif" }}>+</span>
+                </span>
+                <span style={{ fontFamily: "'Cinzel',serif", fontSize: 10, letterSpacing: '.22em', color: '#6f628c' }}>ASSIGN</span>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* ── RIGHT: leader spotlight ── */}
+        {leader ? renderLeaderPanel(leader) : (
+          <div className="ent-3" style={{ flex: '1 1 460px', minWidth: 420, minHeight: 540, border: '1px dashed rgba(150,110,230,.35)', background: 'rgba(12,7,24,.3)', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 12 }}>
+            <span style={{ width: 40, height: 40, transform: 'rotate(45deg)', border: '1px dashed rgba(200,169,245,.4)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <span style={{ transform: 'rotate(-45deg)', color: 'var(--lavender)', fontSize: 18 }}>♛</span>
+            </span>
+            <span style={{ fontFamily: "'Cinzel',serif", letterSpacing: '.24em', fontSize: 12, color: 'var(--muted)' }}>NO LEADER YET</span>
+            <span style={{ fontStyle: 'italic', fontSize: 13, color: 'var(--text-dim)' }}>Assign heroes, then crown one to lead.</span>
+          </div>
         )}
       </div>
-    );
-  };
+    )
+  }
 
   return (
-    <div className="page">
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
-        <div className="section-header" style={{ marginBottom: 0 }}>
-          Heroes — {heroes.length} alive
-        </div>
-        <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
-          <button
-            className="btn"
-            onClick={() => setSynthChamberOpen(true)}
-            style={{
-              padding: '0.5rem 1.2rem', fontSize: '0.8rem', fontFamily: 'Cinzel, serif',
-              border: '1px solid #b06aff', color: '#d0a0ff', borderRadius: 6,
-              background: 'rgba(80,30,130,0.2)', boxShadow: '0 0 10px rgba(160,80,255,0.25)',
-            }}
-          >
-            ⚗ Synthesis Chamber
-          </button>
-        </div>
-      </div>
+    <div className="page" style={{ display: 'flex', flexDirection: 'column', minHeight: 'calc(100vh - 120px)' }}>
+      {isTeamTab ? renderTeamView() : renderAllView()}
 
       {synthChamberOpen && (
         <SynthesisChamber
@@ -704,17 +990,18 @@ export default function HeroesPage() {
       )}
 
       {expandedId && (
-        <div style={{
-          position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
-          background: 'rgba(0,0,0,0.85)', zIndex: 100,
-          display: 'flex', alignItems: 'center', justifyContent: 'center',
-          backdropFilter: 'blur(5px)'
-        }} onClick={() => setExpandedId(null)}>
-          <div style={{ width: '1000px', maxWidth: '95vw', maxHeight: '90vh', overflowY: 'auto', borderRadius: '8px' }} onClick={e => e.stopPropagation()}>
-            <HeroCard
+        // Zoom-safe modal scroll: align-items:flex-start keeps the top reachable
+        // and overflow-y:auto scrolls the scrim (a centered oversized modal
+        // clips its top otherwise). The modal's max-width:100% (containing-block
+        // relative, NOT vw) can't overflow under the app's root zoom.
+        <div className="ilm-modal-scrim" style={{ zIndex: 100, alignItems: 'flex-start', justifyContent: 'center', overflowY: 'hidden', padding: '28px' }} onClick={() => setExpandedId(null)}>
+          <div className="ilm-herodetail" onClick={e => e.stopPropagation()}>
+            <span className="ilm-corner" />
+            <span className="ilm-corner ilm-corner-r" />
+            <button className="ilm-close" style={{ position: 'absolute', top: 14, right: 14, zIndex: 20 }} onClick={() => setExpandedId(null)}>✕</button>
+            <HeroDetail
               hero={heroes.find(h => h.id === expandedId)}
-              showFull={true}
-              onRegenerateProfile={() => load()}
+              onChanged={() => load()}
               onManageEquipment={(h, s, e) => setEqModal({ hero: h, slot: s, currentEq: e })}
               onManageConsumable={(h) => setConsModal({ hero: h })}
               onAutoEquip={async (h, mode) => {
@@ -726,6 +1013,15 @@ export default function HeroesPage() {
                   emitToast({ title: 'Equipment Error', lines: [{ label: e.message, value: '' }], borderColor: 'var(--red)' })
                 }
               }}
+              onGift={(h) => setGiftHero(h)}
+              onPrev={(() => {
+                const idx = displayHeroes.findIndex(h => h.id === expandedId)
+                return idx > 0 ? () => setExpandedId(displayHeroes[idx - 1].id) : null
+              })()}
+              onNext={(() => {
+                const idx = displayHeroes.findIndex(h => h.id === expandedId)
+                return idx >= 0 && idx < displayHeroes.length - 1 ? () => setExpandedId(displayHeroes[idx + 1].id) : null
+              })()}
               actions={heroes.find(h => h.id === expandedId)?.is_alive && (
                 <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'flex-end', alignItems: 'center' }}>
                   {typeof activeTab === 'number' && heroes.find(h => h.id === expandedId)?.ego_type && (
@@ -789,270 +1085,55 @@ export default function HeroesPage() {
         </div>
       )}
 
-      {!synthMode && (
-        <div style={{ marginBottom: '1.5rem' }}>
-          {/* Comparison entry points — deliberately their own standalone bar,
-              not folded into the crowded filter row below (that's where they
-              lived before; got reported as impossible to find). */}
-          <div style={{
-            display: 'flex', alignItems: 'center', gap: '0.8rem', flexWrap: 'wrap',
-            borderRadius: 6, padding: '0.3rem 0', marginBottom: '0.8rem',
-          }}>
-            <button
-              className="btn btn-gold"
-              style={{ marginLeft: 'auto', padding: '0.35rem 0.9rem', fontSize: '0.72rem' }}
-              onClick={() => setCompareHeroesOpen(true)}
-              disabled={selected.size !== 2}
-              title={selected.size !== 2 ? 'Select exactly 2 heroes (circle in each card\'s top-left corner)' : undefined}
-            >
-              Compare Selected ({selected.size}/2)
-            </button>
-            <button className="btn btn-gold" style={{ padding: '0.35rem 0.9rem', fontSize: '0.72rem' }} onClick={() => setCompareTeamsOpen(true)}>
-              Compare Teams
-            </button>
-          </div>
-
-          {/* Tabs */}
-          <div style={{ display: 'flex', gap: '0.25rem', overflowX: 'auto', marginBottom: '1rem', paddingBottom: '0.5rem', borderBottom: '1px solid rgba(255,255,255,0.1)' }}>
-            <button className={`btn ${activeTab === 'all' ? 'btn-gold' : ''}`} onClick={() => { setActiveTab('all'); setSelected(new Set()) }}>
-              All Heroes
-            </button>
-            <button
-              className={`btn ${activeTab === 'favorites' ? 'btn-gold' : ''}`}
-              style={activeTab === 'favorites' ? undefined : { color: '#e06080' }}
-              onClick={() => { setActiveTab('favorites'); setSelected(new Set()) }}
-            >
-              ♥ Favorites
-            </button>
-            {[1, 2, 3, 4, 5].map(t => (
-              <button key={t} className={`btn ${activeTab === t ? 'btn-gold' : ''}`} onClick={() => { setActiveTab(t); setSelected(new Set()) }}>
-                Team {t}
-              </button>
-            ))}
-          </div>
-
-          {/* Filters & Actions */}
-          <div style={{ display: 'flex', gap: '1rem', alignItems: 'center', flexWrap: 'wrap', background: 'rgba(0,0,0,0.2)', padding: '0.75rem', borderRadius: 4 }}>
-            <input 
-              type="text" 
-              placeholder="Search Name, Class, or Synergy..." 
-              value={searchQuery}
-              onChange={e => setSearchQuery(e.target.value)}
-              style={{ background: 'var(--bg)', color: '#fff', border: '1px solid var(--border)', padding: '0.4rem 0.8rem', borderRadius: 4, minWidth: '220px' }}
-            />
-            <select value={starFilter} onChange={e => setStarFilter(e.target.value)} style={{ background: 'var(--bg)', color: '#fff', border: '1px solid var(--border)', padding: '0.4rem 0.8rem', borderRadius: 4 }}>
-              <option value="any">Any Star</option>
-              {[1, 2, 3, 4, 5, 6, 7].map(s => <option key={s} value={s}>{s} Star</option>)}
-            </select>
-            <select value={classFilter} onChange={e => setClassFilter(e.target.value)} style={{ background: 'var(--bg)', color: '#fff', border: '1px solid var(--border)', padding: '0.4rem 0.8rem', borderRadius: 4 }}>
-              <option value="all">Any Class</option>
-              {['Warrior', 'Mage', 'Rogue', 'Cleric', 'Archer', 'Paladin', 'Warlock', 'Bard', 'Druid', 'Monk', 'Ranger', 'Sorcerer', 'Necromancer', 'Assassin', 'Blacksmith', 'Thief', 'Classless'].map(c => <option key={c} value={c}>{c}</option>)}
-            </select>
-            <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
-              <label className="text-dim" style={{ marginLeft: '0.5rem' }}>Sort by:</label>
-              <select value={sortBy} onChange={e => setSortBy(e.target.value)} style={{ background: 'var(--bg)', color: '#fff', border: '1px solid var(--border)', padding: '0.4rem 0.8rem', borderRadius: 4 }}>
-                <option value="level">Level</option>
-                <option value="stars">Star Rating</option>
-                <option value="name">Name</option>
-                <option value="health">Max Health</option>
-                <option value="atk">Strength</option>
-                <option value="def">Intelligence</option>
-              </select>
-            </div>
-
-            {!isTeamTab ? (
-              <div style={{ marginLeft: 'auto', display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
-                <span className="text-dim text-sm">Assign {selected.size} heroes to:</span>
-                <select value={assignTargetTeam} onChange={e => setAssignTargetTeam(Number(e.target.value))} style={{ background: 'var(--bg)', color: '#fff', border: '1px solid var(--gold)', padding: '0.4rem 0.8rem', borderRadius: 4 }}>
-                  {[1, 2, 3, 4, 5].map(t => <option key={t} value={t}>Team {t}</option>)}
-                </select>
-                <button className="btn btn-primary" onClick={saveTeamFromAll} disabled={saving || selected.size === 0}>
-                  {saving ? 'Assigning...' : 'Assign'}
-                </button>
-                <button className="btn btn-danger" onClick={removeFromTeamFromAll} disabled={saving || selected.size === 0}>
-                  {saving ? 'Removing...' : 'Remove from Team'}
-                </button>
-              </div>
-            ) : (
-              <div style={{ marginLeft: 'auto', display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
-                <span className="text-dim text-sm">Team {activeTab} Members ({displayHeroes.length}/5)</span>
-                <button className="btn btn-danger" onClick={removeFromTeam} disabled={saving || selected.size === 0}>
-                  {saving ? 'Removing...' : `Remove Selected (${selected.size})`}
-                </button>
-              </div>
-            )}
-          </div>
-        </div>
-      )}
-
-      {msg && (
-        <div className={`text-sm ${msg.includes('saved') || msg.includes('complete') || msg.includes('Added') || msg.includes('Removed') || msg.includes('successful') || msg.includes('Dismissed') || msg.includes('cleared') ? 'text-green' : 'text-red'}`}
-             style={{ marginBottom: '1rem' }}>
-          {msg}
-        </div>
-      )}
-
-      {/* Synthesis mode instructions */}
-      {synthMode && (
-        <div className="card" style={{ marginBottom: '1rem', border: '1px solid #8030c8', background: 'rgba(128,48,200,0.08)', padding: '0.75rem 1rem' }}>
-          <div style={{ fontFamily: 'Cinzel, serif', fontSize: '0.85rem', color: '#8030c8', marginBottom: '0.4rem' }}>
-            ⚗ Synthesis Mode
-          </div>
-          <div className="text-sm" style={{ lineHeight: 1.6 }}>
-            {!synthTarget && !synthSacrifice && (
-              <span className="text-dim">Step 1: Click a hero to select as the <span className="text-gold">target</span> (receives the bonus).</span>
-            )}
-            {synthTarget && !synthSacrifice && (
-              <span className="text-dim">Step 2: Click another hero to select as the <span className="text-red">sacrifice</span> (will be consumed).</span>
-            )}
-            {synthTarget && synthSacrifice && (
-              <span>Ready! <span className="text-gold">Target</span> selected, <span className="text-red">sacrifice</span> selected.</span>
-            )}
-          </div>
-          {synthTarget && synthSacrifice && (
-            <button className="btn btn-primary" onClick={executeSynthesis} disabled={synthesizing} style={{ marginTop: '0.6rem' }}>
-              {synthesizing ? 'Synthesizing...' : '⚗ Execute Synthesis'}
-            </button>
-          )}
-        </div>
-      )}
-
-      {/* Synthesis result */}
-      {synthResult && (
-        <div className="card" style={{ marginBottom: '1rem', border: '1px solid var(--green)', background: 'rgba(74,154,106,0.08)', padding: '0.75rem 1rem' }}>
-          <div style={{ fontFamily: 'Cinzel, serif', fontSize: '0.85rem', color: 'var(--green)', marginBottom: '0.3rem' }}>Synthesis Complete</div>
-          <div className="text-sm" style={{ lineHeight: 1.5 }}>{synthResult.message || 'The sacrifice has been consumed. Target hero empowered.'}</div>
-          {synthResult.xp_gained != null && <div className="text-gold text-sm" style={{ marginTop: '0.3rem' }}>+{synthResult.xp_gained} XP gained</div>}
-        </div>
-      )}
-
-
-
-      {isTeamTab && !synthMode && displayHeroes.length > 0 && (
-        <div className="text-gold" style={{ background: 'rgba(201,168,76,0.1)', border: '1px solid var(--gold-dim)', padding: '0.75rem', borderRadius: 4, marginBottom: '1rem', textAlign: 'center', fontFamily: 'Cinzel, serif' }}>
-          ✥ Drag and drop hero cards to rearrange your Frontline and Backline! ✥
-        </div>
-      )}
-
-      {!isTeamTab || synthMode ? (
-        <div className="hero-grid">
-          {displayHeroes.length === 0 && isTeamTab && (
-            <div className="text-dim" style={{ padding: '2rem', fontStyle: 'italic', gridColumn: '1 / -1', textAlign: 'center' }}>
-              No heroes on Team {activeTab}.<br/>
-              To add heroes, switch to the "All" tab, click the checkmarks on your desired heroes, and use the "Assign" button at the top right.
-            </div>
-          )}
-          {displayHeroes.length === 0 && !isTeamTab && (
-            <div className="empty-state" style={{ gridColumn: '1 / -1' }}>
-              <div className="empty-state-icon">{activeTab === 'favorites' ? '♡' : <GameIcon name="classless_runestone" size={52} />}</div>
-              <div className="empty-state-title">
-                {activeTab === 'favorites' ? 'No Favorites Yet' : heroes.length === 0 ? 'No Heroes Yet' : 'No Heroes Match These Filters'}
-              </div>
-              <div className="empty-state-hint">
-                {activeTab === 'favorites'
-                  ? "Click the ♡ on any hero's card to pin them here."
-                  : heroes.length === 0
-                    ? 'Visit the Summoning Gate to call your first heroes into the Tower.'
-                    : 'Try clearing the search, star, or class filters.'}
-              </div>
-            </div>
-          )}
-          {displayHeroes.map((hero, index) => renderHeroCard(hero, index))}
-        </div>
-      ) : (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '2rem', alignItems: 'center', marginTop: '1rem' }}>
-          {displayHeroes.length === 0 && (
-            <div className="text-dim" style={{ padding: '2rem', fontStyle: 'italic', textAlign: 'center' }}>
-              No heroes on Team {activeTab}.<br/>
-              To add heroes, switch to the "All" tab, click the checkmarks on your desired heroes, and use the "Assign" button at the top right.
-            </div>
-          )}
-          
-          {/* Frontline */}
-          {displayHeroes.length > 0 && (
-            <div style={{ display: 'flex', gap: '2rem', justifyContent: 'center', flexWrap: 'wrap' }}>
-              {displayHeroes.slice(0, 2).map((hero, i) => renderHeroCard(hero, i))}
-            </div>
-          )}
-          
-          {/* Backline */}
-          {displayHeroes.length > 2 && (
-            <div style={{ display: 'flex', gap: '2rem', justifyContent: 'center', flexWrap: 'wrap' }}>
-              {displayHeroes.slice(2, 5).map((hero, i) => renderHeroCard(hero, i + 2))}
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* Roster Management */}
-      {!synthMode && (
-        <div style={{ marginTop: '2rem', paddingTop: '1rem', borderTop: '1px solid var(--border)' }}>
-          <div className="section-header">Roster Management</div>
-          <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap' }}>
-            <button className="btn btn-danger" onClick={handleDismissSelected} disabled={selected.size === 0 || saving} style={{ fontSize: '0.72rem' }}>
-              ✕ Dismiss Selected ({selected.size})
-            </button>
-            <button className="btn btn-danger" onClick={handleDismissFiltered} disabled={displayHeroes.length === 0 || saving} style={{ fontSize: '0.72rem' }}>
-              ✕ Dismiss All Filtered ({displayHeroes.length})
-            </button>
-          </div>
-          <div className="text-dim text-sm" style={{ marginTop: '0.5rem' }}>
-            Select heroes by clicking them, then dismiss them in bulk.
-          </div>
-        </div>
-      )}
-
       {/* Equipment Modal */}
       {eqModal && (
-        <div style={{
-          position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
-          background: 'rgba(0,0,0,0.85)', zIndex: 200,
-          display: 'flex', alignItems: 'center', justifyContent: 'center',
-          backdropFilter: 'blur(5px)'
-        }} onClick={() => setEqModal(null)}>
-          <div className="card" style={{ width: '500px', maxWidth: '90vw', maxHeight: '80vh', overflowY: 'auto' }} onClick={e => e.stopPropagation()}>
-            <h3 style={{ fontFamily: 'Cinzel, serif', color: 'var(--gold)', marginBottom: '1rem', textTransform: 'capitalize' }}>
-              Manage {eqModal.slot} for {eqModal.hero.name}
-            </h3>
-            
+        <div className="ilm-modal-scrim" style={{ zIndex: 200 }} onClick={() => setEqModal(null)}>
+          <div className="ilm-featmodal" style={{ width: 500, maxWidth: '90vw', maxHeight: '80vh', overflowY: 'auto' }} onClick={e => e.stopPropagation()}>
+            <span className="ilm-corner" /><span className="ilm-corner ilm-corner-r" />
+            <button className="ilm-close" style={{ position: 'absolute', top: 14, right: 14 }} onClick={() => setEqModal(null)}>✕</button>
+            <div className="ilm-micro" style={{ color: 'var(--gold-hi)' }}>ARSENAL · {eqModal.slot?.toUpperCase()}</div>
+            <div style={{ fontFamily: "'Cinzel',serif", fontWeight: 900, fontSize: '1.3rem', color: 'var(--text-hi)', marginTop: 2, marginBottom: 12 }}>
+              {eqModal.hero.name?.toUpperCase()}
+            </div>
+
             {eqModal.currentEq && (
-              <div style={{ marginBottom: '1.5rem', padding: '1rem', background: 'rgba(255,255,255,0.05)', borderRadius: 4, border: '1px solid var(--border)' }}>
-                <div style={{ color: 'var(--text-dim)', fontSize: '0.8rem', marginBottom: '0.5rem' }}>Currently Equipped:</div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div style={{ marginBottom: 16, padding: '12px 14px', background: 'rgba(184,151,98,.06)', border: '1px solid rgba(184,151,98,.35)' }}>
+                <div className="ilm-micro" style={{ color: 'var(--muted)', marginBottom: 6 }}>CURRENTLY BORNE</div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10 }}>
                   <div>
-                    <div style={{ color: 'var(--gold)', fontFamily: 'Cinzel, serif' }}>{eqModal.currentEq.name}</div>
+                    <div style={{ color: 'var(--gold-hi)', fontFamily: "'Cinzel',serif" }}>{eqModal.currentEq.name}</div>
                     <div style={{ fontSize: '0.75rem', color: 'var(--text-dim)' }}>
-                      Rarity: {eqModal.currentEq.rarity} | Level: {eqModal.currentEq.level} | {formatEquipmentStats(eqModal.currentEq)}
+                      {eqModal.currentEq.rarity} · Lv {eqModal.currentEq.level} · {formatEquipmentStats(eqModal.currentEq)}
                     </div>
                   </div>
-                  <button className="btn btn-danger" onClick={async () => {
+                  <button className="ilm-btn ilm-btn-danger" onClick={async () => {
                     await unequipItem(eqModal.currentEq.id);
                     setEqModal(null);
                     load();
-                  }}>Unequip</button>
+                  }}>UNEQUIP</button>
                 </div>
               </div>
             )}
 
-            <div style={{ color: 'var(--text-dim)', fontSize: '0.8rem', marginBottom: '0.5rem' }}>Available {eqModal.slot}s in Storage:</div>
+            <div className="ilm-micro" style={{ color: 'var(--muted)', marginBottom: 8 }}>IN STORAGE</div>
             {allEq.filter(e => e.type?.toLowerCase() === eqModal.slot).length === 0 ? (
-              <div className="text-dim text-sm" style={{ fontStyle: 'italic' }}>No unequipped {eqModal.slot}s available.</div>
+              <div style={{ fontStyle: 'italic', color: 'var(--text-dim)', fontSize: '0.85rem' }}>No unequipped {eqModal.slot}s available.</div>
             ) : (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', maxHeight: '300px', overflowY: 'auto', paddingRight: '0.5rem' }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8, maxHeight: 300, overflowY: 'auto', paddingRight: 6 }}>
                 {allEq.filter(e => e.type?.toLowerCase() === eqModal.slot)
                   .sort((a, b) => {
                     const tiers = ["F-", "F", "F+", "E-", "E", "E+", "D-", "D", "D+", "C-", "C", "C+", "B-", "B", "B+", "A-", "A", "A+", "S-", "S", "S+", "SS", "SSS", "Z"];
                     return tiers.indexOf(b.rarity) - tiers.indexOf(a.rarity);
                   })
                   .map(eq => (
-                  <div key={eq.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.75rem', background: 'rgba(0,0,0,0.3)', border: '1px solid var(--border)', borderRadius: 4 }}>
+                  <div key={eq.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, padding: '10px 12px', background: 'rgba(12,7,24,.5)', border: '1px solid rgba(184,151,98,.25)' }}>
                     <div>
-                      <div style={{ color: 'var(--text-hi)', fontFamily: 'Cinzel, serif' }}>{eq.name}</div>
+                      <div style={{ color: 'var(--text-hi)', fontFamily: "'Cinzel',serif" }}>{eq.name}</div>
                       <div style={{ fontSize: '0.75rem', color: 'var(--text-dim)' }}>
-                        Rarity: {eq.rarity} | Level: {eq.level} | {formatEquipmentStats(eq)}
+                        {eq.rarity} · Lv {eq.level} · {formatEquipmentStats(eq)}
                       </div>
                     </div>
-                    <button className="btn btn-primary" onClick={async () => {
+                    <button className="ilm-btn ilm-btn-gold" onClick={async () => {
                       try {
                         await equipItem(eq.id, eqModal.hero.id);
                         setEqModal(null);
@@ -1060,7 +1141,7 @@ export default function HeroesPage() {
                       } catch (e) {
                         emitToast({ title: 'Cannot Equip', lines: [{ label: e.message, value: '' }], borderColor: 'var(--red)' });
                       }
-                    }}>Equip</button>
+                    }}>EQUIP</button>
                   </div>
                 ))}
               </div>
@@ -1071,43 +1152,41 @@ export default function HeroesPage() {
 
       {/* Consumable Modal */}
       {consModal && (
-        <div style={{
-          position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
-          background: 'rgba(0,0,0,0.85)', zIndex: 200,
-          display: 'flex', alignItems: 'center', justifyContent: 'center',
-          backdropFilter: 'blur(5px)'
-        }} onClick={() => setConsModal(null)}>
-          <div className="card" style={{ width: '500px', maxWidth: '90vw', maxHeight: '80vh', overflowY: 'auto' }} onClick={e => e.stopPropagation()}>
-            <h3 style={{ fontFamily: 'Cinzel, serif', color: 'var(--gold)', marginBottom: '1rem' }}>
-              Consumable for {consModal.hero.name}
-            </h3>
-            <div className="text-dim text-sm" style={{ marginBottom: '1rem' }}>
+        <div className="ilm-modal-scrim" style={{ zIndex: 200 }} onClick={() => setConsModal(null)}>
+          <div className="ilm-featmodal" style={{ width: 500, maxWidth: '90vw', maxHeight: '80vh', overflowY: 'auto' }} onClick={e => e.stopPropagation()}>
+            <span className="ilm-corner" /><span className="ilm-corner ilm-corner-r" />
+            <button className="ilm-close" style={{ position: 'absolute', top: 14, right: 14 }} onClick={() => setConsModal(null)}>✕</button>
+            <div className="ilm-micro" style={{ color: 'var(--gold-hi)' }}>PROVISIONS</div>
+            <div style={{ fontFamily: "'Cinzel',serif", fontWeight: 900, fontSize: '1.3rem', color: 'var(--text-hi)', marginTop: 2 }}>
+              {consModal.hero.name?.toUpperCase()}
+            </div>
+            <div style={{ fontStyle: 'italic', color: 'var(--text-dim)', fontSize: '0.85rem', margin: '8px 0 14px', lineHeight: 1.5 }}>
               What this hero carries into the tower and drinks/uses when hurt. Bandages heal pre-fight; Potions/Scrolls heal mid-fight. The item still comes from the same shared stock — this just decides who's allowed to reach for it.
             </div>
 
             {consModal.hero.equipped_consumable && (
-              <div style={{ marginBottom: '1.5rem', padding: '1rem', background: 'rgba(255,255,255,0.05)', borderRadius: 4, border: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <div style={{ color: 'var(--gold)', fontFamily: 'Cinzel, serif' }}>{consModal.hero.equipped_consumable}</div>
-                <button className="btn btn-danger" onClick={async () => {
+              <div style={{ marginBottom: 16, padding: '12px 14px', background: 'rgba(184,151,98,.06)', border: '1px solid rgba(184,151,98,.35)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div style={{ color: 'var(--gold-hi)', fontFamily: "'Cinzel',serif" }}>{consModal.hero.equipped_consumable}</div>
+                <button className="ilm-btn ilm-btn-danger" onClick={async () => {
                   await equipConsumable(consModal.hero.id, null)
                   setConsModal(null)
                   load()
-                }}>Unequip</button>
+                }}>UNEQUIP</button>
               </div>
             )}
 
-            <div style={{ color: 'var(--text-dim)', fontSize: '0.8rem', marginBottom: '0.5rem' }}>Available in Storage:</div>
+            <div className="ilm-micro" style={{ color: 'var(--muted)', marginBottom: 8 }}>IN STORAGE</div>
             {consOptions.length === 0 ? (
-              <div className="text-dim text-sm" style={{ fontStyle: 'italic' }}>No Bandages, Potions, or Scrolls in storage.</div>
+              <div style={{ fontStyle: 'italic', color: 'var(--text-dim)', fontSize: '0.85rem' }}>No Bandages, Potions, or Scrolls in storage.</div>
             ) : (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', maxHeight: '300px', overflowY: 'auto', paddingRight: '0.5rem' }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8, maxHeight: 300, overflowY: 'auto', paddingRight: 6 }}>
                 {consOptions.map(opt => (
-                  <div key={opt.item_name} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.75rem', background: 'rgba(0,0,0,0.3)', border: '1px solid var(--border)', borderRadius: 4 }}>
+                  <div key={opt.item_name} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 12px', background: 'rgba(12,7,24,.5)', border: '1px solid rgba(184,151,98,.25)' }}>
                     <div>
-                      <div style={{ color: 'var(--text-hi)', fontFamily: 'Cinzel, serif' }}>{opt.item_name}</div>
+                      <div style={{ color: 'var(--text-hi)', fontFamily: "'Cinzel',serif" }}>{opt.item_name}</div>
                       <div style={{ fontSize: '0.75rem', color: 'var(--text-dim)' }}>Owned: {opt.quantity}</div>
                     </div>
-                    <button className="btn btn-primary" onClick={async () => {
+                    <button className="ilm-btn ilm-btn-gold" onClick={async () => {
                       try {
                         await equipConsumable(consModal.hero.id, opt.item_name)
                         setConsModal(null)
@@ -1115,7 +1194,7 @@ export default function HeroesPage() {
                       } catch (e) {
                         setMsg(e.message)
                       }
-                    }}>Equip</button>
+                    }}>EQUIP</button>
                   </div>
                 ))}
               </div>
@@ -1144,25 +1223,28 @@ export default function HeroesPage() {
       )}
 
       {compareTeamsOpen && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.75)', zIndex: 100, display: 'flex', alignItems: 'center', justifyContent: 'center' }} onClick={() => setCompareTeamsOpen(false)}>
-          <div onClick={e => e.stopPropagation()} style={{ background: 'var(--bg-panel)', border: '1px solid var(--border)', borderRadius: 8, padding: '1.5rem', minWidth: '380px' }}>
-            <div style={{ fontFamily: 'Cinzel, serif', fontSize: '1.1rem', color: 'var(--gold)', marginBottom: '1rem' }}>Compare Teams</div>
-            <div style={{ display: 'flex', gap: '1rem', alignItems: 'center', marginBottom: '1.2rem' }}>
-              <select value={compareTeamA} onChange={e => setCompareTeamA(Number(e.target.value))} style={{ background: 'var(--bg)', color: '#fff', border: '1px solid var(--border)', padding: '0.4rem 0.8rem', borderRadius: 4, flex: 1 }}>
-                {[1, 2, 3, 4, 5].map(t => <option key={t} value={t}>Team {t}</option>)}
+        <div className="ilm-modal-scrim" style={{ zIndex: 100 }} onClick={() => setCompareTeamsOpen(false)}>
+          <div className="ilm-featmodal" style={{ width: 400, maxWidth: '90vw' }} onClick={e => e.stopPropagation()}>
+            <span className="ilm-corner" /><span className="ilm-corner ilm-corner-r" />
+            <button className="ilm-close" style={{ position: 'absolute', top: 14, right: 14 }} onClick={() => setCompareTeamsOpen(false)}>✕</button>
+            <div className="ilm-micro" style={{ color: 'var(--gold-hi)' }}>WAR COUNCIL</div>
+            <div style={{ fontFamily: "'Cinzel',serif", fontWeight: 900, fontSize: '1.3rem', color: 'var(--text-hi)', marginTop: 2, marginBottom: 14 }}>COMPARE TEAMS</div>
+            <div style={{ display: 'flex', gap: 12, alignItems: 'center', marginBottom: 16 }}>
+              <select className="input" value={compareTeamA} onChange={e => setCompareTeamA(Number(e.target.value))} style={{ flex: 1, fontFamily: "'Cinzel',serif", fontSize: '0.75rem', letterSpacing: '.1em' }}>
+                {[1, 2, 3, 4, 5].map(t => <option key={t} value={t}>TEAM {ROMAN[t]}</option>)}
               </select>
-              <span className="text-dim">vs</span>
-              <select value={compareTeamB} onChange={e => setCompareTeamB(Number(e.target.value))} style={{ background: 'var(--bg)', color: '#fff', border: '1px solid var(--border)', padding: '0.4rem 0.8rem', borderRadius: 4, flex: 1 }}>
-                {[1, 2, 3, 4, 5].map(t => <option key={t} value={t}>Team {t}</option>)}
+              <span style={{ fontFamily: "'Cinzel',serif", fontSize: 10, letterSpacing: '.2em', color: 'var(--muted)' }}>VS</span>
+              <select className="input" value={compareTeamB} onChange={e => setCompareTeamB(Number(e.target.value))} style={{ flex: 1, fontFamily: "'Cinzel',serif", fontSize: '0.75rem', letterSpacing: '.1em' }}>
+                {[1, 2, 3, 4, 5].map(t => <option key={t} value={t}>TEAM {ROMAN[t]}</option>)}
               </select>
             </div>
-            <div style={{ display: 'flex', gap: '0.5rem' }}>
-              <button className="btn btn-primary" style={{ flex: 1 }} onClick={() => { setCompareTeamsOpen(false); setCompareTeamsResultOpen(true) }} disabled={compareTeamA === compareTeamB}>
-                Compare
+            <div style={{ display: 'flex', gap: 10 }}>
+              <button className="ilm-btn ilm-btn-violet" style={{ flex: 1.4 }} onClick={() => { setCompareTeamsOpen(false); setCompareTeamsResultOpen(true) }} disabled={compareTeamA === compareTeamB}>
+                COMPARE
               </button>
-              <button className="btn" onClick={() => setCompareTeamsOpen(false)}>Cancel</button>
+              <button style={{ flex: 0.7, background: 'none', border: 'none', cursor: 'pointer', fontFamily: "'Cinzel',serif", fontWeight: 500, letterSpacing: '.2em', fontSize: '0.68rem', color: 'var(--text-dim)' }} onClick={() => setCompareTeamsOpen(false)}>CANCEL</button>
             </div>
-            {compareTeamA === compareTeamB && <div className="text-red text-sm" style={{ marginTop: '0.5rem' }}>Pick two different teams.</div>}
+            {compareTeamA === compareTeamB && <div style={{ color: '#e08585', fontSize: '0.8rem', fontStyle: 'italic', marginTop: 8 }}>Pick two different teams.</div>}
           </div>
         </div>
       )}
@@ -1174,7 +1256,33 @@ export default function HeroesPage() {
           onClose={() => setCompareTeamsResultOpen(false)}
         />
       )}
+
+      {/* ── bottom team nav (Squad Overview spec) ── */}
+      <div style={{ position: 'sticky', bottom: 0, marginTop: 'auto', display: 'flex', alignItems: 'center', gap: 26,
+        padding: '14px 8px 12px', borderTop: '1px solid rgba(184,151,98,.28)',
+        background: 'linear-gradient(rgba(11,7,20,0), #0b0714)', zIndex: 20 }}>
+        {[
+          { id: 'all', label: 'ALL HEROES' },
+          { id: 1, label: 'TEAM I' }, { id: 2, label: 'TEAM II' }, { id: 3, label: 'TEAM III' },
+          { id: 4, label: 'TEAM IV' }, { id: 5, label: 'TEAM V' },
+          { id: 'favorites', label: '♥ FAVORITES' },
+        ].map(t => {
+          const active = activeTab === t.id
+          return (
+            <span key={t.id} onClick={() => { setActiveTab(t.id); setSelected(new Set()); setMsg(null) }}
+              style={{ cursor: 'pointer', fontFamily: 'Cinzel, serif', fontWeight: active ? 700 : 500,
+                letterSpacing: '.28em', fontSize: 13, textTransform: 'uppercase',
+                color: active ? 'var(--text-hi)' : (t.id === 'favorites' ? '#e0708a' : 'var(--text-dim)'),
+                borderBottom: active ? '2px solid var(--gold)' : '2px solid transparent', paddingBottom: 3 }}>
+              {t.label}
+            </span>
+          )
+        })}
+        <span style={{ flex: 1 }} />
+        <span style={{ fontFamily: 'Cinzel, serif', letterSpacing: '.24em', fontSize: 12, color: 'var(--muted)' }}>
+          {heroes.filter(h => h.is_alive).length} HEROES · <span style={{ color: 'var(--gold-hi)' }}>{heroes.filter(h => h.is_alive && h.is_on_team).length} DEPLOYED</span>
+        </span>
+      </div>
     </div>
   )
 }
-

@@ -1,18 +1,22 @@
 import React, { useState, useEffect } from 'react'
 import { getTrainingStatus, setTrainingRegimen, sparHeroes, runTrainingTournament } from '../api/client'
+import StakesBanner from './StakesBanner'
 
-// The full Training Grounds management panel, rendered inside the facility
-// card. Two halves:
-//   1. Solo Drills — per assigned hero, pick a regimen (Focus/Conditioning/
-//      Meditation/Weapon Drills) + intensity. Ticks over time server-side.
-//   2. Sparring — pick two heroes; the backend auto-detects Peer vs
-//      Mentorship from the level gap.
+/*
+ * THE TRAINING GROUNDS — facility screen (mock "Training Grounds"):
+ * left DRILLMASTERS console, center THE YARD session board (each assigned
+ * hero's drill as a row; click to change regimen/focus/intensity), right
+ * MENTORSHIP · MASTER & PUPIL panel + the daily tournament. All the old
+ * mechanics survive — drills tick server-side, sparring auto-detects Peer
+ * vs Mentorship from the level gap.
+ */
 
 const STAT_LABELS = {
   strength: 'Strength', intelligence: 'Intelligence', agility: 'Agility',
   endurance: 'Endurance', willpower: 'Willpower', luck: 'Luck',
 }
 const INTENSITY_ORDER = ['light', 'moderate', 'intense']
+const INTENSITY_ROMAN = { light: 'I', moderate: 'II', intense: 'III' }
 const INTENSITY_HINT = {
   light: 'Half gains, no fatigue.',
   moderate: 'Standard gains, mild fatigue & stress.',
@@ -20,25 +24,41 @@ const INTENSITY_HINT = {
 }
 const MENTOR_GAP = 8
 
-function panelBox(children, key) {
-  return <div key={key} style={{ marginTop: '1rem', background: 'rgba(0,0,0,0.2)', padding: '0.75rem', borderRadius: 6 }}>{children}</div>
+const micro = { fontFamily: "'Cinzel',serif", letterSpacing: '.16em', fontSize: 9 }
+
+function HeroDiamond({ hero, size = 26, accent = 'var(--gold-hi)' }) {
+  return (
+    <span style={{ width: size, height: size, transform: 'rotate(45deg)', flex: 'none', border: `1px solid ${accent}`, background: '#140b22', display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}>
+      {hero?.portrait_path && !hero.portrait_path.includes('default_') ? (
+        <img src={`/${hero.portrait_path}`} alt={hero.name} draggable={false}
+          style={{ width: '142%', height: '142%', objectFit: 'cover', objectPosition: 'center 15%', transform: 'rotate(-45deg)', flex: 'none', pointerEvents: 'none' }} />
+      ) : (
+        <span style={{ transform: 'rotate(-45deg)', fontFamily: "'Cinzel',serif", fontSize: Math.round(size * 0.36), color: accent }}>{hero?.name?.[0] || '?'}</span>
+      )}
+    </span>
+  )
 }
 
 export default function TrainingGroundsPanel({ onChanged }) {
   const [data, setData] = useState(null)
   const [busyHero, setBusyHero] = useState(null)
   const [msg, setMsg] = useState(null)
+  const [openLane, setOpenLane] = useState(null)   // hero id whose drill controls are expanded
 
-  // Sparring state
-  const [aId, setAId] = useState('')
-  const [bId, setBId] = useState('')
+  // Mentorship (right panel)
+  const [mentorId, setMentorId] = useState('')
+  const [pupilId, setPupilId] = useState('')
   const [sparBusy, setSparBusy] = useState(false)
   const [sparMsg, setSparMsg] = useState(null)
 
-  // Tournament state
+  // Peer sparring (center, behind SET UP SPARRING)
+  const [sparOpen, setSparOpen] = useState(false)
+  const [aId, setAId] = useState('')
+  const [bId, setBId] = useState('')
+
+  // Tournament
   const [tourBusy, setTourBusy] = useState(false)
   const [tourResult, setTourResult] = useState(null)
-  const [tourMsg, setTourMsg] = useState(null)
 
   async function refresh() {
     try { setData(await getTrainingStatus()) } catch (e) { setMsg({ text: e.message, err: true }) }
@@ -49,7 +69,6 @@ export default function TrainingGroundsPanel({ onChanged }) {
     const regimen = patch.regimen ?? hero.training_regimen ?? 'focus'
     let focus = patch.focus ?? hero.training_focus ?? null
     const intensity = patch.intensity ?? hero.training_intensity ?? 'moderate'
-    // Default a sensible focus when switching INTO a regimen that needs one.
     if (regimen === 'conditioning' && !focus) focus = 'strength'
     if (regimen === 'weapon_drill' && !focus) focus = hero.skills?.[0]?.id || null
     setBusyHero(hero.id)
@@ -65,28 +84,12 @@ export default function TrainingGroundsPanel({ onChanged }) {
     }
   }
 
-  async function handleTournament() {
-    setTourBusy(true)
-    setTourMsg(null)
-    try {
-      const res = await runTrainingTournament()
-      setTourResult(res)
-      await refresh()
-      if (onChanged) onChanged()
-    } catch (e) {
-      setTourMsg(e.message)
-    } finally {
-      setTourBusy(false)
-    }
-  }
-
-  async function handleSpar() {
-    if (!aId || !bId) return
+  async function runSpar(idA, idB, isMentor) {
     setSparBusy(true)
     setSparMsg(null)
     try {
-      const res = await sparHeroes(Number(aId), Number(bId))
-      setSparMsg({ lines: res.messages || [], err: false })
+      const res = await sparHeroes(Number(idA), Number(idB))
+      setSparMsg({ lines: res.messages || [], err: false, mentor: isMentor })
       await refresh()
       if (onChanged) onChanged()
     } catch (e) {
@@ -96,173 +99,255 @@ export default function TrainingGroundsPanel({ onChanged }) {
     }
   }
 
+  async function handleTournament() {
+    setTourBusy(true)
+    try {
+      const res = await runTrainingTournament()
+      setTourResult(res)
+      await refresh()
+      if (onChanged) onChanged()
+    } catch (e) {
+      setSparMsg({ lines: [e.message], err: true })
+    } finally {
+      setTourBusy(false)
+    }
+  }
+
   if (!data) return null
   const heroes = data.heroes || []
 
+  const mentor = heroes.find(h => String(h.id) === mentorId)
+  const pupil = heroes.find(h => String(h.id) === pupilId)
+  const mentorGap = mentor && pupil ? (mentor.level || 1) - (pupil.level || 1) : null
+  const canMentor = mentorGap != null && mentorGap >= MENTOR_GAP
+
   const a = heroes.find(h => String(h.id) === aId)
   const b = heroes.find(h => String(h.id) === bId)
-  const gap = a && b ? Math.abs((a.level || 1) - (b.level || 1)) : null
-  const predictedMode = gap == null ? null : gap >= MENTOR_GAP ? 'Mentorship' : gap <= 5 ? 'Peer Sparring' : 'mismatch'
+  const peerGap = a && b ? Math.abs((a.level || 1) - (b.level || 1)) : null
+  const peerOk = peerGap != null && peerGap <= 5
+
+  // Drillmasters — the sharpest tactical minds on the grounds hold the posts.
+  const drillmasters = [...heroes].sort((x, y) => (y.apt_tactical ?? 0) - (x.apt_tactical ?? 0)).slice(0, 3)
+  const t = data.tournament || {}
+
+  const regimenLine = h => {
+    const r = h.training_regimen || 'focus'
+    const label = data.regimens?.[r]?.label || r
+    if (r === 'conditioning') return `${label} · ${STAT_LABELS[h.training_focus] || 'Strength'} · cap ${data.conditioning_cap}`
+    if (r === 'weapon_drill') {
+      const sk = (h.skills || []).find(s => String(s.id) === String(h.training_focus))
+      return `${label} · ${sk?.name || 'no skill chosen'}`
+    }
+    if (r === 'meditation') return `${label} · Mental ${h.apt_mental ?? 50} · ${h.aptitudes_revealed || 0}/6 revealed`
+    return label
+  }
 
   return (
-    <>
-      {/* ── Solo Drills ── */}
-      {panelBox(
-        <>
-          <div style={{ color: 'var(--gold)', fontFamily: 'Cinzel, serif', marginBottom: '0.3rem' }}>🏋 Solo Drills</div>
-          <div className="text-dim text-sm" style={{ marginBottom: '0.6rem' }}>
-            Each hero here trains over time. Conditioning permanently raises a stat (cap +{data.conditioning_cap} at this Training Grounds level); Meditation sharpens Mental aptitude and can reveal hidden ones; Weapon Drills grind a chosen skill. Intensity trades faster gains for fatigue & stress.
+    <div style={{ display: 'flex', gap: 18, marginTop: '1rem', alignItems: 'flex-start', flexWrap: 'wrap' }}>
+      {/* ═══ LEFT — the console ═══ */}
+      <div style={{ flex: '0 1 230px', minWidth: 210 }}>
+        <div style={{ border: '1px solid rgba(150,110,230,.35)', background: 'rgba(12,7,24,.5)', padding: '14px 16px' }}>
+          <div style={{ ...micro, letterSpacing: '.22em', color: 'var(--muted)' }}>DRILL INTENSITY</div>
+          <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, marginTop: 8 }}>
+            <span style={{ fontFamily: "'Cinzel',serif", fontWeight: 900, fontSize: 30, color: 'var(--text-hi)' }}>
+              {INTENSITY_ROMAN[(heroes[0]?.training_intensity) || 'moderate']}
+            </span>
+            <span style={{ fontSize: 13, fontStyle: 'italic', color: 'var(--muted)' }}>of III · set per hero in the yard</span>
           </div>
-          {heroes.length === 0 && <div className="text-dim text-sm" style={{ fontStyle: 'italic' }}>Assign heroes to the Training Grounds to start drilling.</div>}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-            {heroes.map(h => {
-              const regimen = h.training_regimen || 'focus'
-              const intensity = h.training_intensity || 'moderate'
-              const gains = h.training_gains || {}
-              return (
-                <div key={h.id} className="card" style={{ padding: '0.6rem' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.4rem' }}>
-                    <div style={{ fontWeight: 'bold', color: 'var(--text-hi)' }}>
-                      {h.name} <span className="text-dim" style={{ fontSize: '0.78rem' }}>Lv.{h.level} {h.hero_class}</span>
+        </div>
+
+        <div style={{ ...micro, letterSpacing: '.2em', color: 'var(--muted)', margin: '16px 0 8px' }}>DRILLMASTERS · {Math.min(heroes.length, 3)} / 3</div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 7 }}>
+          {drillmasters.map(h => (
+            <div key={h.id} style={{ display: 'flex', alignItems: 'center', gap: 10, border: '1px solid rgba(184,151,98,.3)', background: 'rgba(12,7,24,.4)', padding: '8px 12px' }}>
+              <HeroDiamond hero={h} size={24} accent="var(--lavender)" />
+              <span style={{ fontFamily: "'Cinzel',serif", fontWeight: 700, fontSize: 11, letterSpacing: '.06em', color: 'var(--text-hi)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{h.name.toUpperCase()}</span>
+              <span style={{ fontSize: 12, fontStyle: 'italic', color: 'var(--muted)', marginLeft: 'auto', whiteSpace: 'nowrap' }}>teaching {h.apt_tactical ?? 50}</span>
+            </div>
+          ))}
+          {heroes.length < 3 && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, border: '1px dashed rgba(150,110,230,.4)', background: 'rgba(12,7,24,.25)', padding: '8px 12px' }}>
+              <span style={{ width: 24, height: 24, transform: 'rotate(45deg)', flex: 'none', border: '1px dashed rgba(200,169,245,.5)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <span style={{ transform: 'rotate(-45deg)', color: 'var(--lavender)', fontSize: 11 }}>+</span>
+              </span>
+              <span style={{ ...micro, fontSize: 8, color: '#6f628c' }}>EMPTY POST · ASSIGN A HERO ABOVE</span>
+            </div>
+          )}
+        </div>
+        {msg && <div style={{ fontSize: 13, fontStyle: 'italic', color: msg.err ? '#d98a8a' : '#8fbf9f', marginTop: 10 }}>{msg.text}</div>}
+      </div>
+
+      {/* ═══ CENTER — the yard ═══ */}
+      <div style={{ flex: '1.6 1 360px', minWidth: 340 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
+          <span style={{ fontFamily: "'Cinzel',serif", letterSpacing: '.24em', fontSize: 11, color: 'var(--gold)' }}>THE YARD · IN SESSION</span>
+          <span style={{ height: 1, flex: 1, background: 'rgba(184,151,98,.2)' }} />
+          <button onClick={() => setSparOpen(o => !o)}
+            style={{ cursor: 'pointer', fontFamily: "'Cinzel',serif", fontWeight: 600, fontSize: 9, letterSpacing: '.16em', color: '#cdbfe4', background: 'none', border: '1px solid rgba(150,110,230,.45)', padding: '6px 14px', clipPath: 'polygon(6px 0,100% 0,calc(100% - 6px) 100%,0 100%)' }}>
+            {sparOpen ? 'CLOSE SPARRING ▾' : '+ SET UP SPARRING'}
+          </button>
+        </div>
+
+        {/* peer sparring form */}
+        {sparOpen && (
+          <div style={{ border: '1px solid rgba(150,110,230,.4)', background: 'linear-gradient(160deg,rgba(42,22,80,.24),rgba(12,7,24,.55))', padding: '12px 16px', marginBottom: 10 }}>
+            <StakesBanner variant="echo" compact note="practice blades — nobody gets hurt here" style={{ marginBottom: 10 }} />
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+              <select className="input" value={aId} onChange={e => setAId(e.target.value)} style={{ flex: 1, minWidth: 120, fontFamily: "'Cinzel',serif", fontSize: 11, letterSpacing: '.06em' }}>
+                <option value="">FIRST…</option>
+                {heroes.map(h => <option key={h.id} value={h.id} disabled={String(h.id) === bId}>{h.name.toUpperCase()} · LV {h.level}</option>)}
+              </select>
+              <span style={{ fontFamily: "'Cinzel',serif", fontSize: 11, color: 'var(--muted)' }}>⚔</span>
+              <select className="input" value={bId} onChange={e => setBId(e.target.value)} style={{ flex: 1, minWidth: 120, fontFamily: "'Cinzel',serif", fontSize: 11, letterSpacing: '.06em' }}>
+                <option value="">SECOND…</option>
+                {heroes.map(h => <option key={h.id} value={h.id} disabled={String(h.id) === aId}>{h.name.toUpperCase()} · LV {h.level}</option>)}
+              </select>
+              <button className="ilm-btn ilm-btn-gold" disabled={sparBusy || !a || !b || !peerOk} onClick={() => runSpar(aId, bId, false)}>
+                {sparBusy ? 'SPARRING…' : 'BEGIN'}
+              </button>
+            </div>
+            {peerGap != null && !peerOk && (
+              <div style={{ fontSize: 12.5, fontStyle: 'italic', color: '#e8a34c', marginTop: 6 }}>
+                Gap of {peerGap} is too wide for peers — pair a mentor instead ({MENTOR_GAP}+ gap, right panel).
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* session rows */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          {heroes.length === 0 && (
+            <div style={{ fontStyle: 'italic', color: 'var(--muted)', fontSize: 14, padding: '14px 2px' }}>
+              The yard stands empty — assign heroes to the Training Grounds above.
+            </div>
+          )}
+          {heroes.map(h => {
+            const open = openLane === h.id
+            const regimen = h.training_regimen || 'focus'
+            const intensity = h.training_intensity || 'moderate'
+            const gains = h.training_gains || {}
+            return (
+              <div key={h.id}>
+                <button onClick={() => setOpenLane(open ? null : h.id)}
+                  style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 14, padding: '11px 16px', cursor: 'pointer', textAlign: 'left',
+                    border: open ? '1px solid rgba(255,216,138,.5)' : '1px solid rgba(184,151,98,.3)',
+                    background: open ? 'linear-gradient(90deg,rgba(184,151,98,.1),rgba(12,7,24,.55))' : 'rgba(12,7,24,.5)' }}>
+                  <HeroDiamond hero={h} />
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontFamily: "'Cinzel',serif", fontWeight: 700, fontSize: 13, letterSpacing: '.08em', color: 'var(--text-hi)' }}>
+                      {(data.regimens?.[regimen]?.label || 'DRILL').toUpperCase()} — {h.name.toUpperCase()}
                     </div>
-                    <div style={{ display: 'flex', gap: '0.5rem', fontSize: '0.72rem' }}>
-                      <span title="Fatigue — 10 locks them out of the Tower until rested" style={{ color: h.fatigue >= 8 ? 'var(--red)' : 'var(--text-dim)' }}>😪 {h.fatigue}/10</span>
-                      <span title="Stress" style={{ color: h.stress >= 70 ? '#f0a848' : 'var(--text-dim)' }}>😰 {h.stress}</span>
+                    <div style={{ fontSize: 13, fontStyle: 'italic', color: 'var(--muted)', marginTop: 2 }}>{regimenLine(h)} · intensity {INTENSITY_ROMAN[intensity]}</div>
+                  </div>
+                  <div style={{ display: 'flex', gap: 10, flex: 'none', alignItems: 'center' }}>
+                    <span title="Fatigue — 10 locks them out of the Tower" style={{ ...micro, color: h.fatigue >= 8 ? '#d98a8a' : 'var(--muted)' }}>FTG {h.fatigue}/10</span>
+                    <div style={{ width: 70, height: 5, background: 'rgba(0,0,0,.5)', border: '1px solid rgba(150,110,230,.3)' }}>
+                      <div style={{ width: `${(INTENSITY_ORDER.indexOf(intensity) + 1) * 33}%`, height: '100%', background: 'linear-gradient(90deg,#8b46d6,#c8a9f5)' }} />
                     </div>
                   </div>
-                  <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap', marginTop: '0.5rem', alignItems: 'center' }}>
+                </button>
+                {open && (
+                  <div style={{ border: '1px solid rgba(184,151,98,.2)', borderTop: 'none', background: 'rgba(8,6,14,.6)', padding: '12px 16px', display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
                     <select className="input" value={regimen} disabled={busyHero === h.id}
                       onChange={e => applyRegimen(h, { regimen: e.target.value })}
-                      style={{ fontSize: '0.8rem', padding: '0.25rem' }}>
-                      {Object.entries(data.regimens).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
+                      style={{ fontFamily: "'Cinzel',serif", fontSize: 11, letterSpacing: '.06em' }}>
+                      {Object.entries(data.regimens).map(([k, v]) => <option key={k} value={k}>{v.label.toUpperCase()}</option>)}
                     </select>
-
                     {regimen === 'conditioning' && (
                       <select className="input" value={h.training_focus || 'strength'} disabled={busyHero === h.id}
                         onChange={e => applyRegimen(h, { regimen: 'conditioning', focus: e.target.value })}
-                        style={{ fontSize: '0.8rem', padding: '0.25rem' }}>
-                        {data.stat_keys.map(s => {
-                          const at = gains[s] || 0
-                          return <option key={s} value={s}>{STAT_LABELS[s]} ({at}/{data.conditioning_cap})</option>
-                        })}
+                        style={{ fontFamily: "'Cinzel',serif", fontSize: 11, letterSpacing: '.06em' }}>
+                        {data.stat_keys.map(s => <option key={s} value={s}>{STAT_LABELS[s].toUpperCase()} ({gains[s] || 0}/{data.conditioning_cap})</option>)}
                       </select>
                     )}
                     {regimen === 'weapon_drill' && (
                       <select className="input" value={h.training_focus || (h.skills?.[0]?.id ?? '')} disabled={busyHero === h.id || !h.skills?.length}
                         onChange={e => applyRegimen(h, { regimen: 'weapon_drill', focus: e.target.value })}
-                        style={{ fontSize: '0.8rem', padding: '0.25rem' }}>
-                        {(h.skills || []).map(s => <option key={s.id} value={s.id}>{s.name} (Lv.{s.level || 1})</option>)}
-                        {!h.skills?.length && <option value="">No skills to drill</option>}
+                        style={{ fontFamily: "'Cinzel',serif", fontSize: 11, letterSpacing: '.06em' }}>
+                        {(h.skills || []).map(s => <option key={s.id} value={s.id}>{s.name.toUpperCase()} (LV {s.level || 1})</option>)}
+                        {!h.skills?.length && <option value="">NO SKILLS TO DRILL</option>}
                       </select>
                     )}
-                    {regimen === 'meditation' && (
-                      <span className="text-dim text-sm">Mental {h.apt_mental ?? 50} · {h.aptitudes_revealed || 0}/6 revealed</span>
-                    )}
-
-                    <div style={{ marginLeft: 'auto', display: 'flex', gap: '0.2rem' }}>
-                      {INTENSITY_ORDER.map(int => (
-                        <button key={int} disabled={busyHero === h.id} title={INTENSITY_HINT[int]}
-                          onClick={() => applyRegimen(h, { intensity: int })}
-                          className={`btn ${intensity === int ? 'btn-gold' : ''}`}
-                          style={{ fontSize: '0.68rem', padding: '0.15rem 0.4rem', textTransform: 'capitalize' }}>
-                          {int}
-                        </button>
-                      ))}
-                    </div>
+                    <span style={{ flex: 1 }} />
+                    <span style={{ ...micro, color: 'var(--muted)' }}>INTENSITY</span>
+                    {INTENSITY_ORDER.map(int => (
+                      <button key={int} disabled={busyHero === h.id} title={INTENSITY_HINT[int]}
+                        onClick={() => applyRegimen(h, { intensity: int })}
+                        style={{ width: 30, height: 26, flex: 'none', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                          fontFamily: "'Cinzel',serif", fontWeight: 700, fontSize: 11, cursor: 'pointer',
+                          border: intensity === int ? '1px solid var(--gold-hi)' : '1px solid rgba(184,151,98,.28)',
+                          background: intensity === int ? 'rgba(184,151,98,.14)' : 'rgba(12,7,24,.45)',
+                          color: intensity === int ? 'var(--gold-hi)' : 'var(--muted)',
+                          clipPath: 'polygon(5px 0,100% 0,calc(100% - 5px) 100%,0 100%)' }}>
+                        {INTENSITY_ROMAN[int]}
+                      </button>
+                    ))}
                   </div>
-                </div>
-              )
-            })}
-          </div>
-          {msg && <div style={{ color: msg.err ? '#f87' : '#8e8', fontSize: '0.82rem', marginTop: '0.5rem' }}>{msg.text}</div>}
-        </>,
-        'drills'
-      )}
-
-      {/* ── Sparring ── */}
-      {panelBox(
-        heroes.length < 2 ? (
-          <>
-            <div style={{ color: 'var(--gold)', fontFamily: 'Cinzel, serif', marginBottom: '0.3rem' }}>⚔ Sparring</div>
-            <div className="text-dim text-sm" style={{ fontStyle: 'italic' }}>Assign at least two heroes to spar them together.</div>
-          </>
-        ) : (
-          <>
-            <div style={{ color: 'var(--gold)', fontFamily: 'Cinzel, serif', marginBottom: '0.4rem' }}>⚔ Sparring</div>
-            <div className="text-dim text-sm" style={{ marginBottom: '0.5rem' }}>
-              Similar levels → <b>Peer Sparring</b> (both gain XP + likely a skill level). An {MENTOR_GAP}+ level gap → <b>Mentorship</b> (the veteran pours XP into the student, may teach one of their own skills, and both grow a combat bond).
-            </div>
-            <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', alignItems: 'center' }}>
-              <select className="input" value={aId} onChange={e => setAId(e.target.value)} style={{ flex: 1, minWidth: 130, fontSize: '0.85rem' }}>
-                <option value="">First hero…</option>
-                {heroes.map(h => <option key={h.id} value={h.id} disabled={String(h.id) === bId}>{h.name} (Lv.{h.level})</option>)}
-              </select>
-              <span className="text-dim">vs</span>
-              <select className="input" value={bId} onChange={e => setBId(e.target.value)} style={{ flex: 1, minWidth: 130, fontSize: '0.85rem' }}>
-                <option value="">Second hero…</option>
-                {heroes.map(h => <option key={h.id} value={h.id} disabled={String(h.id) === aId}>{h.name} (Lv.{h.level})</option>)}
-              </select>
-            </div>
-            {predictedMode && predictedMode !== 'mismatch' && (
-              <div className="text-dim text-sm" style={{ marginTop: '0.4rem' }}>Level gap {gap} → <span style={{ color: 'var(--gold)' }}>{predictedMode}</span></div>
-            )}
-            {predictedMode === 'mismatch' && (
-              <div style={{ marginTop: '0.4rem', fontSize: '0.8rem', color: '#f0a848' }}>
-                Gap {gap} is too wide for peers but not wide enough to mentor (needs {MENTOR_GAP}+). Pick a closer or further-apart pair.
+                )}
               </div>
-            )}
-            <button className="btn btn-gold" disabled={sparBusy || !a || !b || predictedMode === 'mismatch'} onClick={handleSpar}
-              style={{ marginTop: '0.6rem', fontSize: '0.85rem' }}>
-              {sparBusy ? 'Sparring…' : 'Begin Sparring'}
-            </button>
-            {sparMsg && (
-              <div style={{ marginTop: '0.6rem', fontSize: '0.85rem', color: sparMsg.err ? '#f87' : '#8e8', display: 'flex', flexDirection: 'column', gap: '0.15rem' }}>
-                {sparMsg.lines.map((l, i) => <div key={i}>{l}</div>)}
-              </div>
-            )}
-          </>
-        ),
-        'sparring'
-      )}
-
-      {/* ── Internal Tournament ── */}
-      {panelBox(
-        <>
-          <div style={{ color: 'var(--gold)', fontFamily: 'Cinzel, serif', marginBottom: '0.4rem' }}>🏆 Sparring Tournament</div>
-          <div className="text-dim text-sm" style={{ marginBottom: '0.5rem' }}>
-            A round-robin among every hero here (min {data.tournament?.min_entrants ?? 3}). Everyone who competes gets a morale lift; the champion earns big XP, a permanent stat, and glory. Once per day.
-          </div>
-          {(() => {
-            const t = data.tournament || {}
-            const hrs = Math.floor((t.cooldown_remaining || 0) / 3600)
-            const mins = Math.floor(((t.cooldown_remaining || 0) % 3600) / 60)
-            return (
-              <button className="btn btn-gold" disabled={tourBusy || !t.ready} onClick={handleTournament} style={{ fontSize: '0.85rem' }}>
-                {tourBusy ? 'Holding tournament…'
-                  : t.cooldown_remaining > 0 ? `Next tournament in ${hrs}h ${mins}m`
-                  : t.entrants < (t.min_entrants ?? 3) ? `Need ${t.min_entrants ?? 3}+ heroes assigned (${t.entrants} now)`
-                  : `Hold Tournament (${t.entrants} entrants)`}
-              </button>
             )
-          })()}
-          {tourMsg && <div style={{ color: '#f87', fontSize: '0.82rem', marginTop: '0.5rem' }}>{tourMsg}</div>}
-          {tourResult && (
-            <div style={{ marginTop: '0.6rem', fontSize: '0.85rem' }}>
-              <div style={{ color: '#8e8', display: 'flex', flexDirection: 'column', gap: '0.15rem', marginBottom: '0.4rem' }}>
-                {(tourResult.log || []).map((l, i) => <div key={i}>{l}</div>)}
+          })}
+        </div>
+      </div>
+
+      {/* ═══ RIGHT — mentorship ═══ */}
+      <div style={{ flex: '1 1 260px', minWidth: 250, position: 'relative', border: '1px solid rgba(184,151,98,.35)', background: 'rgba(12,7,24,.5)', padding: '16px 18px' }}>
+        <div style={{ position: 'absolute', left: 0, top: 0, width: 12, height: 12, borderLeft: '2px solid var(--gold-hi)', borderTop: '2px solid var(--gold-hi)' }} />
+        <div style={{ ...micro, letterSpacing: '.24em', color: 'var(--muted)' }}>MENTORSHIP</div>
+        <div style={{ fontFamily: "'Cinzel',serif", fontWeight: 900, fontSize: 19, color: 'var(--text-hi)', marginTop: 4 }}>MASTER & PUPIL</div>
+        <div style={{ fontSize: 13.5, fontStyle: 'italic', color: 'var(--muted)', marginTop: 3 }}>Skill flows downhill from calloused hands.</div>
+
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, margin: '16px 0' }}>
+          <select className="input" value={mentorId} onChange={e => setMentorId(e.target.value)} style={{ flex: 1, fontFamily: "'Cinzel',serif", fontSize: 10, letterSpacing: '.06em' }}>
+            <option value="">MASTER…</option>
+            {heroes.map(h => <option key={h.id} value={h.id} disabled={String(h.id) === pupilId}>{h.name.toUpperCase()} · LV {h.level}</option>)}
+          </select>
+          <span style={{ fontFamily: "'Cinzel',serif", color: 'var(--gold-hi)' }}>→</span>
+          <select className="input" value={pupilId} onChange={e => setPupilId(e.target.value)} style={{ flex: 1, fontFamily: "'Cinzel',serif", fontSize: 10, letterSpacing: '.06em' }}>
+            <option value="">PUPIL…</option>
+            {heroes.map(h => <option key={h.id} value={h.id} disabled={String(h.id) === mentorId}>{h.name.toUpperCase()} · LV {h.level}</option>)}
+          </select>
+        </div>
+        <div style={{ fontSize: 13, fontStyle: 'italic', color: mentorGap == null ? 'var(--muted)' : canMentor ? '#c8b8dd' : '#e8a34c', lineHeight: 1.5 }}>
+          {mentorGap == null
+            ? `A master must stand ${MENTOR_GAP}+ levels above the pupil — XP pours downhill, a skill may pass with it, and a bond forms.`
+            : canMentor
+              ? `${mentor.name} stands ${mentorGap} levels above ${pupil.name} — the lesson will take.`
+              : `Only ${mentorGap} level${Math.abs(mentorGap) === 1 ? '' : 's'} apart — a master needs ${MENTOR_GAP}+ over the pupil.`}
+        </div>
+        {sparMsg && (
+          <div style={{ marginTop: 10, border: '1px solid rgba(184,151,98,.3)', background: 'rgba(184,151,98,.06)', padding: '8px 12px', fontSize: 13, fontStyle: 'italic', color: sparMsg.err ? '#d98a8a' : '#c8b8dd', display: 'flex', flexDirection: 'column', gap: 3 }}>
+            {sparMsg.lines.map((l, i) => <div key={i}>{l}</div>)}
+          </div>
+        )}
+        <button disabled={sparBusy || !canMentor} onClick={() => runSpar(mentorId, pupilId, true)}
+          style={{ width: '100%', marginTop: 14, textAlign: 'center', cursor: 'pointer', fontFamily: "'Cinzel',serif", fontWeight: 700, letterSpacing: '.2em', fontSize: 12, color: '#0a0710', background: 'linear-gradient(120deg,#c8a9f5,#8b46d6)', border: 'none', padding: '11px 0', clipPath: 'polygon(10px 0,100% 0,calc(100% - 10px) 100%,0 100%)', boxShadow: '0 8px 24px rgba(124,58,214,.4)', opacity: sparBusy || !canMentor ? 0.5 : 1 }}>
+          {sparBusy ? 'THE LESSON RUNS…' : 'PAIR A MENTOR'}
+        </button>
+
+        {/* tournament */}
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginTop: 18, borderTop: '1px solid rgba(184,151,98,.2)', paddingTop: 12 }}>
+          <span style={{ fontSize: 15, fontStyle: 'italic', color: '#c8b8dd' }}>Tournament</span>
+          <span style={{ fontFamily: "'Cinzel',serif", letterSpacing: '.18em', fontSize: 11, color: 'var(--gold-hi)' }}>
+            {t.cooldown_remaining > 0 ? `IN ${Math.floor(t.cooldown_remaining / 3600)}H ${Math.floor((t.cooldown_remaining % 3600) / 60)}M` : t.ready ? 'READY' : `NEEDS ${t.min_entrants ?? 3}+`}
+          </span>
+        </div>
+        <button className="ilm-btn ilm-btn-ghost ilm-btn-block" style={{ marginTop: 8 }} disabled={tourBusy || !t.ready} onClick={handleTournament}>
+          {tourBusy ? 'HOLDING…' : `HOLD TOURNAMENT · ${t.entrants ?? 0} ENTRANTS`}
+        </button>
+        {tourResult && (
+          <div style={{ marginTop: 10, fontSize: 13 }}>
+            {(tourResult.log || []).slice(0, 4).map((l, i) => <div key={i} style={{ fontStyle: 'italic', color: '#8fbf9f' }}>{l}</div>)}
+            {(tourResult.standings || []).map((s, i) => (
+              <div key={i} style={{ display: 'flex', gap: 8, alignItems: 'baseline', marginTop: 2 }}>
+                <span style={{ ...micro, color: i === 0 ? '#ffd88a' : 'var(--muted)', width: 14 }}>{i + 1}</span>
+                <span style={{ fontFamily: "'Cinzel',serif", fontSize: 11, letterSpacing: '.06em', color: 'var(--text-hi)', flex: 1 }}>{s.name.toUpperCase()}</span>
+                <span style={{ fontSize: 12, fontStyle: 'italic', color: 'var(--muted)' }}>{s.wins} win{s.wins === 1 ? '' : 's'}</span>
               </div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.1rem' }}>
-                {(tourResult.standings || []).map((s, i) => (
-                  <div key={i} className="text-dim" style={{ fontSize: '0.8rem' }}>
-                    {i + 1}. {s.name} <span style={{ opacity: 0.6 }}>— {s.wins} win{s.wins === 1 ? '' : 's'}</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-        </>,
-        'tournament'
-      )}
-    </>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
   )
 }

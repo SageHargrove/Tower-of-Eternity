@@ -4,13 +4,9 @@ import { EquipmentTypeIcon } from '../components/EquipmentTypeIcon'
 import ItemIcon from '../components/ItemIcon'
 import GameIcon from '../components/GameIcon'
 import { confirmDialog, alertDialog } from '../components/DialogHost'
+import { Diamond, Meter } from '../components/ilm/Ilm'
 
-// GameIcon names — potion.png / scroll.png / summon_ticket.png in public/icons.
 const CONSUMABLE_ICONS = { potion: 'potion', scroll: 'scroll', summon_ticket: 'summon_ticket' }
-
-// Tickets scale in quality per star — "5-Star Summon Ticket" resolves to
-// summon_ticket_5star.png (placeholders for now; drop real tier art over
-// them and it just works). Anything unparseable falls back to the base art.
 function consumableIconName(item) {
   if (item.item_type === 'summon_ticket') {
     const m = /^(\d)-Star/.exec(item.item_name || '')
@@ -20,12 +16,6 @@ function consumableIconName(item) {
 }
 const CONSUMABLE_COLORS = { potion: 'var(--green)', scroll: '#a83dff', summon_ticket: 'var(--gold)', food: '#d3a15f' }
 
-// Equipment rarity is a 24-tier letter grade (F- through Z), a completely
-// different scale than hero star rarity (1-7) — the old code reused
-// var(--star${rarity}) here, which doesn't exist for a string like "C-"
-// and silently fell back to an almost-invisible default color.
-// Standard loot-color ladder (common gray -> uncommon green -> rare blue ->
-// epic purple -> legendary orange), brightening within each letter family.
 const RARITY_COLORS = {
   'F-': '#6e6e6e', 'F': '#787878', 'F+': '#828282',
   'E-': '#969696', 'E': '#a2a2a2', 'E+': '#aeaeae',
@@ -36,19 +26,19 @@ const RARITY_COLORS = {
   'S-': '#e0912b', 'S': '#f2a63c', 'S+': '#ffc25e',
   'SS': '#ff4444', 'SSS': '#00e5ff', 'Z': '#ff30dd',
 }
-function rarityColor(rarity) {
-  return RARITY_COLORS[rarity] || '#ffffff'
-}
-
-// Worst → best, used for grouping/sorting the grid.
+function rarityColor(rarity) { return RARITY_COLORS[rarity] || '#ffffff' }
 const RARITY_SORT = ['F-', 'F', 'F+', 'E-', 'E', 'E+', 'D-', 'D', 'D+', 'C-', 'C', 'C+', 'B-', 'B', 'B+', 'A-', 'A', 'A+', 'S-', 'S', 'S+', 'SS', 'SSS', 'Z']
 
-// One decimal for sub-10% values — toFixed(0) rendered small (but real)
-// rolls like 1.4% crit as a meaningless "+0%".
 function formatPct(v) {
   const pct = v * 100
   return `+${pct < 10 ? pct.toFixed(1).replace(/\.0$/, '') : pct.toFixed(0)}%`
 }
+
+// Left-console filter ledger. value maps to the existing `filter` states.
+const FILTERS = [
+  ['All', 'ALL'], ['Weapon', 'WEAPONS'], ['Armor', 'ARMOR'],
+  ['Accessory', 'ACCESSORIES'], ['Materials', 'MATERIALS'], ['Consumables', 'CONSUMABLES'],
+]
 
 export default function InventoryPage() {
   const [loading, setLoading] = useState(true)
@@ -60,39 +50,7 @@ export default function InventoryPage() {
   const [useTargetId, setUseTargetId] = useState('')
   const [using, setUsing] = useState(false)
   const [useMessage, setUseMessage] = useState(null)
-
   const [vaultCapacity, setVaultCapacity] = useState(20)
-
-  useEffect(() => { refresh() }, [])
-
-  async function refresh() {
-    setLoading(true)
-    try {
-      const [inv, eq, facs, heroList] = await Promise.all([
-        getInventory(),
-        listEquipment(),
-        getFacilities().catch(() => null),
-        listHeroes(true).catch(() => [])
-      ])
-      setInventory(inv || [])
-      setEquipment(eq || { equipped: [], unequipped: [] })
-      setHeroes(heroList || [])
-      
-      let capacity = 20
-      if (facs && facs.built) {
-        const vault = facs.built.find(f => f.type === 'Vault')
-        if (vault) {
-          capacity = 20 + (vault.slots_unlocked * 16) // Scales: 36, 52, 68, 84, 100
-        }
-      }
-      setVaultCapacity(capacity)
-    } catch (e) {
-      console.error(e)
-    } finally {
-      setLoading(false)
-    }
-  }
-
   const [filter, setFilter] = useState('All')
   const [rarityFilter, setRarityFilter] = useState(new Set())
   const [hideEquipped, setHideEquipped] = useState(false)
@@ -100,522 +58,322 @@ export default function InventoryPage() {
   const [multiSelectMode, setMultiSelectMode] = useState(false)
   const [selectedItems, setSelectedItems] = useState(new Set())
 
-  const toggleRarity = (r) => {
-    setRarityFilter(prev => {
-      const next = new Set(prev);
-      if (next.has(r)) next.delete(r);
-      else next.add(r);
-      return next;
-    });
-  }
+  useEffect(() => { refresh() }, [])
 
-  // Combine items for grid display
-  let allItems = []
-  if (Array.isArray(inventory)) {
-    inventory.forEach(item => {
-      if (item.item_type === 'potion' || item.item_type === 'scroll' || item.item_type === 'summon_ticket' || item.item_type === 'food') {
-        allItems.push({ ...item, typeId: item.item_type + '_' + item.item_name, itemType: 'consumable' })
-      } else {
-        allItems.push({ ...item, typeId: 'mat_' + item.item_name, itemType: 'material' })
+  async function refresh() {
+    setLoading(true)
+    try {
+      const [inv, eq, facs, heroList] = await Promise.all([
+        getInventory(), listEquipment(), getFacilities().catch(() => null), listHeroes(true).catch(() => []),
+      ])
+      setInventory(inv || [])
+      setEquipment(eq || { equipped: [], unequipped: [] })
+      setHeroes(heroList || [])
+      let capacity = 20
+      if (facs && facs.built) {
+        const vault = facs.built.find(f => f.type === 'Vault')
+        if (vault) capacity = 20 + (vault.slots_unlocked * 16)
       }
-    })
-  }
-  if (equipment.unequipped) {
-    equipment.unequipped.forEach(eq => allItems.push({ ...eq, typeId: 'eq_' + eq.id, itemType: 'equipment', isEquipped: false }))
-  }
-  if (equipment.equipped) {
-    equipment.equipped.forEach(eq => allItems.push({ ...eq, typeId: 'eq_' + eq.id, itemType: 'equipment', isEquipped: true }))
+      setVaultCapacity(capacity)
+    } catch (e) { console.error(e) } finally { setLoading(false) }
   }
 
-  // Real occupancy (pre-filter) for the capacity readout.
-  const totalItemCount = allItems.length
+  const toggleRarity = (r) => setRarityFilter(prev => {
+    const next = new Set(prev)
+    if (next.has(r)) next.delete(r); else next.add(r)
+    return next
+  })
 
-  allItems = allItems.filter(item => {
-    let typeMatch = false;
-    if (filter === 'All') typeMatch = true;
-    else if (filter === 'Materials') typeMatch = item.itemType === 'material';
-    else if (filter === 'Consumables') typeMatch = item.itemType === 'consumable';
-    else if (filter === 'Equipment') typeMatch = item.itemType === 'equipment';
-    else if (item.itemType === 'equipment' && filter === item.type) typeMatch = true;
-    
-    if (!typeMatch) return false;
-    
-    if (item.itemType === 'equipment' && rarityFilter.size > 0) {
-      if (!rarityFilter.has(item.rarity)) return false;
-    }
+  // ---- combine raw items -------------------------------------------------
+  const rawItems = []
+  if (Array.isArray(inventory)) inventory.forEach(item => {
+    if (['potion', 'scroll', 'summon_ticket', 'food'].includes(item.item_type)) rawItems.push({ ...item, typeId: item.item_type + '_' + item.item_name, itemType: 'consumable' })
+    else rawItems.push({ ...item, typeId: 'mat_' + item.item_name, itemType: 'material' })
+  })
+  if (equipment.unequipped) equipment.unequipped.forEach(eq => rawItems.push({ ...eq, typeId: 'eq_' + eq.id, itemType: 'equipment', isEquipped: false }))
+  if (equipment.equipped) equipment.equipped.forEach(eq => rawItems.push({ ...eq, typeId: 'eq_' + eq.id, itemType: 'equipment', isEquipped: true }))
 
-    if (hideEquipped && item.itemType === 'equipment' && item.isEquipped) return false;
+  const totalItemCount = rawItems.length
+  const counts = {
+    All: totalItemCount,
+    Weapon: rawItems.filter(i => i.itemType === 'equipment' && i.type === 'Weapon').length,
+    Armor: rawItems.filter(i => i.itemType === 'equipment' && i.type === 'Armor').length,
+    Accessory: rawItems.filter(i => i.itemType === 'equipment' && i.type === 'Accessory').length,
+    Materials: rawItems.filter(i => i.itemType === 'material').length,
+    Consumables: rawItems.filter(i => i.itemType === 'consumable').length,
+  }
 
-    return true;
-  });
+  let allItems = rawItems.filter(item => {
+    let typeMatch = false
+    if (filter === 'All') typeMatch = true
+    else if (filter === 'Materials') typeMatch = item.itemType === 'material'
+    else if (filter === 'Consumables') typeMatch = item.itemType === 'consumable'
+    else if (filter === 'Equipment') typeMatch = item.itemType === 'equipment'
+    else if (item.itemType === 'equipment' && filter === item.type) typeMatch = true
+    if (!typeMatch) return false
+    if (item.itemType === 'equipment' && rarityFilter.size > 0 && !rarityFilter.has(item.rarity)) return false
+    if (hideEquipped && item.itemType === 'equipment' && item.isEquipped) return false
+    return true
+  })
 
-  // Group like items together instead of insertion order (a pile of Cracked
-  // Tomes used to be scattered all over the grid): equipment first
-  // (type → sub-type → rarity desc → name), then materials, then
-  // consumables, each alphabetical.
   const kindRank = { equipment: 0, material: 1, consumable: 2 }
   allItems.sort((a, b) => {
     if (kindRank[a.itemType] !== kindRank[b.itemType]) return kindRank[a.itemType] - kindRank[b.itemType]
     if (a.itemType === 'equipment') {
-      const typeCmp = (a.type || '').localeCompare(b.type || '')
-      if (typeCmp) return typeCmp
+      const typeCmp = (a.type || '').localeCompare(b.type || ''); if (typeCmp) return typeCmp
       const sub = (x) => x.weapon_type || x.armor_type || x.accessory_type || ''
-      const subCmp = sub(a).localeCompare(sub(b))
-      if (subCmp) return subCmp
-      const rarityCmp = RARITY_SORT.indexOf(b.rarity) - RARITY_SORT.indexOf(a.rarity)
-      if (rarityCmp) return rarityCmp
+      const subCmp = sub(a).localeCompare(sub(b)); if (subCmp) return subCmp
+      const rc = RARITY_SORT.indexOf(b.rarity) - RARITY_SORT.indexOf(a.rarity); if (rc) return rc
       return (a.name || '').localeCompare(b.name || '')
     }
     return (a.item_name || '').localeCompare(b.item_name || '')
   })
 
-  // Select first item by default if none selected
   useEffect(() => {
-    if (!loading && !selectedItem && allItems.length > 0) {
-      setSelectedItem(allItems[0])
-    }
+    if (!loading && !selectedItem && allItems.length > 0) setSelectedItem(allItems[0])
   }, [loading, filter, allItems.length, selectedItem])
 
-  if (loading) return <div className="page text-dim">Loading Vault...</div>
-
-  // Pad the grid based on Vault capacity
-  const minSlots = vaultCapacity
   const slots = [...allItems]
-  while (slots.length < minSlots) {
-    slots.push(null)
-  }
+  while (slots.length < vaultCapacity) slots.push(null)
+
+  const isEquipFilter = ['All', 'Equipment', 'Weapon', 'Armor', 'Accessory'].includes(filter)
 
   const handleBulkScrap = async () => {
-    if (!(await confirmDialog(`Are you sure you want to scrap ALL UNEQUIPPED ${filter === 'All' ? 'Equipment' : filter}? This cannot be undone.`))) return;
-    setBulkScrapping(true);
+    if (!(await confirmDialog(`Scrap ALL UNEQUIPPED ${filter === 'All' ? 'Equipment' : filter}? This cannot be undone.`))) return
+    setBulkScrapping(true)
     try {
-      const toScrap = allItems.filter(i => i.itemType === 'equipment' && !i.isEquipped);
-      for (const item of toScrap) {
-        await scrapEquipment(item.id);
-      }
-      refresh();
-      setSelectedItem(null);
-    } catch (e) {
-      console.error(e);
-      alertDialog('Error during bulk scrap: ' + e.message);
-    } finally {
-      setBulkScrapping(false);
-    }
-  };
+      const toScrap = allItems.filter(i => i.itemType === 'equipment' && !i.isEquipped)
+      for (const item of toScrap) await scrapEquipment(item.id)
+      refresh(); setSelectedItem(null)
+    } catch (e) { console.error(e); alertDialog('Error: ' + e.message) } finally { setBulkScrapping(false) }
+  }
+
+  if (loading) return <div className="page text-dim">Loading Vault…</div>
+
+  const selColor = selectedItem?.itemType === 'equipment' ? rarityColor(selectedItem.rarity) : 'var(--gold-hi)'
 
   return (
-    <div className="page" style={{ height: 'calc(100vh - 100px)', display: 'flex', flexDirection: 'column' }}>
-      <div className="section-header" style={{ marginBottom: '1.5rem', fontFamily: 'Cinzel, serif', fontSize: '2rem', textShadow: '0 0 10px rgba(255,255,255,0.2)', display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
-        <span>Vault</span>
-        <span
-          style={{ fontSize: '1rem', letterSpacing: '0.05em', color: totalItemCount >= vaultCapacity ? 'var(--red)' : 'var(--text-dim)' }}
-          title="Build or upgrade the Vault facility at your Base to expand storage."
-        >
-          {totalItemCount} / {vaultCapacity} slots
-        </span>
-      </div>
-      
-      <div style={{ display: 'flex', gap: '1rem', marginBottom: '1rem', alignItems: 'center' }}>
-        {['All', 'Equipment', 'Weapon', 'Armor', 'Accessory', 'Materials', 'Consumables'].map(f => (
-          <button key={f} className={`btn ${filter === f ? 'btn-primary' : ''}`} onClick={() => { 
-            setFilter(f); 
-            setSelectedItem(null); 
-            setSelectedItems(new Set());
-          }}>{f}</button>
-        ))}
-        {['Equipment', 'Weapon', 'Armor', 'Accessory'].includes(filter) && (
-          <button className="btn" style={{ marginLeft: 'auto', background: 'var(--red)', color: 'white' }} onClick={handleBulkScrap} disabled={bulkScrapping}>
-            {bulkScrapping ? 'Scrapping...' : `Bulk Scrap Unequipped ${filter}`}
-          </button>
-        )}
-      </div>
+    <div className="page ilm-vault">
+      <div className="ilm-vault-grid">
+        {/* ============ LEFT CONSOLE ============ */}
+        <div className="ilm-vault-left ent-1">
+          <div className="ilm-eyebrow" style={{ marginBottom: 2 }}>ARMORY</div>
+          <div className="ilm-title-stack" style={{ height: 96 }}>
+            <div className="ghost">ARSENAL</div>
+            <div className="solid">VAULT</div>
+          </div>
 
-      <div style={{ display: 'flex', gap: '1rem', marginBottom: '1rem', alignItems: 'center' }}>
-        <button 
-          className={`btn ${multiSelectMode ? 'btn-gold' : ''}`}
-          onClick={() => {
-            setMultiSelectMode(!multiSelectMode);
-            setSelectedItems(new Set());
-            setSelectedItem(null);
-          }}
-        >
-          {multiSelectMode ? 'Cancel Multi-Select' : 'Enable Multi-Select'}
-        </button>
-
-        {multiSelectMode && selectedItems.size > 0 && (
-          <button 
-            className="btn" 
-            style={{ background: 'var(--red)', color: 'white' }}
-            disabled={bulkScrapping}
-            onClick={async () => {
-              if (!(await confirmDialog(`Scrap ${selectedItems.size} selected items?`))) return;
-              setBulkScrapping(true);
-              try {
-                const toScrap = allItems.filter(i => selectedItems.has(i.typeId) && i.itemType === 'equipment' && !i.isEquipped);
-                for (const item of toScrap) {
-                  await scrapEquipment(item.id);
-                }
-                refresh();
-                setSelectedItems(new Set());
-              } catch (e) {
-                console.error(e);
-                alertDialog('Error: ' + e.message);
-              } finally {
-                setBulkScrapping(false);
-              }
-            }}
-          >
-            {bulkScrapping ? 'Scrapping...' : `Scrap ${selectedItems.size} Selected Items`}
-          </button>
-        )}
-      </div>
-
-      {['All', 'Equipment', 'Weapon', 'Armor', 'Accessory'].includes(filter) && (
-        <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1rem', alignItems: 'center', flexWrap: 'wrap' }}>
-          <span className="text-dim" style={{ fontSize: '0.9rem', marginRight: '0.5rem' }}>Filter by Rarity (Multi-select):</span>
-          {['Z', 'SSS', 'SS', 'S+', 'S', 'S-', 'A+', 'A', 'A-', 'B+', 'B', 'B-', 'C+', 'C', 'C-', 'D+', 'D', 'D-'].map(r => (
-            <button 
-              key={r} 
-              className={`btn ${rarityFilter.has(r) ? 'btn-gold' : ''}`} 
-              style={{ padding: '0.2rem 0.5rem', fontSize: '0.8rem', border: rarityFilter.has(r) ? `1px solid ${rarityColor(r)}` : '1px solid var(--border)' }}
-              onClick={() => { toggleRarity(r); setSelectedItem(null); setSelectedItems(new Set()); }}
-            >
-              {r}
-            </button>
-          ))}
-          {rarityFilter.size > 0 && (
-            <button className="btn" style={{ padding: '0.2rem 0.5rem', fontSize: '0.8rem', marginLeft: '0.5rem' }} onClick={() => { setRarityFilter(new Set()); setSelectedItems(new Set()); }}>Clear Rarities</button>
-          )}
-          <button
-            className={`btn ${hideEquipped ? 'btn-gold' : ''}`}
-            style={{ padding: '0.2rem 0.5rem', fontSize: '0.8rem', marginLeft: 'auto' }}
-            onClick={() => setHideEquipped(s => !s)}
-            title="Only show equipment nobody currently has equipped."
-          >
-            {hideEquipped ? 'Showing Unequipped Only' : 'Show Unequipped Only'}
-          </button>
-        </div>
-      )}
-
-      <div style={{ display: 'flex', gap: '2rem', flex: 1, minHeight: 0 }}>
-        
-        {/* Left Side: The Grid */}
-        <div className="card" style={{ flex: 2, display: 'flex', flexDirection: 'column', background: 'rgba(0,0,0,0.4)', border: '1px solid var(--border)', padding: '1.5rem', overflowY: 'auto' }}>
-          {allItems.length === 0 && (
-            <div className="empty-state">
-              <div className="empty-state-icon"><GameIcon name="empty_vault" size={72} /></div>
-              <div className="empty-state-title">
-                {filter === 'All' && rarityFilter.size === 0 ? 'The Vault Is Empty' : 'Nothing Matches These Filters'}
-              </div>
-              <div className="empty-state-hint">
-                {filter === 'All' && rarityFilter.size === 0
-                  ? 'Climb the Tower to earn loot, or pull equipment from the Summoning Gate. Everything you collect is stored here.'
-                  : 'Try clearing the rarity or type filters to see the rest of your collection.'}
-              </div>
+          <div style={{ marginTop: 8 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 7 }}>
+              <span style={{ fontFamily: "'Cinzel',serif", letterSpacing: '.24em', fontSize: '0.62rem', color: 'var(--muted)' }}>CAPACITY</span>
+              <span style={{ fontFamily: "'Cinzel',serif", fontSize: '0.78rem', color: totalItemCount >= vaultCapacity ? 'var(--red-hi)' : 'var(--gold-hi)' }}>
+                {totalItemCount}<span style={{ color: '#6a6a82' }}>/{vaultCapacity}</span>
+              </span>
             </div>
-          )}
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(132px, 1fr))', gap: '12px', alignContent: 'start' }}>
-            {slots.map((item, index) => {
-              const isSelected = item && (multiSelectMode ? selectedItems.has(item.typeId) : (selectedItem && item.typeId === selectedItem.typeId));
-              const isEmpty = !item;
-              let bgColor = 'rgba(255,255,255,0.02)'
-              let borderColor = 'var(--border)'
-              let content = null
+            <Meter pct={(totalItemCount / vaultCapacity) * 100} height={6} />
+          </div>
 
-              if (item) {
-                if (item.itemType === 'material') {
-                  borderColor = 'var(--border-hi)'
-                  content = <ItemIcon name={item.item_name} kind="material" size={60} />
-                } else if (item.itemType === 'consumable') {
-                  borderColor = CONSUMABLE_COLORS[item.item_type] || 'var(--green)'
-                  content = item.item_type === 'summon_ticket'
-                    ? <GameIcon name={consumableIconName(item)} size={60} />
-                    : <ItemIcon name={item.item_name} kind={item.item_type} size={60} />
-                } else if (item.itemType === 'equipment') {
-                  borderColor = rarityColor(item.rarity)
-                  bgColor = `rgba(255,255,255,0.05)`
-                  // No glow — the drop-shadow hugs the art's alpha edges,
-                  // which lights up every hole/crack in damaged-tier art.
-                  // Rarity reads from the border color instead.
-                  content = <EquipmentTypeIcon item={item} fontSize="3rem" />
-                }
-              }
-
+          <div style={{ marginTop: 20, display: 'flex', flexDirection: 'column', gap: 2 }}>
+            {FILTERS.map(([val, label]) => {
+              const active = filter === val
               return (
-                <div
-                  key={item ? item.typeId : `empty-${index}`}
-                  className={isSelected ? 'vault-item-selected' : ''}
-                  onClick={() => {
-                    if (!item) return;
-                    if (multiSelectMode) {
-                      setSelectedItems(prev => {
-                        const next = new Set(prev);
-                        if (next.has(item.typeId)) next.delete(item.typeId);
-                        else next.add(item.typeId);
-                        return next;
-                      });
-                    } else {
-                      setSelectedItem(item);
-                    }
-                  }}
-                  style={{ 
-                    aspectRatio: '1/1', 
-                    background: bgColor, 
-                    border: `2px solid ${borderColor}`,
-                    borderRadius: '6px',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    position: 'relative',
-                    cursor: isEmpty ? 'default' : 'pointer',
-                    boxShadow: item ? `inset 0 0 24px ${borderColor}0d` : 'none',
-                    transition: 'all 0.1s ease',
-                    opacity: isEmpty ? 0.3 : 1
-                  }}
-                  onMouseEnter={(e) => { if (item) e.currentTarget.style.transform = 'scale(1.05)'; }}
-                  onMouseLeave={(e) => { if (item) e.currentTarget.style.transform = 'scale(1)'; }}
-                >
-                  {content}
-                  
-                  {/* Quantity Badge */}
-                  {item && (item.itemType === 'material' || item.itemType === 'consumable') && (
-                    <div style={{ position: 'absolute', bottom: -2, right: -2, background: 'var(--bg)', border: '1px solid var(--border-hi)', fontSize: '0.85rem', padding: '0 6px', borderRadius: 4, fontFamily: 'monospace', fontWeight: 'bold' }}>
-                      {item.quantity}
-                    </div>
-                  )}
-
-                  {/* Equipped Indicator */}
-                  {item && item.isEquipped && (
-                    <div style={{ position: 'absolute', top: -4, left: -4, fontSize: '1rem', filter: 'drop-shadow(0 0 2px black)' }}>
-                      E
-                    </div>
-                  )}
-
-                  {/* Weapon/Armor/Accessory type badge on card */}
-                  {item && item.itemType === 'equipment' && (item.weapon_type || item.armor_type || item.accessory_type) && (
-                    <div style={{ position: 'absolute', bottom: -6, left: '50%', transform: 'translateX(-50%)', background: 'rgba(0,0,0,0.85)', border: '1px solid rgba(201,168,76,0.5)', borderRadius: 3, padding: '0 6px', fontSize: '0.72rem', color: 'var(--gold)', whiteSpace: 'nowrap' }}>
-                      {item.weapon_type || item.armor_type || item.accessory_type}
-                    </div>
-                  )}
+                <div key={val} className={`ilm-ledger-row ${active ? 'active' : ''}`}
+                  onClick={() => { setFilter(val); setSelectedItem(null); setSelectedItems(new Set()) }}>
+                  <span>{label}</span>
+                  <span style={{ color: active ? '#0a0710' : 'var(--text-dim)' }}>{counts[val] ?? 0}</span>
                 </div>
               )
             })}
           </div>
         </div>
 
-        {/* Right Side: Details Panel */}
-        <div className="card" style={{ flex: 1, minWidth: '300px', display: 'flex', flexDirection: 'column', padding: '2rem', background: 'rgba(0,0,0,0.6)', border: '1px solid var(--gold-dim)' }}>
-          {!selectedItem ? (
-            <div className="text-dim" style={{ margin: 'auto', textAlign: 'center', fontStyle: 'italic', fontSize: '1.1rem' }}>
-              Select an item to view details.
+        {/* ============ CENTER GRID ============ */}
+        <div className="ilm-vault-center ent-2">
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 12 }}>
+            <span style={{ fontFamily: "'Cinzel',serif", letterSpacing: '.3em', fontSize: '0.68rem', color: 'var(--gold)' }}>
+              {(FILTERS.find(f => f[0] === filter)?.[1]) || 'ITEMS'}
+            </span>
+            <span style={{ height: 1, flex: 1, background: 'rgba(184,151,98,.2)' }} />
+            {isEquipFilter && (
+              <>
+                <button className="btn" style={{ padding: '5px 12px', fontSize: '0.6rem' }}
+                  onClick={() => { setMultiSelectMode(m => !m); setSelectedItems(new Set()); setSelectedItem(null) }}>
+                  {multiSelectMode ? 'CANCEL' : 'MULTI-SELECT'}
+                </button>
+                {multiSelectMode && selectedItems.size > 0 ? (
+                  <button className="btn btn-danger" style={{ padding: '5px 12px', fontSize: '0.6rem' }} disabled={bulkScrapping}
+                    onClick={async () => {
+                      if (!(await confirmDialog(`Scrap ${selectedItems.size} selected items?`))) return
+                      setBulkScrapping(true)
+                      try {
+                        const toScrap = allItems.filter(i => selectedItems.has(i.typeId) && i.itemType === 'equipment' && !i.isEquipped)
+                        for (const item of toScrap) await scrapEquipment(item.id)
+                        refresh(); setSelectedItems(new Set())
+                      } catch (e) { alertDialog('Error: ' + e.message) } finally { setBulkScrapping(false) }
+                    }}>
+                    SCRAP {selectedItems.size}
+                  </button>
+                ) : (
+                  <button className="btn btn-danger" style={{ padding: '5px 12px', fontSize: '0.6rem' }} onClick={handleBulkScrap} disabled={bulkScrapping}>
+                    {bulkScrapping ? 'SCRAPPING…' : 'BULK SCRAP'}
+                  </button>
+                )}
+              </>
+            )}
+          </div>
+
+          <div className="ilm-vault-gridscroll">
+            {allItems.length === 0 && (
+              <div className="empty-state">
+                <div className="empty-state-title">{filter === 'All' && rarityFilter.size === 0 ? 'The Vault Is Empty' : 'Nothing Matches These Filters'}</div>
+                <div className="empty-state-hint">
+                  {filter === 'All' && rarityFilter.size === 0
+                    ? 'Climb the Tower to earn loot, or pull equipment from the Gate. Everything you collect is stored here.'
+                    : 'Clear the rarity or type filters to see the rest of your collection.'}
+                </div>
+              </div>
+            )}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(96px, 1fr))', gap: 12, alignContent: 'start' }}>
+              {slots.map((item, index) => {
+                const isSelected = item && (multiSelectMode ? selectedItems.has(item.typeId) : (selectedItem && item.typeId === selectedItem.typeId))
+                let borderColor = 'var(--border)'
+                let content = null
+                if (item) {
+                  if (item.itemType === 'material') { borderColor = 'var(--border-hi)'; content = <ItemIcon name={item.item_name} kind="material" size={48} /> }
+                  else if (item.itemType === 'consumable') { borderColor = CONSUMABLE_COLORS[item.item_type] || 'var(--green)'; content = item.item_type === 'summon_ticket' ? <GameIcon name={consumableIconName(item)} size={48} /> : <ItemIcon name={item.item_name} kind={item.item_type} size={48} /> }
+                  else if (item.itemType === 'equipment') { borderColor = rarityColor(item.rarity); content = <EquipmentTypeIcon item={item} fontSize="2.4rem" /> }
+                }
+                return (
+                  <div key={item ? item.typeId : `empty-${index}`}
+                    className={isSelected ? 'vault-item-selected' : ''}
+                    onClick={() => {
+                      if (!item) return
+                      if (multiSelectMode) setSelectedItems(prev => { const n = new Set(prev); n.has(item.typeId) ? n.delete(item.typeId) : n.add(item.typeId); return n })
+                      else setSelectedItem(item)
+                    }}
+                    style={{ aspectRatio: '1/1', background: item ? 'rgba(255,255,255,0.03)' : 'rgba(12,7,24,.3)', border: `1px solid ${borderColor}`, display: 'flex', alignItems: 'center', justifyContent: 'center', position: 'relative', cursor: item ? 'pointer' : 'default', boxShadow: item && item.itemType === 'equipment' ? `inset 0 0 12px ${borderColor}22` : 'none', opacity: item ? 1 : 0.3, transition: 'transform 0.1s' }}
+                    onMouseEnter={e => { if (item) e.currentTarget.style.transform = 'scale(1.05)' }}
+                    onMouseLeave={e => { if (item) e.currentTarget.style.transform = 'scale(1)' }}>
+                    {content}
+                    {item && (item.itemType === 'material' || item.itemType === 'consumable') && (
+                      <div style={{ position: 'absolute', bottom: -2, right: -2, background: 'var(--bg)', border: '1px solid var(--border-hi)', fontSize: '0.72rem', padding: '0 5px', fontFamily: 'monospace', fontWeight: 'bold' }}>{item.quantity}</div>
+                    )}
+                    {item && item.isEquipped && (
+                      <div style={{ position: 'absolute', top: 2, left: 3, fontFamily: "'Cinzel',serif", fontSize: '0.6rem', color: 'var(--gold-hi)' }}>E</div>
+                    )}
+                  </div>
+                )
+              })}
             </div>
-          ) : (
+          </div>
+
+          {/* rarity legend / filter */}
+          {isEquipFilter && (
+            <div style={{ display: 'flex', gap: 8, marginTop: 12, alignItems: 'center', flexWrap: 'wrap' }}>
+              <span className="ilm-micro">RARITY</span>
+              {['D', 'C', 'B', 'A', 'S', 'SS', 'SSS', 'Z'].map(r => (
+                <span key={r} onClick={() => { toggleRarity(r); setSelectedItem(null) }} title={`Filter ${r}`}
+                  style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4, opacity: rarityFilter.size && !rarityFilter.has(r) ? 0.4 : 1 }}>
+                  <span style={{ width: 8, height: 8, background: rarityColor(r), boxShadow: r === 'Z' || r === 'SSS' ? `0 0 6px ${rarityColor(r)}` : 'none' }} />
+                  <span style={{ fontSize: '0.75rem', color: rarityColor(r) }}>{r}</span>
+                </span>
+              ))}
+              {rarityFilter.size > 0 && <span onClick={() => setRarityFilter(new Set())} className="ilm-micro" style={{ cursor: 'pointer', color: 'var(--lavender)' }}>CLEAR</span>}
+            </div>
+          )}
+        </div>
+
+        {/* ============ RIGHT: DETAIL ============ */}
+        <div className="ilm-vault-detail ent-3" style={{ position: 'relative', border: `1px solid ${selectedItem ? selColor + '66' : 'var(--border)'}`, background: 'linear-gradient(160deg,rgba(8,30,34,.35),rgba(12,7,24,.7))', clipPath: 'polygon(0 0,100% 0,100% 100%,14px 100%)', padding: '20px 22px', display: 'flex', flexDirection: 'column' }}>
+          <span className="ilm-corner" style={{ borderColor: selColor }} />
+          {!selectedItem ? (
+            <div className="text-dim" style={{ margin: 'auto', textAlign: 'center', fontStyle: 'italic' }}>Select an item to view details.</div>
+          ) : selectedItem.itemType === 'material' ? (
             <>
-              {selectedItem.itemType === 'material' && (
-                <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
-                  <div style={{ textAlign: 'center', marginBottom: '1rem', filter: 'drop-shadow(0 0 20px rgba(255,255,255,0.2))' }}>
-                    <ItemIcon name={selectedItem.item_name} kind="material" size={64} />
-                  </div>
-                  <div style={{ fontFamily: 'Cinzel, serif', fontSize: '1.8rem', textAlign: 'center', color: 'var(--text-hi)', textTransform: 'capitalize', borderBottom: '1px solid var(--border)', paddingBottom: '1rem', marginBottom: '1rem' }}>
-                    {selectedItem.item_name.replace('_', ' ')}
-                  </div>
-                  <div style={{ flex: 1 }}>
-                    <div className="text-dim" style={{ fontSize: '1.1rem', marginBottom: '1.5rem', textAlign: 'center', lineHeight: '1.5' }}>
-                      A fundamental material used in the Hollow Spire.<br/>Can be used for crafting and base upgrades.
-                    </div>
-                    <div style={{ background: 'rgba(255,255,255,0.05)', padding: '1rem', borderRadius: 6, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                      <span className="text-dim" style={{ fontSize: '1.2rem', textTransform: 'uppercase', letterSpacing: '2px' }}>Amount Owned</span>
-                      <span className="text-gold" style={{ fontSize: '1.8rem', fontFamily: 'Cinzel, serif', fontWeight: 'bold' }}>{selectedItem.quantity}</span>
-                    </div>
-                  </div>
-                </div>
-              )}
+              <div style={{ textAlign: 'center', marginBottom: '1rem' }}><ItemIcon name={selectedItem.item_name} kind="material" size={64} /></div>
+              <div style={{ fontFamily: "'Cinzel',serif", fontWeight: 900, fontSize: '1.5rem', textAlign: 'center', color: 'var(--text-hi)', textTransform: 'capitalize' }}>{selectedItem.item_name.replace(/_/g, ' ')}</div>
+              <div className="text-dim" style={{ fontStyle: 'italic', fontSize: '0.95rem', textAlign: 'center', margin: '0.8rem 0 1.4rem', lineHeight: 1.5 }}>A fundamental material of the Tower — spent on crafting and base upgrades.</div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', border: '1px solid var(--border)', padding: '0.9rem 1rem' }}>
+                <span className="ilm-micro">AMOUNT OWNED</span>
+                <span className="text-gold" style={{ fontSize: '1.6rem', fontFamily: "'Cinzel',serif", fontWeight: 700 }}>{selectedItem.quantity}</span>
+              </div>
+            </>
+          ) : selectedItem.item_type === 'summon_ticket' ? (
+            <>
+              <div style={{ textAlign: 'center', marginBottom: '1rem' }}><GameIcon name={consumableIconName(selectedItem)} size={80} /></div>
+              <div style={{ fontFamily: "'Cinzel',serif", fontWeight: 900, fontSize: '1.4rem', textAlign: 'center', color: 'var(--gold-hi)' }}>{selectedItem.item_name}</div>
+              <div className="text-dim" style={{ textAlign: 'center', fontStyle: 'italic', margin: '0.8rem 0 1.4rem', lineHeight: 1.5 }}>{selectedItem.description}</div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', border: '1px solid var(--border)', padding: '0.8rem 1rem', marginBottom: '1.4rem' }}>
+                <span className="ilm-micro">OWNED</span><span className="text-gold" style={{ fontFamily: "'Cinzel',serif", fontSize: '1.4rem', fontWeight: 700 }}>{selectedItem.quantity}</span>
+              </div>
+              <button className="btn btn-gold" style={{ width: '100%', padding: '0.8rem', marginTop: 'auto' }} disabled={using}
+                onClick={async () => { setUsing(true); setUseMessage(null); try { const res = await useSummonTicket(selectedItem.item_name); const hero = res?.pulled?.[0]; setUseMessage(hero ? `Summoned ${hero.name} (${hero.birth_star}★)!` : 'Used!'); await refresh(); setSelectedItem(null) } catch (e) { setUseMessage(e.message) } finally { setUsing(false) } }}>
+                {using ? 'Summoning…' : 'Use Ticket'}
+              </button>
+              {useMessage && <div className="text-dim text-center" style={{ marginTop: '0.5rem', fontSize: '0.9rem' }}>{useMessage}</div>}
+            </>
+          ) : selectedItem.itemType === 'consumable' ? (
+            <>
+              <div style={{ textAlign: 'center', marginBottom: '1rem' }}><ItemIcon name={selectedItem.item_name} kind={selectedItem.item_type} size={80} /></div>
+              <div style={{ fontFamily: "'Cinzel',serif", fontWeight: 900, fontSize: '1.4rem', textAlign: 'center', color: 'var(--text-hi)' }}>{selectedItem.item_name}</div>
+              <div className="text-dim" style={{ textAlign: 'center', fontStyle: 'italic', margin: '0.8rem 0 1.4rem', lineHeight: 1.5 }}>{selectedItem.description}</div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', border: '1px solid var(--border)', padding: '0.8rem 1rem', marginBottom: '1.4rem' }}>
+                <span className="ilm-micro">OWNED</span><span className="text-gold" style={{ fontFamily: "'Cinzel',serif", fontSize: '1.4rem', fontWeight: 700 }}>{selectedItem.quantity}</span>
+              </div>
+              <div style={{ marginTop: 'auto' }}>
+                <select className="input" value={useTargetId} onChange={e => setUseTargetId(e.target.value)} style={{ width: '100%', marginBottom: '0.8rem' }}>
+                  <option value="">Select a hero…</option>
+                  {heroes.map(h => <option key={h.id} value={h.id}>{h.name} (Lv.{h.level})</option>)}
+                </select>
+                <button className="btn btn-gold" style={{ width: '100%', padding: '0.8rem' }} disabled={!useTargetId || using}
+                  onClick={async () => { setUsing(true); setUseMessage(null); try { await useItem(selectedItem.item_name, Number(useTargetId)); setUseMessage('Used!'); await refresh(); setSelectedItem(null) } catch (e) { setUseMessage(e.message) } finally { setUsing(false) } }}>
+                  {using ? 'Using…' : 'Use'}
+                </button>
+                {useMessage && <div className="text-dim text-center" style={{ marginTop: '0.5rem', fontSize: '0.9rem' }}>{useMessage}</div>}
+              </div>
+            </>
+          ) : (
+            /* equipment */
+            <>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <span style={{ fontFamily: "'Cinzel',serif", letterSpacing: '.2em', fontSize: '0.62rem', color: selColor, border: `1px solid ${selColor}88`, padding: '2px 8px', boxShadow: `0 0 10px ${selColor}44` }}>{selectedItem.rarity}</span>
+                <span className="ilm-micro">·</span>
+                <span className="ilm-micro">{selectedItem.weapon_type || selectedItem.armor_type || selectedItem.accessory_type || selectedItem.type}</span>
+              </div>
+              <div style={{ fontFamily: "'Cinzel',serif", fontWeight: 900, fontSize: '1.7rem', color: 'var(--text-hi)', marginTop: 8, textShadow: `0 0 22px ${selColor}66` }}>{selectedItem.name}</div>
+              <div style={{ display: 'flex', justifyContent: 'center', margin: '12px 0' }}><EquipmentTypeIcon item={selectedItem} fontSize="3.4rem" /></div>
 
-              {(selectedItem.item_type === 'potion' || selectedItem.item_type === 'scroll' || selectedItem.item_type === 'food') && (
-                <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
-                  <div style={{ textAlign: 'center', marginBottom: '1rem' }}><ItemIcon name={selectedItem.item_name} kind={selectedItem.item_type} size={96} /></div>
-                  <div style={{ fontFamily: 'Cinzel, serif', fontSize: '1.8rem', textAlign: 'center', color: 'var(--text-hi)', borderBottom: '1px solid var(--border)', paddingBottom: '1rem', marginBottom: '1rem' }}>
-                    {selectedItem.item_name}
+              <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 4, overflowY: 'auto' }}>
+                {[
+                  ['STR', selectedItem.base_str, v => `+${v}`], ['INT', selectedItem.base_int, v => `+${v}`],
+                  ['END', selectedItem.base_end, v => `+${v}`], ['MAX HP', selectedItem.base_hlt, v => `+${v}`],
+                  ['AGI', selectedItem.base_agi, v => `+${v}`], ['WIL', selectedItem.base_wil, v => `+${v}`],
+                  ['LCK', selectedItem.base_luck, v => `+${v}`],
+                  ['STR %', selectedItem.str_pct, formatPct], ['INT %', selectedItem.int_pct, formatPct],
+                  ['HP %', selectedItem.hlt_pct, formatPct], ['AGI %', selectedItem.agi_pct, formatPct],
+                  ['CRIT', selectedItem.crit_chance, formatPct], ['DODGE', selectedItem.dodge_chance, formatPct],
+                  ['ARMOR PEN', selectedItem.armor_pen, formatPct], ['DMG RED', selectedItem.dmg_reduction_pct, formatPct],
+                ].filter(([, v]) => v > 0).map(([label, val, fmt]) => (
+                  <div key={label} style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0', borderBottom: `1px solid ${selColor}22` }}>
+                    <span className="ilm-micro">{label}</span>
+                    <span style={{ fontFamily: "'Cinzel',serif", fontWeight: 700, fontSize: '1.1rem', color: 'var(--text-hi)' }}>{fmt(val)}</span>
                   </div>
-                  <div className="text-dim" style={{ fontSize: '1.05rem', marginBottom: '1.5rem', textAlign: 'center', lineHeight: '1.5' }}>
-                    {selectedItem.description}
-                  </div>
-                  <div style={{ background: 'rgba(255,255,255,0.05)', padding: '1rem', borderRadius: 6, display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
-                    <span className="text-dim" style={{ fontSize: '1.1rem', textTransform: 'uppercase', letterSpacing: '2px' }}>Owned</span>
-                    <span className="text-gold" style={{ fontSize: '1.6rem', fontFamily: 'Cinzel, serif', fontWeight: 'bold' }}>{selectedItem.quantity}</span>
-                  </div>
+                ))}
+              </div>
 
-                  <div style={{ marginTop: 'auto' }}>
-                    <select
-                      className="input"
-                      value={useTargetId}
-                      onChange={e => setUseTargetId(e.target.value)}
-                      style={{ width: '100%', marginBottom: '0.8rem', padding: '0.6rem' }}
-                    >
-                      <option value="">Select a hero...</option>
-                      {heroes.map(h => (
-                        <option key={h.id} value={h.id}>{h.name} (Lv.{h.level})</option>
-                      ))}
-                    </select>
-                    <button
-                      className="btn btn-gold"
-                      style={{ width: '100%', padding: '0.8rem' }}
-                      disabled={!useTargetId || using}
-                      onClick={async () => {
-                        setUsing(true)
-                        setUseMessage(null)
-                        try {
-                          await useItem(selectedItem.item_name, Number(useTargetId))
-                          setUseMessage('Used!')
-                          await refresh()
-                          setSelectedItem(null)
-                        } catch (e) {
-                          setUseMessage(e.message)
-                        } finally {
-                          setUsing(false)
-                        }
-                      }}
-                    >
-                      {using ? 'Using...' : 'Use'}
+              <div style={{ marginTop: 14, paddingTop: 12, borderTop: '1px solid var(--border)' }}>
+                {selectedItem.isEquipped ? (
+                  <div className="text-center" style={{ color: 'var(--green-hi)', fontSize: '0.9rem', fontStyle: 'italic' }}>Equipped to Hero #{selectedItem.is_equipped_to} · equip from Heroes</div>
+                ) : (
+                  <>
+                    <div className="text-dim text-center" style={{ fontSize: '0.82rem', fontStyle: 'italic', marginBottom: 10 }}>Equip from the Heroes menu.</div>
+                    <button className="btn btn-danger" style={{ width: '100%', padding: '0.7rem' }} disabled={scrapping}
+                      onClick={async () => { if (!(await confirmDialog(`Scrap ${selectedItem.name}? This destroys it for crafting materials.`))) return; setScrapping(true); try { await scrapEquipment(selectedItem.id); setSelectedItem(null); await refresh() } catch (e) { alertDialog(e.message) } finally { setScrapping(false) } }}>
+                      {scrapping ? 'Scrapping…' : 'Salvage for Materials'}
                     </button>
-                    {useMessage && (
-                      <div className="text-dim text-center" style={{ marginTop: '0.5rem', fontSize: '0.9rem' }}>{useMessage}</div>
-                    )}
-                  </div>
-                </div>
-              )}
-
-              {selectedItem.item_type === 'summon_ticket' && (
-                <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
-                  <div style={{ textAlign: 'center', marginBottom: '1rem' }}><GameIcon name={consumableIconName(selectedItem)} size={96} /></div>
-                  <div style={{ fontFamily: 'Cinzel, serif', fontSize: '1.8rem', textAlign: 'center', color: 'var(--gold)', borderBottom: '1px solid var(--border)', paddingBottom: '1rem', marginBottom: '1rem' }}>
-                    {selectedItem.item_name}
-                  </div>
-                  <div className="text-dim" style={{ fontSize: '1.05rem', marginBottom: '1.5rem', textAlign: 'center', lineHeight: '1.5' }}>
-                    {selectedItem.description}
-                  </div>
-                  <div style={{ background: 'rgba(255,255,255,0.05)', padding: '1rem', borderRadius: 6, display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
-                    <span className="text-dim" style={{ fontSize: '1.1rem', textTransform: 'uppercase', letterSpacing: '2px' }}>Owned</span>
-                    <span className="text-gold" style={{ fontSize: '1.6rem', fontFamily: 'Cinzel, serif', fontWeight: 'bold' }}>{selectedItem.quantity}</span>
-                  </div>
-
-                  <div style={{ marginTop: 'auto' }}>
-                    <button
-                      className="btn btn-gold"
-                      style={{ width: '100%', padding: '0.8rem' }}
-                      disabled={using}
-                      onClick={async () => {
-                        setUsing(true)
-                        setUseMessage(null)
-                        try {
-                          const res = await useSummonTicket(selectedItem.item_name)
-                          const hero = res?.pulled?.[0]
-                          setUseMessage(hero ? `Summoned ${hero.name} (${hero.birth_star}★)!` : 'Used!')
-                          await refresh()
-                          setSelectedItem(null)
-                        } catch (e) {
-                          setUseMessage(e.message)
-                        } finally {
-                          setUsing(false)
-                        }
-                      }}
-                    >
-                      {using ? 'Summoning...' : 'Use Ticket'}
-                    </button>
-                    {useMessage && (
-                      <div className="text-dim text-center" style={{ marginTop: '0.5rem', fontSize: '0.9rem' }}>{useMessage}</div>
-                    )}
-                  </div>
-                </div>
-              )}
-
-              {selectedItem.itemType === 'equipment' && (
-                <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
-                  <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '1rem' }}>
-                    <EquipmentTypeIcon item={selectedItem} fontSize="4rem" />
-                  </div>
-                  
-                  <div style={{ fontFamily: 'Cinzel, serif', fontSize: '1.8rem', textAlign: 'center', color: rarityColor(selectedItem.rarity), borderBottom: `1px solid ${rarityColor(selectedItem.rarity)}`, paddingBottom: '0.5rem', marginBottom: '0.2rem', textShadow: `0 0 10px ${rarityColor(selectedItem.rarity)}` }}>
-                    {selectedItem.name}
-                  </div>
-                  <div style={{ textAlign: 'center', color: 'var(--text-dim)', textTransform: 'uppercase', letterSpacing: '3px', fontSize: '0.9rem', marginBottom: '0.4rem' }}>
-                    {selectedItem.rarity}★ {selectedItem.type}
-                  </div>
-                  {(selectedItem.weapon_type || selectedItem.armor_type || selectedItem.accessory_type) && (
-                    <div style={{ textAlign: 'center', marginBottom: '1.2rem' }}>
-                      <span style={{ background: 'rgba(201,168,76,0.15)', border: '1px solid rgba(201,168,76,0.4)', borderRadius: 4, padding: '0.2rem 0.7rem', fontSize: '0.8rem', color: 'var(--gold)', letterSpacing: '1px' }}>
-                        {selectedItem.weapon_type || selectedItem.armor_type || selectedItem.accessory_type}
-                      </span>
-                    </div>
-                  )}
-
-                  <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '0.8rem' }}>
-                    {[
-                      ['Strength', selectedItem.base_str, v => `+${v}`],
-                      ['Intelligence', selectedItem.base_int, v => `+${v}`],
-                      ['Endurance', selectedItem.base_end, v => `+${v}`],
-                      ['Max Health', selectedItem.base_hlt, v => `+${v}`],
-                      ['Agility', selectedItem.base_agi, v => `+${v}`],
-                      ['Willpower', selectedItem.base_wil, v => `+${v}`],
-                      ['Luck', selectedItem.base_luck, v => `+${v}`],
-                      ['Strength %', selectedItem.str_pct, formatPct],
-                      ['Intelligence %', selectedItem.int_pct, formatPct],
-                      ['Max Health %', selectedItem.hlt_pct, formatPct],
-                      ['Agility %', selectedItem.agi_pct, formatPct],
-                      ['Crit Chance', selectedItem.crit_chance, formatPct],
-                      ['Dodge Chance', selectedItem.dodge_chance, formatPct],
-                      ['Armor Penetration', selectedItem.armor_pen, formatPct],
-                      ['Damage Reduction', selectedItem.dmg_reduction_pct, formatPct],
-                    ].filter(([, val]) => val > 0).map(([label, val, fmt]) => (
-                      <div key={label} style={{ display: 'flex', justifyContent: 'space-between', background: 'rgba(201,168,76,0.1)', padding: '0.8rem 1rem', borderRadius: 4 }}>
-                        <span className="text-dim">{label}</span>
-                        <span className="text-gold" style={{ fontFamily: 'Cinzel, serif', fontSize: '1.2rem' }}>{fmt(val)}</span>
-                      </div>
-                    ))}
-                    {[selectedItem.base_str, selectedItem.base_int, selectedItem.base_end, selectedItem.base_hlt, selectedItem.base_agi,
-                      selectedItem.base_wil, selectedItem.base_luck,
-                      selectedItem.str_pct, selectedItem.int_pct, selectedItem.hlt_pct, selectedItem.agi_pct,
-                      selectedItem.crit_chance, selectedItem.dodge_chance, selectedItem.armor_pen, selectedItem.dmg_reduction_pct
-                    ].every(v => !v) && (
-                      <div className="text-dim" style={{ fontStyle: 'italic', textAlign: 'center', padding: '1rem' }}>No bonus stats.</div>
-                    )}
-                  </div>
-
-                  <div style={{ marginTop: 'auto', paddingTop: '1rem', borderTop: '1px solid var(--border)' }}>
-                    {selectedItem.isEquipped ? (
-                      <div style={{ textAlign: 'center', color: 'var(--green)', padding: '1rem', background: 'rgba(74,154,106,0.1)', borderRadius: 4 }}>
-                        Equipped to Hero #{selectedItem.is_equipped_to}
-                      </div>
-                    ) : (
-                      <>
-                        <div className="text-dim text-center" style={{ fontSize: '0.9rem', fontStyle: 'italic', marginBottom: '0.8rem' }}>
-                          Can be equipped from the Heroes menu.
-                        </div>
-                        <button
-                          className="btn"
-                          style={{ width: '100%', padding: '0.6rem', border: '1px solid #c87030', color: '#c87030', background: 'rgba(200,112,48,0.08)' }}
-                          disabled={scrapping}
-                          onClick={async () => {
-                            if (!(await confirmDialog(`Scrap ${selectedItem.name}? This destroys the item permanently in exchange for crafting materials.`))) return
-                            setScrapping(true)
-                            try {
-                              await scrapEquipment(selectedItem.id)
-                              setSelectedItem(null)
-                              await refresh()
-                            } catch (e) {
-                              alertDialog(e.message)
-                            } finally {
-                              setScrapping(false)
-                            }
-                          }}
-                        >
-                          {scrapping ? 'Scrapping...' : '⚒ Scrap for Materials'}
-                        </button>
-                      </>
-                    )}
-                  </div>
-                </div>
-              )}
+                  </>
+                )}
+              </div>
             </>
           )}
         </div>

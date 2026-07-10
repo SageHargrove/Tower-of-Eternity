@@ -15,6 +15,9 @@ FACILITY_TYPES = {
     "Market": {"cost": 1000, "unlock_floor": 2, "max_level": 50},
     "Forge": {"cost": 2500, "unlock_floor": 5, "max_level": 50},
     "Infirmary": {"cost": 2500, "unlock_floor": 5, "max_level": 50},
+    # The Athenaeum runs the discipline/confluence research map — see
+    # services/athenaeum_service.py for the tree and its effect hooks.
+    "Athenaeum": {"cost": 6000, "unlock_floor": 8, "max_level": 50},
     "Vault": {"cost": 5000, "unlock_floor": 10, "max_level": 50},
     "Alchemist Lab": {"cost": 8000, "unlock_floor": 10, "max_level": 50},
     "Tavern": {"cost": 7000, "unlock_floor": 15, "max_level": 50},

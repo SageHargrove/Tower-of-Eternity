@@ -3,19 +3,13 @@ import HeroCard from './HeroCard'
 import { EquipmentTypeIcon } from './EquipmentTypeIcon'
 import { playClick, playFlip, playRevealStinger, playArrayThud } from '../audio'
 
-function itemTier(item) {
-  return item.is_equipment ? equipTier(item.rarity) : (item.birth_star || 1)
+// ── Rarity → the RGB the revealed face is tinted with (mirrors index.css
+// --star*; the card back is uniform, so rarity lives ONLY on the flipped face).
+const STAR_RGB = {
+  1: '255,255,255', 2: '77,255,77', 3: '30,144,255', 4: '184,77,255',
+  5: '255,179,0', 6: '255,92,92', 7: '0,229,255',
 }
-
-// Star rarity -> glow color for the REVEALED face border + burst (mirrors
-// index.css --star*; 7★ gets white-hot since the rainbow lives on the card).
-const STAR_GLOW = {
-  1: '#ffffff', 2: '#4dff4d', 3: '#1e90ff', 4: '#b84dff',
-  5: '#ffb300', 6: '#ff3333', 7: '#f0f0ff',
-}
-
-// Equipment 24-letter grades bucket into 8 card tiers: D(-/+)…Z. E/F only
-// exist as non-droppable starters, so they share the D-tier card.
+// Equipment 24-letter grades → 8 tiers (D … Z). E/F are non-droppable starters.
 function equipTier(rarity) {
   const r = rarity || 'D'
   if (r === 'Z') return 8
@@ -27,122 +21,158 @@ function equipTier(rarity) {
   if (r.startsWith('C')) return 2
   return 1
 }
-
-const EQUIP_TIER_GLOW = {
-  1: '#d8d8d8', 2: '#4dc06a', 3: '#4f92e8', 4: '#a05aee',
-  5: '#f2a63c', 6: '#ff4444', 7: '#00e5ff', 8: '#ff30dd',
+const EQUIP_RGB = {
+  1: '216,216,216', 2: '77,192,106', 3: '79,146,232', 4: '160,90,238',
+  5: '242,166,60', 6: '255,68,68', 7: '0,229,255', 8: '255,48,221',
 }
 
-function itemGlow(item) {
-  return item.is_equipment
-    ? (EQUIP_TIER_GLOW[equipTier(item.rarity)] || '#ffffff')
-    : (STAR_GLOW[item.birth_star] || '#ffffff')
+function itemTier(item) {
+  return item.is_equipment ? equipTier(item.rarity) : (item.birth_star || 1)
+}
+// A hero's 1-7 star tier is what drives the "how dramatic is the flip" scale.
+// Equipment maps its 8 grade-tiers down onto the same 1-7 spin ladder.
+function spinTier(item) {
+  if (!item.is_equipment) return Math.min(7, Math.max(1, item.birth_star || 1))
+  return Math.min(7, equipTier(item.rarity))  // Z(8) shares the 7-tier drama
+}
+function itemRGB(item) {
+  return item.is_equipment ? (EQUIP_RGB[equipTier(item.rarity)] || '255,255,255')
+                           : (STAR_RGB[item.birth_star] || '255,255,255')
+}
+// Is this the rainbow, mythic top grade? (hero 7★ / equipment Z)
+function isMythic(item) {
+  return item.is_equipment ? equipTier(item.rarity) === 8 : (item.birth_star || 1) >= 7
 }
 
-function isHighImpact(item) {
-  return item.is_equipment ? equipTier(item.rarity) >= 4 : (item.birth_star || 1) >= 4
+// The per-tier flip choreography the user asked for: 1-4★ all spin the SAME,
+// then 5 / 6 / 7 each spin a little more dramatically than the last — more
+// rotations, a longer, bouncier settle, a louder aura, and (7 only) a rainbow.
+function flipFx(item) {
+  const t = spinTier(item)
+  const mythic = isMythic(item)
+  // rotations: 1-4 → 540°, 5 → 720°, 6 → 900°, 7 → 1080°
+  const spins = t <= 4 ? 540 : t === 5 ? 720 : t === 6 ? 900 : 1080
+  const dur = t <= 4 ? 0.7 : t === 5 ? 1.0 : t === 6 ? 1.3 : 1.6
+  // aura strength grows with tier; commons barely glow.
+  const auraOpacity = t >= 4 ? 1 : t >= 2 ? 0.5 : 0.22
+  const showRings = t >= 4  // orbiting reveal rings for the good pulls
+  const rgb = itemRGB(item)
+  return { t, mythic, spins, dur, auraOpacity, showRings, rgb }
 }
 
-// Dedicated card-back suites: hero_1_star…hero_7_star / equip_1_star…
-// equip_8_star. The PNGs carry their own borders and glow auras on
-// transparency — render them BARE (contain, transparent slot, no CSS frame).
-function tarotBackSrc(item) {
-  if (item.is_equipment) return `/icons/equip_${equipTier(item.rarity)}_star.png`
-  return `/icons/hero_${Math.min(7, Math.max(1, item.birth_star || 1))}_star.png`
-}
-
-function CardBack({ item }) {
+// Card-back suite: ONE uniform back for every card (design: gold diamond over
+// a violet hatch) — the rarity is a surprise until the flip, never leaked by
+// the back. Rendered from parts so it needs no art asset.
+function CardBack() {
   return (
-    <img
-      src={tarotBackSrc(item)}
-      alt=""
-      draggable={false}
-      style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'contain' }}
-    />
+    <>
+      <div style={{ position: 'absolute', inset: 6, border: '1px solid rgba(150,110,230,.35)', background: 'repeating-linear-gradient(45deg, rgba(150,110,230,.07) 0 10px, transparent 10px 20px)' }} />
+      <div style={{ width: '22%', aspectRatio: '1', maxWidth: 40, transform: 'rotate(45deg)', border: '1px solid #b89762', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+        <div style={{ width: '32%', aspectRatio: '1', background: '#b89762' }} />
+      </div>
+    </>
   )
 }
 
-// The revealed face for an equipment pull (heroes use their composited
-// card image / HeroCard instead).
-function EquipmentFace({ item, glow }) {
+// The revealed face — built from the design's anatomy: rarity-tinted frame,
+// a "hero art" slot (real portrait when we have one), then stars + NAME + CLASS
+// stacked at the foot. Equipment swaps stars for its grade letter.
+function RevealedFace({ item, fx }) {
+  const { rgb, mythic } = fx
+  const frame = `rgba(${rgb},.85)`
+  const cls = item.is_equipment ? (item.equipment_type || item.type || 'ARMAMENT') : (item.hero_class || '')
+  const grade = item.is_equipment ? String(item.rarity || '') : null
+  const stars = mythic ? '★★★★★★★' : '★'.repeat(spinTier(item))
+  const starStyle = mythic
+    ? { backgroundImage: 'linear-gradient(90deg,#ff5c5c,#ffb300,#4dff4d,#00e5ff,#b84dff,#ff5c5c)', backgroundSize: '200% auto', WebkitBackgroundClip: 'text', backgroundClip: 'text', color: 'transparent', animation: 'star-rainbow-slide 3s linear infinite' }
+    : { color: `rgb(${rgb})`, textShadow: `0 0 9px rgba(${rgb},.7)` }
   return (
-    <div style={{
-      width: '100%', height: '100%', borderRadius: 8, border: `1px solid ${glow}`,
-      background: 'linear-gradient(160deg, var(--bg-card), var(--bg-panel))',
-      display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
-      gap: 8, padding: 8, textAlign: 'center',
-    }}>
-      <EquipmentTypeIcon item={item} fontSize="3rem" />
-      <div style={{ fontFamily: 'Cinzel, serif', fontSize: '0.78rem', color: 'var(--text-hi)', lineHeight: 1.3 }}>{item.name}</div>
-      <div style={{ color: glow, fontSize: '0.72rem', fontFamily: 'Cinzel, serif', letterSpacing: '0.1em' }}>{item.rarity} RANK</div>
+    <div style={{ position: 'absolute', inset: 0, border: `1px solid ${frame}`, background: 'linear-gradient(160deg,#1a1130,#0d0818)', boxShadow: fx.t >= 5 ? `0 0 26px rgba(${rgb},.5), inset 0 0 16px rgba(${rgb},.22)` : `inset 0 0 12px rgba(${rgb},.18)`, overflow: 'hidden' }}>
+      {/* rainbow border for the mythic grade only */}
+      {mythic && <div style={{ position: 'absolute', inset: -2, pointerEvents: 'none', background: 'conic-gradient(from 0deg,#ff5c5c,#ffb300,#4dff4d,#00e5ff,#b84dff,#ff5c5c)', animation: 'ov-hue 4s linear infinite' }} />}
+      {mythic && <div style={{ position: 'absolute', inset: 1, background: 'linear-gradient(160deg,#1a1130,#0d0818)' }} />}
+      <div style={{ position: 'absolute', inset: 5, border: `1px solid rgba(${rgb},.35)`, pointerEvents: 'none' }} />
+
+      {/* art slot — real portrait if present, else the design placeholder */}
+      <div style={{ position: 'absolute', left: 6, right: 6, top: 6, bottom: '38%', overflow: 'hidden' }}>
+        {item.is_equipment ? (
+          <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', background: `radial-gradient(60% 55% at 50% 45%, rgba(${rgb},.18), rgba(0,0,0,0) 75%)` }}>
+            <EquipmentTypeIcon item={item} fontSize="2.4rem" />
+          </div>
+        ) : item.portrait_path ? (
+          <img src={`/${item.portrait_path}`} draggable={false} alt=""
+            onError={(e) => { e.target.style.display = 'none' }}
+            style={{ width: '100%', height: '100%', objectFit: 'cover', objectPosition: 'center top' }} />
+        ) : (
+          <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', background: `radial-gradient(60% 50% at 50% 40%, rgba(${rgb},.16), rgba(0,0,0,0) 75%)` }}>
+            <span style={{ fontFamily: 'monospace', fontSize: '0.55rem', color: '#7a6f92' }}>hero art</span>
+          </div>
+        )}
+        <div style={{ position: 'absolute', left: 0, right: 0, bottom: 0, height: '45%', background: 'linear-gradient(rgba(13,8,24,0),#150e28)' }} />
+      </div>
+
+      {/* stars / grade + name + class */}
+      <div style={{ position: 'absolute', left: 4, right: 4, bottom: 8, textAlign: 'center' }}>
+        {grade !== null ? (
+          <div style={{ fontFamily: "'Cinzel',serif", fontWeight: 900, fontSize: '1rem', letterSpacing: '.1em', ...starStyle }}>{grade}</div>
+        ) : (
+          <div style={{ fontSize: '0.72rem', letterSpacing: '.12em', ...starStyle }}>{stars}</div>
+        )}
+        <div style={{ fontFamily: "'Cinzel',serif", fontWeight: 700, fontSize: '0.68rem', letterSpacing: '.05em', color: '#f3ecdd', marginTop: 3, lineHeight: 1.1 }}>{item.name}</div>
+        <div style={{ fontFamily: "'Cinzel',serif", fontSize: '0.5rem', letterSpacing: '.2em', color: '#9a86b8', marginTop: 1 }}>{String(cls).toUpperCase()}</div>
+      </div>
     </div>
   )
 }
 
-// NOTE on structure: the glow drop-shadow lives on a WRAPPER around the 3D
-// card, never on the card itself — a CSS filter on the transformed element
-// forces transform-style back to flat, which breaks backface-visibility and
-// with it the entire flip (confirmed bug: cards wobbled but never revealed).
-function FlipCard({ item, flipped, onFlip, onInspect, width, height, revealed }) {
-  const glow = itemGlow(item)
+// A single 3D flip card. The rarity glow lives on a WRAPPER aura layer + the
+// revealed face's box-shadow, NEVER a filter on the transformed card itself —
+// a filter on the 3D element flattens preserve-3d and kills the flip.
+// backface-visibility keeps the down/up faces from bleeding through.
+function FlipCard({ item, flipped, onFlip, onInspect, width, height }) {
+  const fx = flipFx(item)
   return (
     <div
-      className={`tarot-glow ${flipped ? 'tarot-glow-flipped' : ''}`}
-      style={{ '--glow': glow, cursor: !flipped || onInspect ? 'pointer' : 'default', position: 'relative' }}
+      style={{ position: 'relative', width, height, perspective: 900, cursor: !flipped || onInspect ? 'pointer' : 'default' }}
       onClick={!flipped ? onFlip : onInspect}
       title={flipped && onInspect ? `Inspect ${item.name}` : undefined}
     >
-      <div style={{ perspective: '1200px' }}>
-        <div className={`tarot-card ${flipped ? 'tarot-flipped' : ''}`} style={{ width, height }}>
-          <div className="tarot-face tarot-front">
-            <CardBack item={item} />
-          </div>
-          {/* When the card has explicit dimensions (spread/equipment), the
-              back face must be absolutely stretched over them — its rotateY
-              transform makes it the containing block for its children, and
-              as a zero-height in-flow element the revealed art collapsed to
-              a sliver (confirmed: heroes flipped to a bare line, equipment
-              floated above the slot). Single hero reveals leave it in flow
-              so the HeroCard defines the size. */}
-          <div className="tarot-face tarot-backside" style={height ? { position: 'absolute', inset: 0 } : undefined}>
-            {revealed}
-          </div>
+      {/* reveal aura — fades in behind the card once flipped */}
+      <div style={{ position: 'absolute', inset: -16, pointerEvents: 'none', opacity: flipped ? fx.auraOpacity : 0, transition: 'opacity .5s ease .3s', background: `radial-gradient(60% 55% at 50% 50%, rgba(${fx.rgb},${fx.t >= 5 ? 0.5 : 0.3}), rgba(0,0,0,0) 70%)`, animation: `ov-aura 3s ease-in-out infinite${fx.mythic ? ', ov-hue 5s linear infinite' : ''}` }} />
+      {/* orbiting reveal rings for tier 4+ */}
+      {flipped && fx.showRings && (
+        <>
+          <div style={{ position: 'absolute', left: '50%', top: '50%', width: height ? height * 0.78 : 168, height: height ? height * 0.78 : 168, borderRadius: '50%', pointerEvents: 'none', border: `1px solid rgba(${fx.rgb},.55)`, animation: `ov-ping 2.8s ease-out infinite${fx.mythic ? ', ov-hue 5s linear infinite' : ''}` }} />
+          <div style={{ position: 'absolute', left: '50%', top: '50%', width: height ? height * 0.78 : 168, height: height ? height * 0.78 : 168, borderRadius: '50%', pointerEvents: 'none', border: `1px solid rgba(${fx.rgb},.55)`, animation: `ov-ping 2.8s ease-out 1.4s infinite${fx.mythic ? ', ov-hue 5s linear infinite' : ''}` }} />
+        </>
+      )}
+      <div style={{
+        position: 'relative', width: '100%', height: '100%', transformStyle: 'preserve-3d',
+        transition: `transform ${fx.dur}s cubic-bezier(.3,1.2,.4,1)`,
+        transform: flipped ? `rotateY(${fx.spins}deg)` : 'rotateY(0deg)',
+      }}>
+        {/* face-down — uniform, no rarity */}
+        <div style={{ position: 'absolute', inset: 0, backfaceVisibility: 'hidden', WebkitBackfaceVisibility: 'hidden', border: '1px solid rgba(184,151,98,.6)', background: 'linear-gradient(160deg,#171028,#0c0716)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <CardBack />
+        </div>
+        {/* revealed */}
+        <div style={{ position: 'absolute', inset: 0, backfaceVisibility: 'hidden', WebkitBackfaceVisibility: 'hidden', transform: 'rotateY(180deg)' }}>
+          <RevealedFace item={item} fx={fx} />
         </div>
       </div>
-      {flipped && <div className="tarot-burst" style={{ '--glow': glow }} />}
     </div>
   )
 }
 
-// Single-pull reveal: one large card, click to flip. Stays on screen until
-// Continue — this IS the result screen (click the revealed hero to inspect).
+// Single-pull reveal: one large card, auto-flips after a beat. Stays until NEXT.
 function SingleReveal({ item, onDone, onInspect }) {
   const [flipped, setFlipped] = useState(false)
-
   const flip = useCallback(() => {
-    setFlipped(f => {
-      if (!f) {
-        playFlip()
-        playRevealStinger(itemTier(item))
-      }
-      return true
-    })
+    setFlipped(f => { if (!f) { playFlip(); playRevealStinger(itemTier(item)) } return true })
   }, [item])
-
   useEffect(() => {
-    if (!flipped) {
-      const t = setTimeout(flip, 2800)
-      return () => clearTimeout(t)
-    }
+    if (!flipped) { const t = setTimeout(flip, 2200); return () => clearTimeout(t) }
   }, [flipped, flip])
-
-  const glow = itemGlow(item)
-
-  // Fixed 2:3 slot for BOTH faces — the back and the revealed hero card
-  // are the exact same size/shape (the full stat card lives on the results
-  // grid afterward; the reveal moment is just the card art).
-  const W = 340
-  const H = 510
 
   return (
     <div style={{ margin: 'auto', textAlign: 'center' }}>
@@ -151,159 +181,86 @@ function SingleReveal({ item, onDone, onInspect }) {
         flipped={flipped}
         onFlip={flip}
         onInspect={!item.is_equipment && onInspect ? () => onInspect(item) : undefined}
-        width={W}
-        height={H}
-        revealed={
-          <div style={{ position: 'absolute', inset: 0 }}>
-            {item.is_equipment ? (
-              <EquipmentFace item={item} glow={glow} />
-            ) : item.portrait_path ? (
-              <img
-                src={`/heroes/${item.id}/card-image`}
-                onError={(e) => { e.target.onerror = null; e.target.src = `/${item.portrait_path}` }}
-                draggable={false}
-                style={{ width: '100%', height: '100%', objectFit: 'contain', borderRadius: 10 }}
-                alt={item.name}
-              />
-            ) : (
-              <div style={{
-                width: '100%', height: '100%', borderRadius: 10, border: `1px solid ${glow}`,
-                background: 'var(--bg-card)', display: 'flex', flexDirection: 'column',
-                alignItems: 'center', justifyContent: 'center', gap: 8, textAlign: 'center', padding: 12,
-              }}>
-                <div style={{ fontFamily: 'Cinzel, serif', fontSize: '1.1rem', color: 'var(--text-hi)' }}>{item.name}</div>
-                <div style={{ color: glow }}>{'★'.repeat(item.birth_star || 1)}</div>
-              </div>
-            )}
-          </div>
-        }
+        width={300}
+        height={448}
       />
       {!flipped ? (
-        <div className="tarot-hint" style={{ position: 'static', marginTop: '0.8rem' }}>Click to reveal</div>
+        <div className="tarot-hint" style={{ marginTop: '0.9rem' }}>Click to reveal</div>
       ) : (
-        <div style={{ marginTop: '1rem', display: 'flex', flexDirection: 'column', gap: '0.5rem', alignItems: 'center' }}>
+        <div style={{ marginTop: '1.1rem', display: 'flex', flexDirection: 'column', gap: '0.5rem', alignItems: 'center' }}>
           {!item.is_equipment && (
-            <div className="text-dim" style={{ fontSize: '0.75rem', fontFamily: 'Cinzel, serif', letterSpacing: '0.1em' }}>
-              Click the card to inspect
-            </div>
+            <div className="text-dim" style={{ fontSize: '0.72rem', fontFamily: 'Cinzel, serif', letterSpacing: '0.1em' }}>Click the card to inspect</div>
           )}
-          <button className="btn btn-gold" style={{ padding: '0.6rem 2rem' }} onClick={onDone}>Continue</button>
+          <button className="ilm-btn ilm-btn-gold" onClick={onDone}>NEXT ›</button>
         </div>
       )}
     </div>
   )
 }
 
-// Multi-pull spread: every card dealt face-down at once in a 3-4-3 layout
-// over the summoning array. Click each to flip, or Reveal All. Once flipped,
-// this IS the result screen — click any revealed hero to inspect their full
-// card; Continue leaves the rite.
+// Multi-pull spread: every card dealt face-down in a 5-across grid. Click each
+// or Reveal All. NEXT (gold) appears once every card is turned.
 function TarotSpread({ results, onComplete, onInspect }) {
   const [flipped, setFlipped] = useState(() => new Set())
-
-  // The array slamming in deserves weight.
   useEffect(() => { playArrayThud() }, [])
 
   const keyOf = (item, i) => item.id ?? `i${i}`
-  const columns = results.length >= 8
-    ? [results.slice(0, 3), results.slice(3, 7), results.slice(7, 10)]
-    : [results]
   const allFlipped = flipped.size >= results.length
+  const cols = Math.min(5, results.length)
 
   function flipOne(key, item) {
-    playFlip()
-    playRevealStinger(itemTier(item))
+    playFlip(); playRevealStinger(itemTier(item))
     setFlipped(prev => new Set(prev).add(key))
   }
-
   function revealAll() {
-    playFlip()
-    playRevealStinger(Math.max(...results.map(itemTier)))
-    setFlipped(new Set(results.map((item, i) => keyOf(item, i))))
+    playFlip(); playRevealStinger(Math.max(...results.map(itemTier)))
+    // stagger the turns so the array ripples open rather than snapping flat
+    results.forEach((item, i) => setTimeout(() => setFlipped(prev => new Set(prev).add(keyOf(item, i))), i * 90))
   }
-
-  let flatIndex = -1
 
   return (
     <div style={{ position: 'relative', width: '100%', minHeight: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
-      {/* Dedicated array art per pull type (hero_array / equip_array) */}
-      <img
-        src={`/icons/${results.every(r => r.is_equipment) ? 'equip_array' : 'hero_array'}.png`}
-        alt=""
-        draggable={false}
-        onError={(e) => { e.target.style.display = 'none' }}
-        style={{
-          position: 'fixed', top: '50%', left: '50%', width: '105vmin', height: '105vmin',
-          transform: 'translate(-50%, -50%)', objectFit: 'contain', opacity: 0.4,
-          pointerEvents: 'none', animation: 'array-spin 90s linear infinite',
-        }}
-      />
-
-      {/* 3-4-3 spread: three vertical columns; the middle holds 4 cards so
-          it's naturally taller — cards sized so a 4-card column fits. */}
-      <div style={{ display: 'flex', gap: '3.5rem', alignItems: 'center', justifyContent: 'center', position: 'relative', zIndex: 2, padding: '1rem', flexWrap: 'wrap' }}>
-        {columns.map((col, ci) => (
-          <div key={ci} style={{ display: 'flex', flexDirection: 'column', gap: '0.8rem', justifyContent: 'center', flexWrap: columns.length === 1 ? 'wrap' : 'nowrap', ...(columns.length === 1 ? { flexDirection: 'row', maxWidth: 900 } : {}) }}>
-            {col.map((item) => {
-              flatIndex += 1
-              const key = keyOf(item, flatIndex)
-              const glow = itemGlow(item)
-              return (
-                <FlipCard
-                  key={key}
-                  item={item}
-                  flipped={flipped.has(key)}
-                  onFlip={() => flipOne(key, item)}
-                  onInspect={!item.is_equipment && onInspect ? () => onInspect(item) : undefined}
-                  width={176}
-                  height={264}
-                  revealed={
-                    <div style={{ position: 'absolute', inset: 0 }}>
-                      {item.is_equipment ? (
-                        <EquipmentFace item={item} glow={glow} />
-                      ) : item.portrait_path ? (
-                        <img
-                          src={`/heroes/${item.id}/card-image?mini=true`}
-                          onError={(e) => { e.target.onerror = null; e.target.src = `/${item.portrait_path}` }}
-                          draggable={false}
-                          style={{ width: '100%', height: '100%', objectFit: 'cover', objectPosition: 'center top', borderRadius: 8, border: `1px solid ${glow}` }}
-                          alt={item.name}
-                        />
-                      ) : (
-                        <div style={{
-                          width: '100%', height: '100%', borderRadius: 8, border: `1px solid ${glow}`,
-                          background: 'var(--bg-card)', display: 'flex', flexDirection: 'column',
-                          alignItems: 'center', justifyContent: 'center', gap: 6, padding: 6, textAlign: 'center',
-                        }}>
-                          <div style={{ fontFamily: 'Cinzel, serif', fontSize: '0.8rem', color: 'var(--text-hi)' }}>{item.name}</div>
-                          <div style={{ color: glow, fontSize: '0.7rem' }}>{'★'.repeat(item.birth_star || 1)}</div>
-                        </div>
-                      )}
-                    </div>
-                  }
-                />
-              )
-            })}
-          </div>
-        ))}
+      {/* header */}
+      <div style={{ position: 'relative', zIndex: 2, textAlign: 'center', marginBottom: '1.4rem' }}>
+        <div style={{ fontFamily: "'Cinzel',serif", letterSpacing: '.5em', fontSize: '0.66rem', color: 'var(--gold-hi)' }}>
+          THE RITE IS CAST · ×{results.length}
+        </div>
+        <div style={{ fontFamily: "'Cinzel',serif", fontWeight: 900, fontSize: '1.9rem', color: 'var(--text-hi)', marginTop: 6 }}>
+          TURN THE CARDS
+        </div>
       </div>
 
-      <div style={{ position: 'relative', zIndex: 2, marginTop: '1.2rem', display: 'flex', gap: '1rem', alignItems: 'center' }}>
+      {/* 5-across grid */}
+      <div style={{ display: 'grid', gridTemplateColumns: `repeat(${cols}, 150px)`, gap: '22px 18px', justifyContent: 'center', position: 'relative', zIndex: 2, padding: '0.5rem' }}>
+        {results.map((item, i) => {
+          const key = keyOf(item, i)
+          return (
+            <div key={key} style={{ animation: `ov-deal .5s cubic-bezier(.2,.9,.3,1) ${(0.06 + i * 0.05).toFixed(2)}s both` }}>
+              <FlipCard
+                item={item}
+                flipped={flipped.has(key)}
+                onFlip={() => flipOne(key, item)}
+                onInspect={!item.is_equipment && onInspect ? () => onInspect(item) : undefined}
+                width={150}
+                height={224}
+              />
+            </div>
+          )
+        })}
+      </div>
+
+      {/* actions */}
+      <div style={{ position: 'relative', zIndex: 2, marginTop: '1.5rem', display: 'flex', gap: '0.9rem', alignItems: 'center' }}>
         {!allFlipped ? (
           <>
-            <div className="text-dim" style={{ fontFamily: 'Cinzel, serif', letterSpacing: '0.1em', fontSize: '0.85rem' }}>
-              {flipped.size} / {results.length} revealed — click a card
-            </div>
-            <button className="btn btn-gold" onClick={revealAll}>Reveal All</button>
+            <button className="ilm-btn ilm-btn-violet" onClick={revealAll}>REVEAL ALL</button>
+            {flipped.size > 0 && <button className="ilm-btn ilm-btn-ghost" onClick={() => setFlipped(new Set())}>RESET</button>}
+            <span className="text-dim" style={{ fontFamily: "'Cinzel',serif", letterSpacing: '0.14em', fontSize: '0.78rem' }}>{flipped.size} / {results.length} REVEALED</span>
           </>
         ) : (
           <>
-            <div className="text-dim" style={{ fontFamily: 'Cinzel, serif', letterSpacing: '0.1em', fontSize: '0.8rem' }}>
-              Click any card to inspect
-            </div>
-            <button className="btn btn-gold" style={{ padding: '0.7rem 2.2rem', fontSize: '1rem', boxShadow: '0 0 15px rgba(201,168,76,0.4)' }} onClick={onComplete}>
-              Continue
-            </button>
+            <button className="ilm-btn ilm-btn-ghost" onClick={() => setFlipped(new Set())}>RESET</button>
+            <button className="ilm-btn ilm-btn-gold" onClick={onComplete}>NEXT ›</button>
           </>
         )}
       </div>
@@ -312,24 +269,21 @@ function TarotSpread({ results, onComplete, onInspect }) {
 }
 
 export default function SummoningOverlay({ results, onComplete }) {
-  // No pre-reveal buildup phase — straight to the cards.
   const isSpread = results.length > 1
   const [inspectHero, setInspectHero] = useState(null)
 
   return (
     <div style={{
       position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
-      backgroundColor: '#000', zIndex: 9999,
+      background:
+        'radial-gradient(80% 70% at 50% 30%, rgba(96,42,168,.3), rgba(0,0,0,0) 60%),' +
+        'radial-gradient(140% 120% at 50% 120%, #0d0818, #08060e 72%)',
+      backgroundColor: '#08060e', zIndex: 9999,
       display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
-      overflowY: 'auto',
-      padding: '2rem 0'
+      overflowY: 'auto', padding: '2rem 0',
     }}>
-      <button
-        className="btn"
-        onClick={onComplete}
-        style={{ position: 'absolute', top: 20, right: 20, zIndex: 10000, background: 'rgba(0,0,0,0.5)', border: '1px solid var(--border)' }}
-      >
-        Skip All ⏭
+      <button className="ilm-btn ilm-btn-ghost" onClick={onComplete} style={{ position: 'absolute', top: 20, right: 20, zIndex: 10000 }}>
+        SKIP ALL ⏭
       </button>
 
       {isSpread ? (
@@ -338,12 +292,8 @@ export default function SummoningOverlay({ results, onComplete }) {
         <SingleReveal item={results[0]} onDone={onComplete} onInspect={setInspectHero} />
       ) : null}
 
-      {/* Full hero sheet, opened by clicking a revealed card */}
       {inspectHero && (
-        <div style={{
-          position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.88)', zIndex: 10001,
-          display: 'flex', alignItems: 'center', justifyContent: 'center', backdropFilter: 'blur(4px)',
-        }} onClick={() => setInspectHero(null)}>
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.88)', zIndex: 10001, display: 'flex', alignItems: 'center', justifyContent: 'center', backdropFilter: 'blur(4px)' }} onClick={() => setInspectHero(null)}>
           <div style={{ width: 1000, maxWidth: '95vw', maxHeight: '90vh', overflowY: 'auto', borderRadius: 8 }} onClick={e => e.stopPropagation()}>
             <HeroCard hero={inspectHero} showFull={true} />
           </div>
@@ -351,83 +301,13 @@ export default function SummoningOverlay({ results, onComplete }) {
       )}
 
       <style>{`
-        @keyframes tarot-idle {
-          0%   { transform: rotateY(-14deg) translateY(0); }
-          25%  { transform: rotateY(0deg) translateY(-7px); }
-          50%  { transform: rotateY(14deg) translateY(0); }
-          75%  { transform: rotateY(0deg) translateY(7px); }
-          100% { transform: rotateY(-14deg) translateY(0); }
-        }
-        @keyframes tarot-burst-anim {
-          0%   { opacity: 0.9; transform: scale(0.3); }
-          100% { opacity: 0; transform: scale(3.2); }
-        }
-        @keyframes tarot-hint-pulse {
-          0%, 100% { opacity: 0.5; }
-          50% { opacity: 1; }
-        }
-        @keyframes array-spin {
-          from { transform: translate(-50%, -50%) rotate(0deg); }
-          to   { transform: translate(-50%, -50%) rotate(360deg); }
-        }
-
-        /* Face-down cards get NO CSS glow — the card-back PNGs carry their
-           own baked-in auras. A soft glow returns on the revealed face.
-           Filter lives on this wrapper, never on .tarot-card itself — a
-           filter on the 3D element flattens preserve-3d and breaks the flip. */
-        .tarot-glow {
-          filter: none;
-        }
-        .tarot-glow-flipped {
-          filter: drop-shadow(0 0 10px var(--glow));
-        }
-
-        .tarot-card {
-          position: relative;
-          transform-style: preserve-3d;
-          animation: tarot-idle 4.5s ease-in-out infinite;
-          transition: transform 0.75s cubic-bezier(0.3, 0, 0.2, 1);
-        }
-        .tarot-card.tarot-flipped {
-          animation: none;
-          transform: rotateY(180deg);
-        }
-
-        .tarot-face {
-          backface-visibility: hidden;
-          -webkit-backface-visibility: hidden;
-        }
-        /* Face-down side is a fully transparent slot — no background, no
-           border, no clipping. The PNG IS the card (frame + aura baked in). */
-        .tarot-front {
-          position: absolute;
-          inset: 0;
-          z-index: 2;
-          transform: rotateY(0deg);
-          background: transparent;
-        }
-        .tarot-backside {
-          transform: rotateY(180deg);
-        }
-
-        .tarot-hint {
-          text-align: center;
-          font-family: 'Cinzel', serif;
-          font-size: 0.75rem;
-          letter-spacing: 0.2em;
-          color: rgba(255, 255, 255, 0.75);
-          animation: tarot-hint-pulse 1.6s ease-in-out infinite;
-        }
-
-        .tarot-burst {
-          position: absolute;
-          inset: -40px;
-          border-radius: 50%;
-          pointer-events: none;
-          background: radial-gradient(circle, var(--glow) 0%, transparent 65%);
-          animation: tarot-burst-anim 0.8s ease-out forwards;
-          z-index: 1;
-        }
+        @keyframes ov-aura { 0%,100% { opacity:.55; transform:scale(1) } 50% { opacity:1; transform:scale(1.07) } }
+        @keyframes ov-ping { 0% { transform:translate(-50%,-50%) scale(.5); opacity:.75 } 100% { transform:translate(-50%,-50%) scale(1.22); opacity:0 } }
+        @keyframes ov-hue { to { filter:hue-rotate(360deg) } }
+        @keyframes ov-deal { from { opacity:0; transform:translateY(26px) rotate(3deg) } to { opacity:1; transform:translateY(0) rotate(0) } }
+        @keyframes star-rainbow-slide { from { background-position:0% center } to { background-position:-200% center } }
+        .tarot-hint { text-align:center; font-family:'Cinzel',serif; font-size:0.75rem; letter-spacing:0.2em; color:rgba(255,255,255,0.75); animation: ov-hint 1.6s ease-in-out infinite; }
+        @keyframes ov-hint { 0%,100% { opacity:0.5 } 50% { opacity:1 } }
       `}</style>
     </div>
   )

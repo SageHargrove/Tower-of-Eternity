@@ -80,174 +80,107 @@ export default function ProfileSelect({ onSelect }) {
   }
 
   if (loading && profiles.length === 0) return (
-    <div style={{ width: '100vw', height: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#000', color: '#fff', fontFamily: 'Cinzel, serif' }}>
+    <div style={{ position: 'fixed', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#08060e', color: '#fff', fontFamily: 'Cinzel, serif' }}>
       Loading...
     </div>
   )
 
   return (
-    <div style={{ width: '100vw', height: '100vh', position: 'relative', overflow: 'hidden', background: '#000' }}>
+    <div className="ilm-title-screen">
+      {/* No tower key-art — the ambient gradient background carries the screen.
+          A soft violet scrim keeps the wordmark legible. */}
+      <div className="ilm-title-scrim" />
 
-      {/* Tower art is a tall portrait image (341x1024) — `cover` on a wide
-          landscape window forces it to scale by its WORST-matching
-          dimension (width), blowing it up ~6x and showing only a tight
-          sliver of it. `contain` shows the whole image at its natural
-          scale instead, anchored to the right where the panel isn't. */}
-      <div style={{
-        position: 'absolute', inset: 0,
-        backgroundImage: 'url(/tower_limitless_wide.png?v=2)',
-        backgroundSize: 'cover',
-        backgroundPosition: 'center center',
-        backgroundRepeat: 'no-repeat',
-      }} />
+      {/* drifting glyphs */}
+      <span className="ilm-title-glyph" style={{ left: '16%', top: '22%', animationDelay: '0s' }}>◆</span>
+      <span className="ilm-title-glyph" style={{ left: '82%', top: '18%', animationDelay: '1.2s' }}>✧</span>
+      <span className="ilm-title-glyph" style={{ left: '76%', top: '46%', animationDelay: '.5s' }}>❡</span>
 
-      {/* Left vignette — makes panel readable, right half stays fully visible */}
-      <div style={{
-        position: 'absolute', inset: 0,
-        background: 'linear-gradient(to right, rgba(5,5,10,0.95) 0%, rgba(5,5,10,0.82) 28%, rgba(5,5,10,0.2) 55%, transparent 75%)',
-      }} />
-      {/* Bottom depth vignette */}
-      <div style={{
-        position: 'absolute', inset: 0,
-        background: 'linear-gradient(to top, rgba(5,5,10,0.65) 0%, transparent 45%)',
-      }} />
-
-      {/* ── Left panel ── */}
-      <div style={{
-        position: 'absolute', left: 0, top: 0, bottom: 0,
-        width: '360px',
-        display: 'flex', flexDirection: 'column', justifyContent: 'center',
-        padding: '3rem 2.5rem',
-        zIndex: 1,
-      }}>
-
-        {/* Title */}
-        <div style={{ marginBottom: '2.5rem' }}>
-          <div style={{
-            fontSize: '0.65rem', letterSpacing: '5px',
-            color: 'rgba(201,168,76,0.75)', marginBottom: '0.6rem',
-            fontFamily: 'Cinzel, serif',
-          }}>ENTER THE</div>
-          <h1 style={{
-            fontFamily: 'Cinzel, serif', fontSize: '2.5rem', fontWeight: 'bold',
-            color: '#fff', margin: 0, lineHeight: 1.15,
-            textShadow: '0 0 40px rgba(120,140,255,0.5), 0 2px 10px rgba(0,0,0,1)',
-          }}>
-            Tower of<br />Eternity
-          </h1>
+      {/* ── wordmark ── */}
+      <div className="ilm-title-wordmark">
+        <div className="ilm-diamond" style={{ width: 44, height: 44, margin: '0 auto', boxShadow: '0 0 24px rgba(184,151,98,.4)', background: 'rgba(10,7,19,.6)' }}>
+          <div className="pip" style={{ width: 14, height: 14 }} />
         </div>
-
-        {/* Glassmorphism card */}
-        <div style={{
-          background: 'rgba(8,8,18,0.65)',
-          backdropFilter: 'blur(16px)',
-          WebkitBackdropFilter: 'blur(16px)',
-          border: '1px solid rgba(201,168,76,0.18)',
-          borderRadius: '14px',
-          padding: '1.5rem',
-          boxShadow: '0 8px 40px rgba(0,0,0,0.5)',
-        }}>
-          {msg && <div style={{ color: '#f87', fontSize: '0.8rem', marginBottom: '0.75rem', textAlign: 'center' }}>{msg}</div>}
-
-          {/* New profile */}
-          <form onSubmit={handleCreate} style={{ display: 'flex', gap: '0.5rem', marginBottom: '1.2rem', paddingBottom: '1.2rem', borderBottom: '1px solid rgba(255,255,255,0.07)' }}>
-            <input
-              type="text"
-              placeholder="Manager Name (Username)..."
-              value={newProfile}
-              onChange={e => setNewProfile(e.target.value)}
-              style={{
-                flex: 1, minWidth: 0, background: 'rgba(0,0,0,0.45)',
-                border: '1px solid rgba(255,255,255,0.12)',
-                padding: '0.5rem 0.75rem', color: '#fff',
-                borderRadius: 7, fontSize: '0.88rem', outline: 'none',
-              }}
-            />
-            <button type="submit" className="btn btn-gold" disabled={!newProfile.trim()} style={{ padding: '0.5rem 0.9rem', fontSize: '0.82rem' }}>
-              Create
-            </button>
-          </form>
-
-          {/* Save list */}
-          <div style={{ fontSize: '0.62rem', letterSpacing: '3px', color: 'rgba(255,255,255,0.35)', marginBottom: '0.5rem', fontFamily: 'Cinzel, serif' }}>
-            SAVE FILES
-          </div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem', marginBottom: '1.2rem', maxHeight: '26vh', overflowY: 'auto' }}>
-            {profiles.length === 0 && (
-              <div style={{ color: 'rgba(255,255,255,0.35)', fontSize: '0.85rem', fontStyle: 'italic' }}>No profiles yet.</div>
-            )}
-            {profiles.map(p => {
-              const sel = selectedProfile === p
-              return (
-                <button
-                  key={p}
-                  onClick={() => setSelectedProfile(p)}
-                  style={{
-                    padding: '0.6rem 0.9rem',
-                    background: sel ? 'rgba(201,168,76,0.12)' : 'rgba(255,255,255,0.03)',
-                    border: sel ? '1px solid rgba(201,168,76,0.55)' : '1px solid rgba(255,255,255,0.07)',
-                    borderRadius: 7, cursor: 'pointer', transition: 'all 0.15s',
-                    display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-                    color: sel ? 'var(--gold)' : '#ccc',
-                  }}
-                >
-                  <span style={{ fontFamily: 'Cinzel, serif', fontWeight: 'bold', fontSize: '0.92rem' }}>{p}</span>
-                  {sel && <span style={{ fontSize: '0.65rem', opacity: 0.8 }}>✓</span>}
-                </button>
-              )
-            })}
-          </div>
-
-          {/* Actions */}
-          <div style={{
-            display: 'flex', gap: '0.4rem',
-            opacity: selectedProfile ? 1 : 0.25,
-            pointerEvents: selectedProfile ? 'auto' : 'none',
-            transition: 'opacity 0.2s',
-          }}>
-            <button
-              className="btn btn-gold"
-              style={{ flex: 2, padding: '0.6rem', fontWeight: 'bold', fontSize: '0.88rem', letterSpacing: '1px' }}
-              onClick={handleLoadSelected}
-            >
-              Enter Tower
-            </button>
-            <button className="btn" style={{ flex: 1, padding: '0.6rem', fontSize: '0.78rem' }} onClick={handleRename}>
-              Rename
-            </button>
-            <button
-              className="btn"
-              style={{ flex: 1, padding: '0.6rem', fontSize: '0.78rem', background: 'rgba(150,0,0,0.15)', border: '1px solid rgba(255,60,60,0.2)', color: '#f88' }}
-              onClick={handleDelete}
-            >
-              Delete
-            </button>
-          </div>
+        <div className="ilm-title-kicker">TOWER&nbsp;OF</div>
+        <div className="ilm-title-stackword">
+          <span className="ghost">ETERNITY</span>
+          <span className="solid">ETERNITY</span>
+        </div>
+        <div className="ilm-title-tagline">
+          <span className="rule" /><span>Heroes die. Legacies do not.</span><span className="rule" />
         </div>
       </div>
 
-      {pendingNewName && (
-        <div style={{
-          position: 'fixed', inset: 0, zIndex: 50,
-          background: 'rgba(0,0,0,0.75)',
-          display: 'flex', alignItems: 'center', justifyContent: 'center',
-        }}>
-          <div style={{
-            background: 'rgba(10,10,18,0.95)', border: '1px solid rgba(201,168,76,0.3)',
-            borderRadius: 14, padding: '2rem', width: '420px', maxWidth: '90vw',
-            boxShadow: '0 8px 50px rgba(0,0,0,0.7)',
-          }}>
-            <div style={{ fontFamily: 'Cinzel, serif', fontSize: '1.3rem', color: 'var(--gold)', marginBottom: '0.4rem', textAlign: 'center' }}>
-              Confirm Manager Name
-            </div>
-            <div style={{ fontSize: '0.78rem', color: 'rgba(255,255,255,0.5)', textAlign: 'center', marginBottom: '1.4rem' }}>
-              You will be known as "{pendingNewName}" on the World server. This cannot be changed later.
-            </div>
-            <button className="btn btn-gold" style={{ width: '100%', padding: '0.75rem 0.9rem', fontSize: '0.95rem', borderRadius: 8 }} onClick={() => confirmCreate()}>
-              Begin Journey
+      {/* ── profile select ── */}
+      <div className="ilm-title-profiles">
+        <div className="ilm-title-selecthead">SELECT YOUR PROFILE</div>
+        {msg && <div style={{ color: 'var(--red-hi)', fontSize: '0.85rem', textAlign: 'center', marginBottom: '0.6rem' }}>{msg}</div>}
+
+        <div className="ilm-title-cardrow">
+          {profiles.map((p, i) => {
+            const sel = selectedProfile === p
+            return (
+              <button
+                key={p}
+                className={`ilm-profile-card ${sel ? 'sel' : ''}`}
+                onClick={() => setSelectedProfile(p)}
+                style={{ clipPath: 'polygon(0 0,100% 0,100% 100%,12px 100%)' }}
+              >
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
+                  <span style={{ fontFamily: "'Cinzel',serif", fontWeight: 700, fontSize: '1.2rem', letterSpacing: '.08em', color: sel ? 'var(--text-hi)' : 'var(--text)' }}>{p}</span>
+                  {i === 0 && <span style={{ fontFamily: "'Cinzel',serif", fontSize: '0.58rem', letterSpacing: '.2em', color: 'var(--gold-hi)' }}>LAST&nbsp;PLAYED</span>}
+                </div>
+                <div className="ilm-title-cardhint">Enter the Tower and climb on.</div>
+              </button>
+            )
+          })}
+
+          {/* new-profile card */}
+          <form onSubmit={handleCreate} className="ilm-profile-card new">
+            <input
+              type="text"
+              className="input"
+              placeholder="New profile name…"
+              value={newProfile}
+              onChange={e => setNewProfile(e.target.value)}
+              style={{ width: '100%', fontSize: '1rem', padding: '0.6rem 0.8rem' }}
+            />
+            <button type="submit" className="btn btn-gold" disabled={!newProfile.trim()} style={{ marginTop: 12, width: '100%', padding: '0.7rem 0', fontSize: '0.9rem' }}>
+              + New Profile
             </button>
-            <button className="btn" style={{ width: '100%', marginTop: '1rem', fontSize: '0.8rem' }} onClick={() => setPendingNewName(null)}>
-              Cancel
+          </form>
+        </div>
+
+        {/* actions for the selected profile */}
+        <div className="ilm-title-actions" style={{ opacity: selectedProfile ? 1 : 0.25, pointerEvents: selectedProfile ? 'auto' : 'none' }}>
+          <button className="btn btn-gold" style={{ padding: '0.9rem 2.6rem', letterSpacing: '.24em', fontSize: '1rem' }} onClick={handleLoadSelected}>
+            Press to Ascend
+          </button>
+          <button className="btn" onClick={handleRename}>Rename</button>
+          <button className="btn btn-danger" onClick={handleDelete}>Delete</button>
+        </div>
+
+        <div className="ilm-title-version">TOWER OF ETERNITY · PRE-ALPHA</div>
+      </div>
+
+      {/* confirm manager name */}
+      {pendingNewName && (
+        <div className="ilm-modal-scrim" style={{ zIndex: 50 }} onClick={() => setPendingNewName(null)}>
+          <div className="ilm-confirm-panel ent-fade" onClick={e => e.stopPropagation()}>
+            <span className="ilm-corner" />
+            <span className="ilm-corner ilm-corner-r" />
+            <div style={{ fontFamily: "'Cinzel',serif", letterSpacing: '.3em', fontSize: '0.56rem', color: 'var(--gold-hi)', textAlign: 'center' }}>THE WORLD SERVER REMEMBERS</div>
+            <div style={{ fontFamily: "'Cinzel',serif", fontWeight: 900, fontSize: '1.3rem', color: 'var(--text-hi)', textAlign: 'center', marginTop: 6 }}>
+              CONFIRM MANAGER NAME
+            </div>
+            <div style={{ fontSize: '0.95rem', fontStyle: 'italic', color: '#c8b8dd', textAlign: 'center', margin: '0.8rem 0 1.4rem', lineHeight: 1.5 }}>
+              You will be known as “{pendingNewName}” on the World server. This cannot be changed later.
+            </div>
+            <button className="btn btn-primary" style={{ width: '100%', padding: '0.75rem' }} onClick={() => confirmCreate()}>
+              Begin the Climb
+            </button>
+            <button className="btn" style={{ width: '100%', marginTop: '0.8rem' }} onClick={() => setPendingNewName(null)}>
+              Never Mind
             </button>
           </div>
         </div>

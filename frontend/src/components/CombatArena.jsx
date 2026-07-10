@@ -1,5 +1,47 @@
 import React, { useState, useEffect, useRef } from 'react'
 import { playHitSound } from '../audio'
+import Sigil from './Sigil'
+
+// Status-chip palette for the combat rails. Backend emits per-turn labels
+// (see combat_service._status_snapshot); `c`/`b` tint them, `icon` is the
+// custom Sigil SVG under /public/icons/status/<icon>.svg (currentColor mask,
+// so it takes the chip's color). Icon set matches the Sigil Library sheet.
+const STATUS_STYLE = {
+  BLEED:         { c: '#e08585', b: 'rgba(192,64,64,.5)',   icon: 'BLEED' },
+  POISON:        { c: '#8fbf9f', b: 'rgba(74,154,106,.5)',  icon: 'POISON' },
+  BURN:          { c: '#e8a34c', b: 'rgba(232,163,76,.5)',  icon: 'BURN' },
+  FREEZE:        { c: '#7ecfd8', b: 'rgba(126,207,216,.5)', icon: 'FREEZE' },
+  STUN:          { c: '#e08585', b: 'rgba(192,64,64,.5)',   icon: 'STUN' },
+  FEAR:          { c: '#e08585', b: 'rgba(192,64,64,.5)',   icon: 'FEAR' },
+  'ARMOR BREAK': { c: '#e08585', b: 'rgba(192,64,64,.5)',   icon: 'ARMOR_BREAK' },
+  TAUNT:         { c: '#d8bb84', b: 'rgba(216,187,132,.5)', icon: 'TAUNTING' },
+  SHIELD:        { c: '#8fbf9f', b: 'rgba(74,154,106,.5)',  icon: 'DMG_SHIELD' },
+  ENRAGED:       { c: '#e08585', b: 'rgba(192,64,64,.5)',   icon: 'ENRAGED' },
+  HASTE:         { c: '#8fbf9f', b: 'rgba(74,154,106,.5)',  icon: 'HASTE' },
+  // set beyond the sheet — text-only (no custom art)
+  BLIND:   { c: '#c8a9f5', b: 'rgba(150,110,230,.5)' },
+  SILENCE: { c: '#c8a9f5', b: 'rgba(150,110,230,.5)' },
+  REGEN:   { c: '#8fbf9f', b: 'rgba(74,154,106,.5)' },
+  EVASION: { c: '#7ecfd8', b: 'rgba(126,207,216,.5)' },
+  BUFF:    { c: '#8fbf9f', b: 'rgba(74,154,106,.5)' },
+  WEAK:    { c: '#d98a8a', b: 'rgba(192,64,64,.4)' },
+}
+function StatusChips({ list }) {
+  if (!list || list.length === 0) return null
+  return (
+    <div className="ilm-unitchips">
+      {list.map(s => {
+        const st = STATUS_STYLE[s] || { c: 'var(--text-dim)', b: 'var(--border)' }
+        return (
+          <span key={s} className="ilm-unitchip" style={{ color: st.c, borderColor: st.b }} title={s}>
+            {st.icon && <Sigil set="status" name={st.icon} size={11} />}
+            {s}
+          </span>
+        )
+      })}
+    </div>
+  )
+}
 
 // Front/back column gap widened from 34%/14% (20% apart) — at the old 1.3x
 // hero scale that gap was only a few px wider than the circles themselves
@@ -250,13 +292,14 @@ export default function CombatArena({ combatData, onComplete, turnNarrations, in
   const [unitManas, setUnitManas] = useState({})
   // Persisted across fights (localStorage), not just this component's
   // lifetime — once a player wants 2x, they want it for every fight.
-  const [speedMult, setSpeedMult] = useState(() => (localStorage.getItem('combatSpeed2x') === '1' ? 2 : 1))
-  function toggleSpeed() {
-    setSpeedMult(prev => {
-      const next = prev === 1 ? 2 : 1
-      localStorage.setItem('combatSpeed2x', next === 2 ? '1' : '0')
-      return next
-    })
+  const [speedMult, setSpeedMult] = useState(() => {
+    const v = parseInt(localStorage.getItem('combatSpeed') || '')
+    if (v === 1 || v === 2 || v === 4) return v
+    return localStorage.getItem('combatSpeed2x') === '1' ? 2 : 1 // legacy key
+  })
+  function setSpeed(n) {
+    localStorage.setItem('combatSpeed', String(n))
+    setSpeedMult(n)
   }
   
   const heroes = combatData?.initial_state?.heroes || []
@@ -385,196 +428,128 @@ export default function CombatArena({ combatData, onComplete, turnNarrations, in
   const currentTurn = currentTurnIndex >= 0 && currentTurnIndex < turns.length ? turns[currentTurnIndex] : null
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-    {/* Speed toggle — used to float absolutely positioned over the top-left
-        corner of the arena itself, overlapping sprites/UI there. Pulled
-        fully outside the arena's visual canvas into its own thin header
-        strip above it instead — still right where you'd look for it, but
-        no longer covering anything mid-fight. */}
-    <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
-      <button
-        onClick={toggleSpeed}
-        title="Toggle combat playback speed"
-        style={{
-          display: 'flex', alignItems: 'center', gap: '0.4rem',
-          fontSize: '0.78rem', padding: '0.35rem 0.7rem', borderRadius: 6,
-          fontFamily: 'Cinzel, serif',
-          background: speedMult === 2 ? 'rgba(201,168,76,0.25)' : 'rgba(10,10,14,0.85)',
-          border: `1px solid ${speedMult === 2 ? 'var(--gold)' : 'rgba(255,255,255,0.2)'}`,
-          color: speedMult === 2 ? 'var(--gold)' : '#ccc', cursor: 'pointer',
-        }}
-      >
-        Speed: {speedMult}x
-      </button>
+    <div className="ilm-combat" style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+    {/* combat context strip — floor/turn + ×1/×2/×4 speed */}
+    <div className="ilm-combat-topbar">
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+        <span style={{ width: 9, height: 9, transform: 'rotate(45deg)', background: 'var(--gold)', display: 'inline-block' }} />
+        <span style={{ fontFamily: "'Cinzel',serif", fontWeight: 700, letterSpacing: '.24em', fontSize: '0.82rem', color: 'var(--text-hi)' }}>THE FRAY</span>
+        {currentTurn?.round != null && <span style={{ fontFamily: "'Cinzel',serif", letterSpacing: '.24em', fontSize: '0.66rem', color: 'var(--gold-hi)' }}>TURN {currentTurn.round}</span>}
+      </div>
+      <div className="ilm-combat-speed">
+        {[1, 2, 4].map(n => (
+          <button key={n} className={`ilm-combat-spd ${speedMult === n ? 'active' : ''}`} onClick={() => setSpeed(n)} title={`${n}× playback`}>×{n}</button>
+        ))}
+      </div>
     </div>
-    <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'stretch' }}>
-    <div style={{
-      position: 'relative',
-      flex: '1 1 auto',
-      minWidth: 0,
-      height: '880px',
-      background: 'linear-gradient(to bottom, #1a1a24, #0a0a10)',
-      border: '1px solid #333',
-      borderRadius: '8px',
-      overflow: 'hidden',
-      marginBottom: '1rem',
-      boxShadow: 'inset 0 0 50px rgba(0,0,0,0.8)'
-    }}>
-      {/* Background elements */}
-      <div style={{ position: 'absolute', inset: 0, opacity: 0.1, backgroundImage: 'url(data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAYAAABytg0kAAAAGXRFWHRTb2Z0d2FyZQBBZG9iZSBJbWFnZVJlYWR5ccllPAAAABZJREFUeNpi2r9//38bIxsDB1AMBgwAE2gDG9mC9U8AAAAASUVORK5CYII=)', backgroundSize: '10px' }} />
-
-      {/* Divider */}
-      <div style={{ position: 'absolute', left: '50%', top: 0, bottom: 0, width: '2px', background: 'rgba(255,255,255,0.05)' }} />
-
-      {/* Survival Floor round counter — frames the fight as "outlast the
-          clock," not "kill count," since the normal enemies-remaining
-          framing would be misleading here (the swarm isn't meant to hit 0). */}
+    <div className="ilm-combat-stage">
       {isSurvivalSwarm && turnLimit && (
-        <div style={{
-          position: 'absolute', top: '10px', left: '50%', transform: 'translateX(-50%)',
-          zIndex: 50, background: 'rgba(10,10,14,0.85)', border: '1px solid rgba(201,168,76,0.4)',
-          borderRadius: '6px', padding: '0.4rem 1rem', fontFamily: 'Cinzel, serif',
-          color: 'var(--gold)', fontSize: '0.95rem', letterSpacing: 1, textTransform: 'uppercase',
-          boxShadow: '0 2px 10px rgba(0,0,0,0.5)',
-        }}>
-          Survive! Round {Math.min(currentTurn?.round || 1, turnLimit)} / {turnLimit}
-        </div>
+        <div className="ilm-combat-survive">SURVIVE · ROUND {Math.min(currentTurn?.round || 1, turnLimit)} / {turnLimit}</div>
       )}
 
-      {/* Render Heroes */}
-      {heroes.map((hero, idx) => {
-        const isAttacker = currentTurn?.attacker_id === hero.id
-        const isTarget = currentTurn?.target_id === hero.id
-        const dmgInfo = isTarget ? { amount: currentTurn.damage, crit: currentTurn.is_crit } : null
-        return (
-          <CombatUnitSprite
-            key={hero.id}
-            unit={hero}
-            team="hero"
-            position={idx}
-            teamCount={heroes.length}
-            tier={heroTier}
-            isActive={isAttacker}
-            isHit={isTarget}
-            skillName={isAttacker ? currentTurn?.skill_name : null}
-            health={unitHPs[hero.id] ?? hero.health}
-            maxHp={hero.max_health}
-            mana={unitManas[hero.id] ?? hero.mana}
-            maxMana={hero.max_mana}
-            damageInfo={dmgInfo}
-          />
-        )
-      })}
-
-      {/* Render Enemies — Survival Swarm floors can spawn 30-50 at once
-          (the "overwhelming, can't realistically kill them all" framing),
-          which getGridPosition can technically lay out but reads as a
-          dense unreadable mass rather than "epic," not a real fight view.
-          Capped to MAX_VISIBLE_ENEMIES; the rest still exist and act in
-          the actual combat resolution (this is display-only), represented
-          by an overflow badge instead. Always keeps the current turn's
-          attacker/target visible even if that pushes 1-2 past the cap, so
-          the highlighted action is never hidden behind the cap. */}
-      {(() => {
-        const visible = enemies.filter((e, idx) => idx < MAX_VISIBLE_ENEMIES
-          || currentTurn?.attacker_id === e.id || currentTurn?.target_id === e.id)
-        const hiddenCount = enemies.length - visible.length
-        return (
-          <>
-            {visible.map((enemy, idx) => {
-              const isAttacker = currentTurn?.attacker_id === enemy.id
-              const isTarget = currentTurn?.target_id === enemy.id
-              const dmgInfo = isTarget ? { amount: currentTurn.damage, crit: currentTurn.is_crit } : null
-              return (
-                <CombatUnitSprite
-                  key={enemy.id}
-                  unit={enemy}
-                  team="enemy"
-                  position={idx}
-                  teamCount={visible.length}
-                  pos={soloEnemyPos}
-                  tier={enemyTier}
-                  isActive={isAttacker}
-                  isHit={isTarget}
-                  health={unitHPs[enemy.id] ?? enemy.health}
-                  maxHp={enemy.max_health}
-                  damageInfo={dmgInfo}
-                />
-              )
-            })}
-            {hiddenCount > 0 && (
-              <div style={{
-                position: 'absolute', right: '4%', bottom: '4%',
-                background: 'rgba(10,10,14,0.85)', border: '1px solid rgba(170,68,68,0.5)',
-                borderRadius: 6, padding: '0.35rem 0.7rem', color: '#e88',
-                fontSize: '0.8rem', fontFamily: 'Cinzel, serif', zIndex: 60,
-              }}>
-                +{hiddenCount} more
+      {/* ══ ALLY RAIL (left) ══ */}
+      <div className="ilm-rail left">
+        {heroes.map(hero => {
+          const hp = unitHPs[hero.id] ?? hero.health
+          const hpPct = Math.max(0, (hp / hero.max_health) * 100)
+          const mp = unitManas[hero.id] ?? hero.mana
+          const mpPct = hero.max_mana > 0 ? Math.max(0, (mp / hero.max_mana) * 100) : 0
+          const isAtt = currentTurn?.attacker_id === hero.id
+          const isTgt = currentTurn?.target_id === hero.id
+          const dead = hp <= 0
+          const critical = hpPct <= 15 && !dead
+          return (
+            <div key={hero.id} className={`ilm-unitrow ally ${isAtt ? 'act' : ''} ${isTgt ? 'hit' : ''} ${dead ? 'dead' : ''} ${critical ? 'low' : ''}`}>
+              <span className="ilm-unitface ally">
+                {hero.portrait_path ? <img src={`/${hero.portrait_path}`} alt="" draggable={false} onError={e => { e.target.style.display = 'none' }} /> : <span className="ilm-unitface-ph">⚔</span>}
+              </span>
+              <div className="ilm-unitbars">
+                <div className="ilm-unitname">
+                  <span>{hero.name}</span>
+                  <span className="ilm-unitclass" style={dead ? { color: 'var(--red-hi)' } : critical ? { color: 'var(--red-hi)', letterSpacing: '.2em' } : undefined}>
+                    {dead ? 'FALLEN' : critical ? 'CRITICAL' : (hero.hero_class || '').toUpperCase()}
+                  </span>
+                </div>
+                <div className="ilm-hpbar"><div style={{ width: `${hpPct}%` }} /></div>
+                {hero.max_mana > 0 && <div className="ilm-mpbar"><div style={{ width: `${mpPct}%` }} /></div>}
+                <StatusChips list={currentTurn?.statuses?.[hero.id]} />
               </div>
-            )}
-          </>
+            </div>
+          )
+        })}
+      </div>
+
+      {/* ══ ENEMY RAIL (right) ══ */}
+      <div className="ilm-rail right">
+        {enemies.slice(0, 12).map((en, i) => {
+          const hp = unitHPs[en.id] ?? en.health
+          const hpPct = Math.max(0, (hp / en.max_health) * 100)
+          const isAtt = currentTurn?.attacker_id === en.id
+          const isTgt = currentTurn?.target_id === en.id
+          const dead = hp <= 0
+          const label = isBoss && i === 0 ? 'BOSS' : (enemyTier === 'elite' || enemyTier === 'miniboss') && i === 0 ? 'ELITE' : ''
+          return (
+            <div key={en.id} className={`ilm-unitrow enemy ${isAtt ? 'act' : ''} ${isTgt ? 'hit' : ''} ${dead ? 'dead' : ''}`}>
+              <span className="ilm-unitface enemy">
+                {en.portrait_path ? <img src={`/${en.portrait_path}`} alt="" draggable={false} onError={e => { e.target.style.display = 'none' }} /> : <span className="ilm-unitface-ph">☠</span>}
+              </span>
+              <div className="ilm-unitbars">
+                <div className="ilm-unitname">
+                  <span>{en.name}</span>
+                  {label && <span className="ilm-unitclass enemy">{label}</span>}
+                </div>
+                <div className="ilm-hpbar enemy"><div style={{ width: `${hpPct}%` }} /></div>
+                <StatusChips list={currentTurn?.statuses?.[en.id]} />
+              </div>
+            </div>
+          )
+        })}
+        {enemies.length > 12 && <div className="ilm-rail-more">+{enemies.length - 12} more in the fray</div>}
+      </div>
+
+      {/* ══ SKILL CALLOUT SLASH ══ */}
+      {currentTurn?.skill_name && (() => {
+        const caster = heroes.find(h => h.id === currentTurn.attacker_id) || enemies.find(e => e.id === currentTurn.attacker_id)
+        return (
+          <div className="ilm-skillslash" key={`sk${currentTurnIndex}`}>
+            <span className="ilm-skillslash-dia" />
+            <span className="ilm-skillslash-name">{currentTurn.skill_name}</span>
+            {caster && <span className="ilm-skillslash-by">{caster.name}{caster.hero_class ? ` · ${String(caster.hero_class).toUpperCase()}` : ''}</span>}
+          </div>
         )
       })()}
 
-      <style>{`
-        @keyframes floatUpAndFade {
-          0% { transform: translate(-50%, 0) scale(0.5); opacity: 0; }
-          20% { transform: translate(-50%, -20px) scale(1.2); opacity: 1; }
-          100% { transform: translate(-50%, -40px) scale(1); opacity: 0; }
-        }
-        @keyframes skillCalloutPop {
-          0% { transform: translate(-50%, 0) scale(0.4); opacity: 0; }
-          15% { transform: translate(-50%, -16px) scale(1.35); opacity: 1; }
-          30% { transform: translate(-50%, -20px) scale(1.1); opacity: 1; }
-          100% { transform: translate(-50%, -48px) scale(1); opacity: 0; }
-        }
-        @keyframes skillRingPulse {
-          0% { transform: scale(1); filter: brightness(1); }
-          50% { transform: scale(1.12); filter: brightness(1.6); }
-          100% { transform: scale(1); filter: brightness(1); }
-        }
-        @keyframes logLineIn {
-          from { opacity: 0; transform: translateY(6px); }
-          to { opacity: 1; transform: translateY(0); }
-        }
-      `}</style>
+      {/* ══ FLOATING DAMAGE ══ */}
+      {currentTurn?.damage > 0 && currentTurn?.target_id != null && (
+        <div key={`dmg${currentTurnIndex}`}
+          className={`ilm-floatdmg ${currentTurn.is_crit ? 'crit' : ''}`}
+          style={{ left: enemies.some(e => e.id === currentTurn.target_id) ? '66%' : '30%' }}>
+          {Number(currentTurn.damage).toLocaleString()}{currentTurn.is_crit && <span className="ilm-floatdmg-tag">CRIT</span>}
+        </div>
+      )}
     </div>
 
-    {/* Battle Log — damage numbers stay on the sprites above; this is just
-        the flavor text, building up as a scrollable history. */}
-    <div style={{
-      flex: '0 0 220px',
-      height: '880px',
-      background: 'rgba(10,10,14,0.9)',
-      border: '1px solid #333',
-      borderRadius: '8px',
-      marginBottom: '1rem',
-      padding: '0.75rem',
-      display: 'flex',
-      flexDirection: 'column',
-      gap: '0.5rem',
-      overflowY: 'auto',
-    }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.25rem', flexShrink: 0 }}>
-        <div style={{ fontFamily: 'Cinzel, serif', color: 'var(--gold)', fontSize: '0.8rem', letterSpacing: 1, textTransform: 'uppercase' }}>
-          Battle Log
-        </div>
+    {/* ══ THE CHRONICLE (bottom) ══ */}
+    <div className="ilm-chronicle horizontal">
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: '0.4rem', flexShrink: 0 }}>
+        <span style={{ width: 7, height: 7, transform: 'rotate(45deg)', background: 'var(--gold)', display: 'inline-block' }} />
+        <span style={{ fontFamily: "'Cinzel',serif", letterSpacing: '.3em', fontSize: '0.62rem', color: 'var(--gold)' }}>CHRONICLE</span>
+        <span style={{ height: 1, flex: 1, background: 'rgba(184,151,98,.2)' }} />
       </div>
-      {revealedLines.map(line => (
-        <div key={line.key} style={{
-          fontSize: '0.8rem',
-          lineHeight: 1.4,
-          color: '#ddd',
-          borderLeft: '2px solid rgba(201,168,76,0.4)',
-          paddingLeft: '0.5rem',
-          animation: 'logLineIn 0.2s ease-out',
-        }}>
-          {line.text}
-        </div>
-      ))}
-      <div ref={logEndRef} />
+      <div className="ilm-chronicle-lines">
+        {revealedLines.map(line => (
+          <div key={line.key} className="ilm-chronicle-line">{line.text}</div>
+        ))}
+        <div ref={logEndRef} />
+      </div>
     </div>
-    </div>
+
+    <style>{`
+      @keyframes skillRingPulse { 0%{transform:scale(1)}50%{transform:scale(1.12)}100%{transform:scale(1)} }
+      @keyframes logLineIn { from { opacity:0; transform: translateY(6px) } to { opacity:1; transform: translateY(0) } }
+      @keyframes ilm-dmg-rise { 0%{transform:translate(-50%,10px) scale(.7);opacity:0} 18%{opacity:1;transform:translate(-50%,-6px) scale(1.15)} 100%{transform:translate(-50%,-42px) scale(1);opacity:0} }
+      @keyframes ilm-slash-in { 0%{opacity:0;transform:rotate(-2.5deg) translateX(-140px);filter:blur(8px)} 55%{opacity:1;transform:rotate(-2.5deg) translateX(8px);filter:blur(0)} 100%{opacity:1;transform:rotate(-2.5deg) translateX(0)} }
+    `}</style>
     </div>
   )
 }

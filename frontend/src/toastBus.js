@@ -7,6 +7,15 @@ export function subscribeToast(fn) {
   return () => listeners.delete(fn)
 }
 
-export function emitToast(toast) {
-  listeners.forEach(fn => fn(toast))
+// Two call shapes are supported:
+//   emitToast({ title, lines:[{label,value,color}], borderColor })  ← reward toasts
+//   emitToast("some message", "success"|"error"|"info")             ← simple notices
+// The string form is normalized here so ToastContainer only ever sees objects.
+export function emitToast(toast, severity) {
+  let normalized = toast
+  if (typeof toast === 'string') {
+    const borderColor = severity === 'error' ? '#ff6b6b' : severity === 'success' ? '#8fbf9f' : 'var(--gold)'
+    normalized = { message: toast, borderColor, severity }
+  }
+  listeners.forEach(fn => fn(normalized))
 }

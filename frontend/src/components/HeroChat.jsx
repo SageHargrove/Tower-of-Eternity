@@ -22,35 +22,40 @@ export default function HeroChat() {
 
   if (!isOpen) {
     return (
-      <div className="hero-chat-collapsed" onClick={() => setIsOpen(true)}>
-        <span style={{ writingMode: 'vertical-rl', transform: 'rotate(180deg)' }}>
-          "? Hero Chat
+      <div className="hero-chat-collapsed" onClick={() => setIsOpen(true)} title="Open Hero Chatter">
+        <span style={{ writingMode: 'vertical-rl', transform: 'rotate(180deg)', fontFamily: "'Cinzel',serif", letterSpacing: '.3em', fontSize: '0.66rem', color: 'var(--gold-hi)' }}>
+          CHATTER
         </span>
       </div>
     )
   }
 
   return (
-    <div className="hero-chat-panel panel">
+    <div className="hero-chat-panel">
+      <span className="ilm-corner" />
       <div className="chat-header">
-        <h3 style={{ margin: 0 }}>Hero Chatter</h3>
-        <button className="btn" onClick={() => setIsOpen(false)} style={{ padding: '0.2rem 0.5rem' }}>x~</button>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <span style={{ width: 7, height: 7, transform: 'rotate(45deg)', background: 'var(--gold)', display: 'inline-block' }} />
+          <span style={{ fontFamily: "'Cinzel',serif", fontWeight: 700, letterSpacing: '.24em', fontSize: '0.78rem', color: 'var(--text-hi)' }}>CHATTER</span>
+        </div>
+        <button className="ilm-close" onClick={() => setIsOpen(false)}>✕</button>
       </div>
-      
+
       <div className="chat-scroll">
         {logs.length === 0 ? (
-          <div className="text-dim text-center" style={{ padding: '1rem' }}>It's quiet... too quiet.</div>
+          <div className="text-dim text-center" style={{ padding: '1.5rem', fontStyle: 'italic' }}>The halls are quiet… too quiet.</div>
         ) : (
           logs.map(log => (
             <div key={log.id} className="chat-block">
-              <div className="chat-meta text-dim text-xs">
-                <span>{new Date(log.created_at + 'Z').toLocaleTimeString()}</span>
-                <span> @ {log.location}</span>
+              <div className="chat-meta">
+                <span style={{ fontFamily: "'Cinzel',serif", letterSpacing: '.16em', fontSize: '0.56rem', color: 'var(--gold-hi)' }}>{log.location?.toUpperCase()}</span>
+                <span className="text-dim" style={{ fontSize: '0.66rem' }}>{new Date(log.created_at + 'Z').toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
               </div>
               <div className="chat-messages">
                 {log.messages.map((msg, i) => (
                   <div key={i} className="chat-message">
-                    <strong className="text-gold">{msg.speaker}:</strong> {msg.message}
+                    <span style={{ fontFamily: "'Cinzel',serif", fontWeight: 700, fontSize: '0.72rem', letterSpacing: '.06em', color: 'var(--gold-hi)' }}>{msg.speaker}</span>
+                    <span style={{ color: '#c8b8dd', fontStyle: 'italic' }}> — {msg.message}</span>
                   </div>
                 ))}
               </div>

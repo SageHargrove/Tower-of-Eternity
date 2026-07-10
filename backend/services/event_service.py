@@ -120,13 +120,34 @@ EVENT_TEMPLATES = [
 ]
 
 
+def _choice_tags(choice: dict) -> list[str]:
+    """Safe risk-flavor chips for the client (mockup's GOLD / MAY TURN TO
+    BATTLE / SAFE / UNKNOWN) — derived from outcomes without leaking the
+    numbers themselves."""
+    out = choice.get("outcomes", {}) or {}
+    tags = []
+    if out.get("trigger_combat"):
+        tags.append("MAY TURN TO BATTLE")
+    gold = out.get("gold")
+    if gold and gold[1] > 0:
+        tags.append("GOLD")
+    hlt = out.get("hlt_pct", (0, 0))
+    stress = out.get("stress", (0, 0))
+    risky = bool(out.get("trigger_combat")) or hlt[0] < 0 or stress[1] > 0
+    if not risky and not tags:
+        tags.append("SAFE")
+    elif risky and not tags:
+        tags.append("UNKNOWN")
+    return tags
+
+
 def select_event(floor_number: int, zone_theme: str = None) -> dict:
     template = random.choice(EVENT_TEMPLATES)
     return {
         "template_id": template["id"],
         "theme": template["theme"],
         "choices": [
-            {"id": c["id"], "label": c["label"], "hint": c["hint"]}
+            {"id": c["id"], "label": c["label"], "hint": c["hint"], "tags": _choice_tags(c)}
             for c in template["choices"]
         ],
     }

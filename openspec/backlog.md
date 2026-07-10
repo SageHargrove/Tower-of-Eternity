@@ -14,10 +14,11 @@ when ready; nothing here is scheduled.
 - ~~Evil 7-star humanoid elite/boss~~ — DONE 2026-07-02: "Vaelor, the
   Fallen Ascendant" is the floor-35 miniboss (enemy_families.py). Still
   needs its art: static/portraits/enemies/miniboss/boss_fallen_ascendant.png.
-- **Monster art pipeline / LoRA investigation**: monster-type prompts keep
-  generating humanoid results instead of actual monster shapes. Needs
-  investigating whether a monster-specific LoRA or different prompt
-  structure is needed for the local ComfyUI pipeline.
+- ~~Monster art pipeline / LoRA investigation~~ — ADDRESSED 2026-07-06:
+  MONSTER_STYLE now leads with e621 anchor tags (`no humans, monster,
+  feral`) — A/B verified this flips humanoid drift to actual creature
+  shapes on NoobAI (it's danbooru+e621 trained). Regenerate enemy art to
+  benefit; no LoRA needed for this specific failure.
 
 ## Floor Variety
 - Floor types beyond combat are thin — survival/defend/escort/explore
@@ -51,19 +52,18 @@ when ready; nothing here is scheduled.
   forgotten) via a code search before being added here — not guesses.
 
 ## From the 2026-07-02 Base Progression & Economy Overhaul
-- **Raid system backend**: opt-in PvP raids (Wall breach -> Bastion garrison
-  -> ship firepower; beasts now add to the defense rating; ships will burn
-  AETHER per raid — resource exists, consumption doesn't yet).
-- **Tournaments backend** (1v1/2v2/4v4/Battle Royale) — UI shell exists on
-  the World tab.
-- **Banner sync to arena_server**: banners render locally (Base, Shipyard,
-  World header) but the arena server doesn't carry them yet, so opponents
-  can't see your banner (the PvP mind-games use case needs this).
-- **Infirmary/Forge "base upgrade" tree has NO UI**: routers/base.py
-  DEFAULT_UPGRADES + /base/upgrades endpoints exist and the effects work,
-  but nothing on BasePage renders them since the Mirror of Fate (the only
-  rendered entry) graduated to a facility. Either surface them or fold
-  their effects into the facilities.
+- ~~Raid system backend~~ — DONE (arena server raids + local scout/apply
+  endpoints; Scout Report modal wired 2026-07-06 with full map→scout→raid
+  flow). Still open: ships burning AETHER per raid (resource exists,
+  consumption doesn't).
+- ~~Tournaments backend~~ — DONE (weekly Swiss/royale brackets on the arena
+  server; Tournament Registration modal wired 2026-07-06).
+- ~~Banner sync to arena_server~~ — DONE 2026-07-06: POST /arena/banner
+  (banner_json on arena_players), returned in /arena/leaderboard and
+  /arena/raid/map; client pushes on arena login and renders opponents'
+  pennants on the boards and raid target list.
+- ~~Infirmary/Forge "base upgrade" tree has NO UI~~ — STALE: BasePage
+  renders both via UpgradeTreePanel (BasePage.jsx ~line 656).
 - **Bestiary raids tie-in**: captured beasts should be sendable alongside
   battleships on raids as cannon fodder (currently defense-only).
 - **Events system** for summon tickets (tickets currently achievement-only).

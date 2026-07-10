@@ -1,0 +1,296 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;500;600;700;800;900&family=Cormorant+Garamond:ital,wght@0,400;0,500;0,600;0,700;1,600&display=swap" rel="stylesheet">
+  <style>
+    @keyframes ent-rise { from { opacity:0; transform:translateY(16px) } to { opacity:1; transform:translateY(0) } }
+    @keyframes ent-fade { from { opacity:0 } to { opacity:1 } }
+    @keyframes pulse-live { 0%,100% { opacity:.6 } 50% { opacity:1 } }
+    @keyframes pat-drift { 0%,100% { transform:translateY(0) } 50% { transform:translateY(-9px) } }
+  </style>
+</helmet>
+
+<div style="width:1920px;height:1080px;position:relative;overflow:hidden;background:#08060e;box-shadow:0 40px 120px rgba(0,0,0,.6);" data-screen-label="Chat">
+<div style="width:1280px;height:720px;position:relative;overflow:hidden;background:#08060e;font-family:'Cormorant Garamond',serif;color:#efe8da;transform:scale(1.5);transform-origin:top left;">
+
+  <div style="position:absolute;inset:0;background:
+      radial-gradient(80% 70% at 30% 30%, rgba(96,42,168,.28), rgba(0,0,0,0) 58%),
+      radial-gradient(140% 120% at 50% 120%, #0d0818, #08060e 72%);"></div>
+  <div style="position:absolute;inset:0;pointer-events:none;background:
+      repeating-linear-gradient(115deg, rgba(184,151,98,.05) 0 1px, transparent 1px 120px),
+      repeating-linear-gradient(-65deg, rgba(150,110,230,.045) 0 1px, transparent 1px 120px);"></div>
+  <div style="position:absolute;inset:0;pointer-events:none;opacity:.55;background-image:radial-gradient(rgba(200,169,245,.3) 1px, transparent 1.5px);background-size:180px 150px;"></div>
+  <div style="position:absolute;left:70%;top:56%;width:280px;height:280px;transform:rotate(45deg);border:1px solid rgba(184,151,98,.07);pointer-events:none;"></div>
+  <span style="position:absolute;left:48%;top:12%;font-size:18px;color:#b57bef;opacity:.3;pointer-events:none;animation:pat-drift 8s ease-in-out infinite;">✧</span>
+  <span style="position:absolute;left:86%;top:36%;font-size:13px;color:#b89762;opacity:.26;pointer-events:none;animation:pat-drift 7s ease-in-out infinite;">✦</span>
+
+  <!-- top bar -->
+  <div style="animation:ent-fade .5s ease-out both;position:absolute;left:0;right:0;top:0;height:58px;display:flex;align-items:center;justify-content:space-between;padding:0 40px;border-bottom:1px solid rgba(184,151,98,.28);background:linear-gradient(#0a0713,rgba(10,7,19,0));z-index:6;">
+    <div style="display:flex;align-items:center;gap:16px;">
+      <div style="width:26px;height:26px;transform:rotate(45deg);border:1px solid #b89762;display:flex;align-items:center;justify-content:center;"><div style="width:8px;height:8px;background:#b89762;"></div></div>
+      <div style="font-family:'Cinzel',serif;font-weight:700;letter-spacing:.42em;font-size:14px;color:#e7ddc9;">TOWER&nbsp;OF&nbsp;ETERNITY</div>
+      <a href="Base - Illuminated.dc.html" title="Back" style="width:24px;height:24px;border:1px solid rgba(184,151,98,.35);display:flex;align-items:center;justify-content:center;font-family:'Cinzel',serif;font-size:14px;color:#8a7bb0;text-decoration:none;flex:none;">‹</a>
+    </div>
+    <div style="display:flex;align-items:center;gap:24px;font-family:'Cinzel',serif;letter-spacing:.16em;font-size:13px;color:#c9bfa8;">
+      <div style="display:flex;align-items:center;gap:8px;"><span style="width:9px;height:9px;transform:rotate(45deg);background:#b89762;display:inline-block;"></span><span style="color:#efe8da;">85,000</span><span style="font-size:10px;letter-spacing:.24em;color:#8a7bb0;">GOLD</span></div>
+      <div style="display:flex;align-items:center;gap:8px;"><span style="width:9px;height:9px;transform:rotate(45deg);background:#b57bef;display:inline-block;box-shadow:0 0 8px #b57bef;"></span><span style="color:#efe8da;">1,240</span><span style="font-size:10px;letter-spacing:.24em;color:#8a7bb0;">GEMS</span></div>
+      <div style="width:1px;height:18px;background:rgba(184,151,98,.35);"></div>
+      <a href="Social - Illuminated.dc.html" title="Allies" style="position:relative;width:30px;height:30px;border:1px solid rgba(184,151,98,.45);flex:none;display:block;text-decoration:none;">
+        <span style="position:absolute;left:6px;top:6px;width:7px;height:7px;border-radius:50%;border:1px solid #c9bfa8;"></span>
+        <span style="position:absolute;left:3px;top:15px;width:13px;height:8px;border:1px solid #c9bfa8;border-bottom:none;border-radius:7px 7px 0 0;"></span>
+        <span style="position:absolute;left:17px;top:8px;width:6px;height:6px;border-radius:50%;border:1px solid #8a7bb0;"></span>
+        <span style="position:absolute;left:15px;top:16px;width:11px;height:7px;border:1px solid #8a7bb0;border-bottom:none;border-radius:6px 6px 0 0;"></span>
+      </a>
+      <a href="Mailbox - Illuminated.dc.html" title="Missives" style="position:relative;width:30px;height:30px;border:1px solid rgba(184,151,98,.45);display:flex;align-items:center;justify-content:center;text-decoration:none;">
+        <span style="width:14px;height:10px;border:1px solid #c9bfa8;display:inline-block;"></span>
+        <span style="position:absolute;left:11px;top:5px;width:8px;height:8px;border-right:1px solid #c9bfa8;border-bottom:1px solid #c9bfa8;transform:rotate(45deg);"></span>
+        <span style="position:absolute;right:-4px;top:-4px;width:8px;height:8px;border-radius:50%;background:#c04040;box-shadow:0 0 6px #c04040;"></span>
+      </a>
+      <a href="Chat - Illuminated.dc.html" title="Chat" style="position:relative;width:30px;height:30px;border:1px solid #d8bb84;background:rgba(184,151,98,.12);flex:none;display:block;text-decoration:none;"><span style="position:absolute;left:6px;top:8px;width:17px;height:11px;border:1px solid #e7ddc9;border-radius:1px;"></span><span style="position:absolute;left:9px;top:17px;width:5px;height:5px;border-right:1px solid #e7ddc9;border-bottom:1px solid #e7ddc9;transform:rotate(65deg);"></span></a>
+      <a href="Guild Hall - Illuminated.dc.html" title="Guild" style="position:relative;width:30px;height:30px;border:1px solid rgba(184,151,98,.45);flex:none;display:block;text-decoration:none;">
+        <span style="position:absolute;left:9px;top:6px;width:12px;height:17px;background:#c9bfa8;clip-path:polygon(0 0,100% 0,100% 66%,50% 100%,0 66%);"></span>
+        <span style="position:absolute;left:10px;top:7px;width:10px;height:14px;background:#0d0818;clip-path:polygon(0 0,100% 0,100% 64%,50% 100%,0 64%);"></span>
+        <span style="position:absolute;left:13px;top:11px;width:4px;height:4px;transform:rotate(45deg);border:1px solid #c9bfa8;"></span>
+      </a>
+      <a href="Settings - Illuminated.dc.html" title="Menu" style="width:30px;height:30px;border:1px solid rgba(184,151,98,.45);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;text-decoration:none;" title="Menu">
+        <span style="width:12px;height:1px;background:#c9bfa8;display:block;"></span>
+        <span style="width:8px;height:1px;background:#c9bfa8;display:block;"></span>
+        <span style="width:12px;height:1px;background:#c9bfa8;display:block;"></span>
+      </a>
+    </div>
+  </div>
+
+  <!-- title -->
+  <div style="animation:ent-rise .6s cubic-bezier(.2,.9,.3,1) .1s both;position:absolute;left:40px;top:74px;z-index:5;">
+    <div style="display:flex;align-items:center;gap:12px;margin-bottom:2px;">
+      <span style="width:9px;height:9px;transform:rotate(45deg);background:#b89762;display:inline-block;"></span>
+      <span style="font-family:'Cinzel',serif;font-weight:600;letter-spacing:.5em;font-size:13px;color:#b89762;">THE HERALD'S WIRE</span>
+    </div>
+    <div style="position:relative;height:96px;">
+      <div style="position:absolute;left:2px;top:42px;font-family:'Cinzel',serif;font-weight:700;font-size:52px;letter-spacing:.08em;line-height:.9;color:transparent;-webkit-text-stroke:1px rgba(150,110,230,.25);">DISPATCH</div>
+      <div style="position:absolute;left:0;top:8px;font-family:'Cinzel',serif;font-weight:900;font-size:58px;letter-spacing:.01em;line-height:1;white-space:nowrap;color:#f3ecdd;text-shadow:0 6px 40px rgba(124,58,214,.35);">HERALD</div>
+    </div>
+  </div>
+  <span style="position:absolute;right:40px;top:84px;font-family:'Cinzel',serif;font-size:9px;letter-spacing:.16em;color:#8a7bb0;z-index:5;">ESC · CLOSE</span>
+
+  <!-- chat frame -->
+  <div style="animation:ent-rise .6s cubic-bezier(.2,.9,.3,1) .2s both;position:absolute;left:40px;right:40px;top:200px;bottom:28px;z-index:5;display:flex;gap:12px;">
+
+    <!-- channel rail -->
+    <div style="width:212px;flex:none;display:flex;flex-direction:column;gap:7px;">
+      <div onClick="{{ goWorld }}" style="{{ chWorld }}">
+        <span style="flex:1;">WORLD</span>
+        <span style="font-family:'Cinzel',serif;font-size:8px;letter-spacing:.1em;color:#8a7bb0;">FLOORS 1–100</span>
+      </div>
+      <div onClick="{{ goGuild }}" style="{{ chGuild }}">
+        <span style="flex:1;">GUILD</span>
+        <span style="font-family:'Cinzel',serif;font-size:8px;letter-spacing:.1em;color:#8a7bb0;">IRONVEIL</span>
+      </div>
+      <div onClick="{{ goWhisper }}" style="{{ chWhisper }}">
+        <span style="flex:1;">WHISPERS</span>
+        <span style="width:16px;height:16px;border-radius:50%;background:#c04040;box-shadow:0 0 7px #c04040;display:flex;align-items:center;justify-content:center;font-family:'Cinzel',serif;font-size:8px;color:#f3ecdd;flex:none;">2</span>
+      </div>
+      <div onClick="{{ goTrade }}" style="{{ chTrade }}">
+        <span style="flex:1;">TRADE &amp; TRAINING</span>
+      </div>
+      <span style="flex:1;"></span>
+      <div style="border:1px solid rgba(184,151,98,.3);background:rgba(12,7,24,.45);padding:10px 12px;">
+        <div style="font-size:11.5px;font-style:italic;color:#8a7bb0;line-height:1.4;">Guild speech also lives in the <span style="color:#d8bb84;">Guild Hall</span>. Whisper any name to open a thread.</div>
+      </div>
+    </div>
+
+    <!-- message pane -->
+    <div style="flex:1;border:1px solid rgba(184,151,98,.35);background:rgba(12,7,24,.5);display:flex;flex-direction:column;min-width:0;">
+      <div style="display:flex;align-items:center;gap:9px;padding:11px 16px;border-bottom:1px solid rgba(184,151,98,.2);">
+        <span style="width:7px;height:7px;transform:rotate(45deg);background:#b89762;display:inline-block;"></span>
+        <span style="font-family:'Cinzel',serif;letter-spacing:.24em;font-size:10px;color:#b89762;">{{ paneTitle }}</span>
+        <span style="flex:1;"></span>
+        <span style="font-family:'Cinzel',serif;font-size:9px;letter-spacing:.14em;color:#8a7bb0;">{{ paneMeta }}</span>
+      </div>
+
+      <sc-if value="{{ isWhisper }}" hint-placeholder-val="{{ false }}">
+        <div style="display:flex;align-items:center;gap:7px;padding:9px 16px;border-bottom:1px solid rgba(184,151,98,.15);">
+          <span style="font-family:'Cinzel',serif;font-size:8px;letter-spacing:.18em;color:#8a7bb0;flex:none;">THREADS</span>
+          <div onClick="{{ goSera }}" style="{{ thSera }}">SERAPHINE</div>
+          <div onClick="{{ goKael }}" style="{{ thKael }}"><span>KAEL</span><span style="width:14px;height:14px;border-radius:50%;background:#c04040;box-shadow:0 0 6px #c04040;display:inline-flex;align-items:center;justify-content:center;font-size:7px;color:#f3ecdd;margin-left:6px;">1</span></div>
+          <span style="flex:1;"></span>
+          <span style="cursor:pointer;font-family:'Cinzel',serif;font-size:8px;letter-spacing:.14em;color:#8a7bb0;border:1px dashed rgba(138,123,176,.4);padding:5px 12px;">＋ NEW WHISPER</span>
+        </div>
+      </sc-if>
+
+      <div style="flex:1;display:flex;flex-direction:column;gap:11px;padding:14px 18px;overflow:hidden;justify-content:flex-end;">
+
+        <sc-if value="{{ isWorld }}" hint-placeholder-val="{{ true }}">
+          <div style="display:flex;gap:10px;align-items:flex-start;"><span style="width:22px;height:22px;transform:rotate(45deg);border:1px solid #7ecfd8;background:#1c1030;display:flex;align-items:center;justify-content:center;flex:none;margin-top:2px;"><span style="transform:rotate(-45deg);font-family:'Cinzel',serif;font-size:9px;color:#7ecfd8;">A</span></span><div style="min-width:0;"><div style="display:flex;align-items:baseline;gap:8px;"><span style="font-family:'Cinzel',serif;font-weight:700;font-size:10px;letter-spacing:.08em;color:#7ecfd8;">AURIC</span><span style="font-family:'Cinzel',serif;font-size:7px;letter-spacing:.14em;color:#8a7bb0;">FLOOR 84 · 12:02</span></div><div style="font-size:14px;font-style:italic;color:#d8cfe6;margin-top:2px;">Floor 84 gate is open again — the mist cleared at fourth bell.</div></div></div>
+          <div style="display:flex;gap:10px;align-items:flex-start;"><span style="width:22px;height:22px;transform:rotate(45deg);border:1px solid #e8a06a;background:#1c1030;display:flex;align-items:center;justify-content:center;flex:none;margin-top:2px;"><span style="transform:rotate(-45deg);font-family:'Cinzel',serif;font-size:9px;color:#e8a06a;">P</span></span><div style="min-width:0;"><div style="display:flex;align-items:baseline;gap:8px;"><span style="font-family:'Cinzel',serif;font-weight:700;font-size:10px;letter-spacing:.08em;color:#e8a06a;">PYRRHA</span><span style="font-family:'Cinzel',serif;font-size:7px;letter-spacing:.14em;color:#8a7bb0;">FLOOR 51 · 12:05</span></div><div style="font-size:14px;font-style:italic;color:#d8cfe6;margin-top:2px;">Anyone else hear the Herald's new decree? Tournament brackets post at dusk.</div></div></div>
+          <div style="border:1px solid rgba(216,187,132,.4);background:linear-gradient(90deg,rgba(184,151,98,.1),transparent);padding:8px 12px;"><div style="display:flex;align-items:baseline;gap:8px;"><span style="font-family:'Cinzel',serif;font-weight:700;font-size:10px;letter-spacing:.14em;color:#d8bb84;">✦ THE HERALD</span><span style="font-family:'Cinzel',serif;font-size:7px;letter-spacing:.14em;color:#8a7bb0;">DECREE · 12:08</span></div><div style="font-size:14px;font-style:italic;color:#e7ddc9;margin-top:2px;">The Ashen Leviathan stirs. Guilds, look to your halls.</div></div>
+          <div style="display:flex;gap:10px;align-items:flex-start;"><span style="width:22px;height:22px;transform:rotate(45deg);border:1px solid #9a86b8;background:#140b22;display:flex;align-items:center;justify-content:center;flex:none;margin-top:2px;"><span style="transform:rotate(-45deg);font-family:'Cinzel',serif;font-size:9px;color:#9a86b8;">D</span></span><div style="min-width:0;"><div style="display:flex;align-items:baseline;gap:8px;"><span style="font-family:'Cinzel',serif;font-weight:700;font-size:10px;letter-spacing:.08em;color:#c9bfa8;">DUSKWARD</span><span style="font-family:'Cinzel',serif;font-size:7px;letter-spacing:.14em;color:#8a7bb0;">FLOOR 22 · 12:12</span></div><div style="font-size:14px;font-style:italic;color:#d8cfe6;margin-top:2px;">First time past floor 20. This place is beautiful and I am terrified.</div></div></div>
+        </sc-if>
+
+        <sc-if value="{{ isGuild }}" hint-placeholder-val="{{ false }}">
+          <div style="text-align:center;font-family:'Cinzel',serif;font-size:8px;letter-spacing:.2em;color:#6f628c;">— TODAY, FOURTH BELL —</div>
+          <div style="display:flex;gap:10px;align-items:flex-start;"><span style="width:22px;height:22px;transform:rotate(45deg);border:1px solid #ffd88a;background:#1c1030;display:flex;align-items:center;justify-content:center;flex:none;margin-top:2px;"><span style="transform:rotate(-45deg);font-family:'Cinzel',serif;font-size:9px;color:#ffd88a;">K</span></span><div style="min-width:0;"><div style="display:flex;align-items:baseline;gap:8px;"><span style="font-family:'Cinzel',serif;font-weight:700;font-size:10px;letter-spacing:.08em;color:#ffd88a;">KAEL</span><span style="font-family:'Cinzel',serif;font-size:7px;letter-spacing:.14em;color:#8a7bb0;">GUILDMASTER · 12:04</span></div><div style="font-size:14px;font-style:italic;color:#d8cfe6;margin-top:2px;">Leviathan's at 62%. Officers, rally your strikes before dusk.</div></div></div>
+          <div style="display:flex;gap:10px;align-items:flex-start;"><span style="width:22px;height:22px;transform:rotate(45deg);border:1px solid #c8a9f5;background:#1c1030;display:flex;align-items:center;justify-content:center;flex:none;margin-top:2px;"><span style="transform:rotate(-45deg);font-family:'Cinzel',serif;font-size:9px;color:#c8a9f5;">M</span></span><div style="min-width:0;"><div style="display:flex;align-items:baseline;gap:8px;"><span style="font-family:'Cinzel',serif;font-weight:700;font-size:10px;letter-spacing:.08em;color:#c8a9f5;">MIRELLE</span><span style="font-family:'Cinzel',serif;font-size:7px;letter-spacing:.14em;color:#8a7bb0;">OFFICER · 12:06</span></div><div style="font-size:14px;font-style:italic;color:#d8cfe6;margin-top:2px;">Two strikes left on my end. Anyone short on rations, the shop restocked.</div></div></div>
+          <div style="display:flex;gap:10px;align-items:flex-start;"><span style="width:22px;height:22px;transform:rotate(45deg);border:1px solid #8fbf9f;background:#1c1030;display:flex;align-items:center;justify-content:center;flex:none;margin-top:2px;"><span style="transform:rotate(-45deg);font-family:'Cinzel',serif;font-size:9px;color:#8fbf9f;">✦</span></span><div style="min-width:0;"><div style="display:flex;align-items:baseline;gap:8px;"><span style="font-family:'Cinzel',serif;font-weight:700;font-size:10px;letter-spacing:.08em;color:#8fbf9f;">YOU</span><span style="font-family:'Cinzel',serif;font-size:7px;letter-spacing:.14em;color:#8a7bb0;">OFFICER · 12:14</span></div><div style="font-size:14px;font-style:italic;color:#d8cfe6;margin-top:2px;">Striking the Leviathan at fifth bell — join me and we'll break 70%.</div></div></div>
+        </sc-if>
+
+        <sc-if value="{{ isSeraThread }}" hint-placeholder-val="{{ false }}">
+          <div style="text-align:center;font-family:'Cinzel',serif;font-size:8px;letter-spacing:.2em;color:#6f628c;">— WHISPER · SERAPHINE OF THE NINTH SPIRE —</div>
+          <div style="display:flex;gap:10px;align-items:flex-start;"><span style="width:22px;height:22px;transform:rotate(45deg);border:1px solid #b57bef;background:#1c1030;display:flex;align-items:center;justify-content:center;flex:none;margin-top:2px;"><span style="transform:rotate(-45deg);font-family:'Cinzel',serif;font-size:9px;color:#b57bef;">S</span></span><div style="min-width:0;"><div style="display:flex;align-items:baseline;gap:8px;"><span style="font-family:'Cinzel',serif;font-weight:700;font-size:10px;letter-spacing:.08em;color:#b57bef;">SERAPHINE</span><span style="font-family:'Cinzel',serif;font-size:7px;letter-spacing:.14em;color:#8a7bb0;">11:48</span></div><div style="font-size:14px;font-style:italic;color:#d8cfe6;margin-top:2px;">Saw your run on floor 63. That feint at the shrine gate — teach me sometime?</div></div></div>
+          <div style="display:flex;gap:10px;align-items:flex-start;flex-direction:row-reverse;"><span style="width:22px;height:22px;transform:rotate(45deg);border:1px solid #8fbf9f;background:#1c1030;display:flex;align-items:center;justify-content:center;flex:none;margin-top:2px;"><span style="transform:rotate(-45deg);font-family:'Cinzel',serif;font-size:9px;color:#8fbf9f;">✦</span></span><div style="min-width:0;border:1px solid rgba(150,110,230,.35);background:linear-gradient(90deg,transparent,rgba(124,58,214,.12));padding:6px 10px;"><div style="display:flex;align-items:baseline;gap:8px;justify-content:flex-end;"><span style="font-family:'Cinzel',serif;font-size:7px;letter-spacing:.14em;color:#8a7bb0;">11:52</span><span style="font-family:'Cinzel',serif;font-weight:700;font-size:10px;letter-spacing:.08em;color:#8fbf9f;">YOU</span></div><div style="font-size:14px;font-style:italic;color:#d8cfe6;margin-top:2px;text-align:right;">Meet me at the Training Grounds after the daily hunt. Bring your runner.</div></div></div>
+          <div style="display:flex;gap:10px;align-items:flex-start;"><span style="width:22px;height:22px;transform:rotate(45deg);border:1px solid #b57bef;background:#1c1030;display:flex;align-items:center;justify-content:center;flex:none;margin-top:2px;"><span style="transform:rotate(-45deg);font-family:'Cinzel',serif;font-size:9px;color:#b57bef;">S</span></span><div style="min-width:0;"><div style="display:flex;align-items:baseline;gap:8px;"><span style="font-family:'Cinzel',serif;font-weight:700;font-size:10px;letter-spacing:.08em;color:#b57bef;">SERAPHINE</span><span style="font-family:'Cinzel',serif;font-size:7px;letter-spacing:.14em;color:#8a7bb0;">11:53 · UNREAD</span></div><div style="font-size:14px;font-style:italic;color:#f3ecdd;margin-top:2px;">Done. I'll bring gold too — name your fee.</div></div></div>
+        </sc-if>
+
+        <sc-if value="{{ isKaelThread }}" hint-placeholder-val="{{ false }}">
+          <div style="text-align:center;font-family:'Cinzel',serif;font-size:8px;letter-spacing:.2em;color:#6f628c;">— WHISPER · KAEL, GUILDMASTER OF IRONVEIL —</div>
+          <div style="display:flex;gap:10px;align-items:flex-start;"><span style="width:22px;height:22px;transform:rotate(45deg);border:1px solid #ffd88a;background:#1c1030;display:flex;align-items:center;justify-content:center;flex:none;margin-top:2px;"><span style="transform:rotate(-45deg);font-family:'Cinzel',serif;font-size:9px;color:#ffd88a;">K</span></span><div style="min-width:0;"><div style="display:flex;align-items:baseline;gap:8px;"><span style="font-family:'Cinzel',serif;font-weight:700;font-size:10px;letter-spacing:.08em;color:#ffd88a;">KAEL</span><span style="font-family:'Cinzel',serif;font-size:7px;letter-spacing:.14em;color:#8a7bb0;">09:12</span></div><div style="font-size:14px;font-style:italic;color:#d8cfe6;margin-top:2px;">You're an officer now — set an example. Three strikes on the Leviathan daily, no excuses.</div></div></div>
+          <div style="display:flex;gap:10px;align-items:flex-start;flex-direction:row-reverse;"><span style="width:22px;height:22px;transform:rotate(45deg);border:1px solid #8fbf9f;background:#1c1030;display:flex;align-items:center;justify-content:center;flex:none;margin-top:2px;"><span style="transform:rotate(-45deg);font-family:'Cinzel',serif;font-size:9px;color:#8fbf9f;">✦</span></span><div style="min-width:0;border:1px solid rgba(150,110,230,.35);background:linear-gradient(90deg,transparent,rgba(124,58,214,.12));padding:6px 10px;"><div style="display:flex;align-items:baseline;gap:8px;justify-content:flex-end;"><span style="font-family:'Cinzel',serif;font-size:7px;letter-spacing:.14em;color:#8a7bb0;">09:15</span><span style="font-family:'Cinzel',serif;font-weight:700;font-size:10px;letter-spacing:.08em;color:#8fbf9f;">YOU</span></div><div style="font-size:14px;font-style:italic;color:#d8cfe6;margin-top:2px;text-align:right;">Two done before noon. The third has your name on it.</div></div></div>
+          <div style="display:flex;gap:10px;align-items:flex-start;"><span style="width:22px;height:22px;transform:rotate(45deg);border:1px solid #ffd88a;background:#1c1030;display:flex;align-items:center;justify-content:center;flex:none;margin-top:2px;"><span style="transform:rotate(-45deg);font-family:'Cinzel',serif;font-size:9px;color:#ffd88a;">K</span></span><div style="min-width:0;"><div style="display:flex;align-items:baseline;gap:8px;"><span style="font-family:'Cinzel',serif;font-weight:700;font-size:10px;letter-spacing:.08em;color:#ffd88a;">KAEL</span><span style="font-family:'Cinzel',serif;font-size:7px;letter-spacing:.14em;color:#8a7bb0;">09:20 · UNREAD</span></div><div style="font-size:14px;font-style:italic;color:#f3ecdd;margin-top:2px;">Good. And check the guild shop — I stocked refit vouchers for the skydock captains.</div></div></div>
+        </sc-if>
+
+        <sc-if value="{{ isTrade }}" hint-placeholder-val="{{ false }}">
+          <div style="border:1px solid rgba(184,151,98,.3);background:rgba(12,7,24,.45);padding:9px 12px;"><div style="display:flex;align-items:baseline;gap:8px;"><span style="font-family:'Cinzel',serif;font-weight:700;font-size:10px;letter-spacing:.08em;color:#ffd88a;">KAEL</span><span style="font-family:'Cinzel',serif;font-size:7px;letter-spacing:.14em;color:#8a7bb0;">OFFER · 11:40</span><span style="flex:1;"></span><span style="font-family:'Cinzel',serif;font-size:9px;letter-spacing:.1em;color:#d8bb84;">2,000 GOLD / SEAT</span></div><div style="font-size:14px;font-style:italic;color:#d8cfe6;margin-top:3px;">Training runs, floors 40–60. Your heroes keep every drop of experience. Two seats left tonight.</div></div>
+          <div style="border:1px solid rgba(184,151,98,.3);background:rgba(12,7,24,.45);padding:9px 12px;"><div style="display:flex;align-items:baseline;gap:8px;"><span style="font-family:'Cinzel',serif;font-weight:700;font-size:10px;letter-spacing:.08em;color:#7ecfd8;">MYRA</span><span style="font-family:'Cinzel',serif;font-size:7px;letter-spacing:.14em;color:#8a7bb0;">SEEKING · 11:55</span></div><div style="font-size:14px;font-style:italic;color:#d8cfe6;margin-top:3px;">Seeking a carry past the floor 70 gate for my runner — paying in refined aether.</div></div>
+          <div style="border:1px solid rgba(184,151,98,.3);background:rgba(12,7,24,.45);padding:9px 12px;"><div style="display:flex;align-items:baseline;gap:8px;"><span style="font-family:'Cinzel',serif;font-weight:700;font-size:10px;letter-spacing:.08em;color:#e8a06a;">ODIN</span><span style="font-family:'Cinzel',serif;font-size:7px;letter-spacing:.14em;color:#8a7bb0;">OFFER · 12:03</span><span style="flex:1;"></span><span style="font-family:'Cinzel',serif;font-size:9px;letter-spacing:.1em;color:#d8bb84;">500 GOLD / HERO</span></div><div style="font-size:14px;font-style:italic;color:#d8cfe6;margin-top:3px;">Dining Hall feasts before your climb — my table, your buffs. Whisper ODIN.</div></div>
+          <div style="font-size:11.5px;font-style:italic;color:#6f628c;text-align:center;">Adverts fade after one day. The Tower takes no cut — yet.</div>
+        </sc-if>
+
+      </div>
+
+      <div style="padding:12px 16px;border-top:1px solid rgba(184,151,98,.2);">
+        <div style="display:flex;align-items:center;gap:10px;">
+          <div style="flex:1;border:1px solid rgba(184,151,98,.35);background:rgba(8,6,14,.6);padding:9px 14px;font-size:14px;font-style:italic;color:#6f628c;">{{ inputHint }}</div>
+          <div onClick="{{ send }}" style="{{ sendStyle }}">{{ sendLabel }}</div>
+        </div>
+        <sc-if value="{{ showSlowmode }}" hint-placeholder-val="{{ false }}">
+          <div style="display:flex;align-items:center;gap:7px;margin-top:8px;">
+            <span style="width:5px;height:5px;transform:rotate(45deg);background:{{ slowColor }};display:inline-block;"></span>
+            <span style="font-family:'Cinzel',serif;font-size:8px;letter-spacing:.16em;color:{{ slowColor }};">{{ slowmodeNote }}</span>
+          </div>
+        </sc-if>
+      </div>
+    </div>
+
+  </div>
+
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;defaultChannel&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;world&quot;,&quot;guild&quot;,&quot;whisper&quot;,&quot;trade&quot;],&quot;default&quot;:&quot;world&quot;,&quot;tsType&quot;:&quot;string&quot;,&quot;section&quot;:&quot;View&quot;}}">
+class Component extends DCLogic {
+  state = { ch: null, thread: 'sera', cooldown: {}, now: Date.now() };
+
+  COOLDOWN = { world: 5, trade: 300, guild: 0, whisper: 0 };
+
+  componentDidMount() {
+    this._t = setInterval(() => {
+      if (Object.keys(this.state.cooldown).length) this.setState({ now: Date.now() });
+    }, 500);
+  }
+  componentWillUnmount() { clearInterval(this._t); }
+
+  remaining(c) {
+    const until = this.state.cooldown[c] || 0;
+    return Math.max(0, Math.ceil((until - this.state.now) / 1000));
+  }
+  send(c) {
+    const cd = this.COOLDOWN[c] || 0;
+    if (cd === 0 || this.remaining(c) > 0) return;
+    this.setState(s => ({ cooldown: { ...s.cooldown, [c]: Date.now() + cd * 1000 }, now: Date.now() }));
+  }
+  fmt(sec) {
+    if (sec >= 60) return Math.floor(sec / 60) + ':' + String(sec % 60).padStart(2, '0');
+    return sec + 's';
+  }
+
+  ch() { return this.state.ch ?? (this.props.defaultChannel ?? 'world'); }
+
+  threadStyle(active) {
+    return {
+      display: 'flex', alignItems: 'center', cursor: 'pointer', padding: '5px 14px', flex: '0 0 auto',
+      fontFamily: "'Cinzel',serif", fontWeight: 600, letterSpacing: '.14em', fontSize: '8px',
+      border: active ? '1px solid rgba(255,216,138,.55)' : '1px solid rgba(184,151,98,.25)',
+      background: active ? 'rgba(184,151,98,.14)' : 'rgba(12,7,24,.45)',
+      color: active ? '#ffd88a' : '#8a7bb0',
+    };
+  }
+
+  chStyle(active) {
+    return {
+      display: 'flex', alignItems: 'center', gap: '8px', padding: '11px 14px', cursor: 'pointer',
+      fontFamily: "'Cinzel',serif", fontWeight: 600, letterSpacing: '.18em', fontSize: '10px',
+      clipPath: 'polygon(0 0,100% 0,100% 100%,8px 100%)',
+      border: active ? '1px solid rgba(255,216,138,.6)' : '1px solid rgba(184,151,98,.25)',
+      background: active ? 'linear-gradient(120deg,rgba(184,151,98,.28),rgba(124,58,214,.14))' : 'rgba(12,7,24,.45)',
+      color: active ? '#ffd88a' : '#8a7bb0',
+    };
+  }
+
+  renderVals() {
+    const c = this.ch();
+    const th = this.state.thread;
+    const whisperMeta = th === 'kael'
+      ? ['WHISPER · KAEL', 'GUILDMASTER · ONLINE', 'Whisper to Kael…']
+      : ['WHISPER · SERAPHINE', 'LAST SEEN AT FOURTH BELL', 'Whisper to Seraphine…'];
+    const meta = {
+      world: ['WORLD CHANNEL', '1,204 CLIMBERS SPEAKING', 'Speak to the whole Tower…'],
+      guild: ['GUILD · IRONVEIL LODGE', '9 KIN ONLINE', 'Speak to the lodge…'],
+      whisper: whisperMeta,
+      trade: ['TRADE & TRAINING', 'ADVERTS FADE DAILY', 'Post an offer or a plea…'],
+    }[c];
+    return {
+      isWorld: c === 'world', isGuild: c === 'guild', isWhisper: c === 'whisper', isTrade: c === 'trade',
+      isSeraThread: c === 'whisper' && th === 'sera',
+      isKaelThread: c === 'whisper' && th === 'kael',
+      goSera: () => this.setState({ thread: 'sera' }),
+      goKael: () => this.setState({ thread: 'kael' }),
+      thSera: this.threadStyle(th === 'sera'),
+      thKael: this.threadStyle(th === 'kael'),
+      goWorld: () => this.setState({ ch: 'world' }),
+      goGuild: () => this.setState({ ch: 'guild' }),
+      goWhisper: () => this.setState({ ch: 'whisper' }),
+      goTrade: () => this.setState({ ch: 'trade' }),
+      chWorld: this.chStyle(c === 'world'),
+      chGuild: this.chStyle(c === 'guild'),
+      chWhisper: this.chStyle(c === 'whisper'),
+      chTrade: this.chStyle(c === 'trade'),
+      paneTitle: meta[0], paneMeta: meta[1], inputHint: meta[2],
+      ...this.sendVals(c),
+    };
+  }
+
+  sendVals(c) {
+    const cd = this.COOLDOWN[c] || 0;
+    const rem = this.remaining(c);
+    const onCd = rem > 0;
+    const slowLabel = { world: 'SLOWMODE · ONE MESSAGE EVERY 5s', trade: 'SLOWMODE · ONE ADVERT EVERY 5 MIN' }[c];
+    return {
+      send: () => this.send(c),
+      sendLabel: onCd ? this.fmt(rem) : 'SEND',
+      sendStyle: {
+        fontFamily: "'Cinzel',serif", fontWeight: 700, letterSpacing: '.2em', fontSize: '10px',
+        padding: '10px 22px', minWidth: '58px', textAlign: 'center',
+        clipPath: 'polygon(8px 0,100% 0,calc(100% - 8px) 100%,0 100%)',
+        cursor: onCd ? 'default' : 'pointer',
+        color: onCd ? '#8a7bb0' : '#0a0710',
+        background: onCd ? 'rgba(12,7,24,.6)' : 'linear-gradient(120deg,#d8bb84,#b89762)',
+        border: onCd ? '1px solid rgba(184,151,98,.3)' : '1px solid transparent',
+      },
+      showSlowmode: cd > 0,
+      slowmodeNote: onCd ? (c === 'trade' ? 'NEXT ADVERT IN ' + this.fmt(rem) : 'NEXT MESSAGE IN ' + this.fmt(rem)) : slowLabel,
+      slowColor: onCd ? '#e08585' : '#8a5a6c',
+    };
+  }
+}
+</script>
+</body>
+</html>

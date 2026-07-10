@@ -1,0 +1,13 @@
+{
+  "featured": {
+    "title": "THE GATES OPEN",
+    "edition": "VOL. I — THE FIRST ASCENT",
+    "body": "The Tower stands open at last. What you carry into it is yours to lose — heroes die, and their deaths are not undone. But legacies endure, and the climb remembers every name. Climb well.",
+    "signoff": "— The Keepers"
+  },
+  "notices": [
+    { "title": "THE GATES OPEN", "desc": "The playtest begins — the Tower takes its first climbers", "tag": "NEW" },
+    { "title": "KNOWN CRACKS IN THE STONE", "desc": "Issues the keepers are already mending" },
+    { "title": "HOW TO REPORT A HAUNTING", "desc": "Found a bug? Send word through the mail raven" }
+  ]
+}

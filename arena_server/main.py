@@ -6,6 +6,7 @@ this process owns nothing but arena.db (player accounts/tokens + match
 history). See arena_server/database.py and combat.py for why.
 """
 import os
+import random
 import secrets
 import time
 import json
@@ -18,6 +19,16 @@ from pydantic import BaseModel
 from database import db, init_db
 from combat import resolve_arena_fight
 from elo import update_elo
+from models import (
+    WORLD_SIZE, DEFAULT_SCOUT_RADIUS, MAX_SCOUT_RADIUS, MAX_DEFENSE_JSON_BYTES,
+    RaidOptInRequest, SubmitDefenseRequest, ScoutRequest, RaidAttackRequest,
+    ClaimPrisonerRequest, TOURNAMENT_FORMATS, TournamentRegisterRequest,
+    BannerRequest,
+)
+from raids import resolve_siege, build_scout_report
+import tournaments
+import guilds
+import chat
 
 TOKEN_LIFETIME_SECONDS = 7 * 24 * 60 * 60  # 7 days
 
@@ -54,6 +65,9 @@ app.add_middleware(
 @app.on_event("startup")
 def _startup():
     init_db()
+    with db() as conn:
+        guilds.init_tables(conn)
+        chat.init_tables(conn)
 
 
 class RegisterRequest(BaseModel):
@@ -204,7 +218,8 @@ def challenge(req: ChallengeRequest, authorization: str | None = Header(default=
     with db() as conn:
         elo_row_w = conn.execute("SELECT elo FROM arena_players WHERE username = ?", (winner_username,)).fetchone()
         elo_row_l = conn.execute("SELECT elo FROM arena_players WHERE username = ?", (loser_username,)).fetchone()
-        new_winner_elo, new_loser_elo = update_elo(elo_row_w["elo"] or 1000, elo_row_l["elo"] or 1000)
+        old_w, old_l = elo_row_w["elo"] or 1000, elo_row_l["elo"] or 1000
+        new_winner_elo, new_loser_elo = update_elo(old_w, old_l)
 
         conn.execute(
             "UPDATE arena_players SET wins = wins + 1, elo = ? WHERE username = ?", (new_winner_elo, winner_username)
@@ -216,6 +231,7 @@ def challenge(req: ChallengeRequest, authorization: str | None = Header(default=
             "INSERT INTO arena_matches (player1, player2, winner, log_json, timestamp) VALUES (?, ?, ?, ?, ?)",
             (username, opponent, winner_username, json.dumps(result.get("log", [])), time.time()),
         )
+        guilds.war_score(conn, winner_username, guilds.WAR_BOUT_SCORE)
 
     return {
         "winner": winner_username,
@@ -223,6 +239,9 @@ def challenge(req: ChallengeRequest, authorization: str | None = Header(default=
         "log": result.get("log", []),
         "turns": result.get("turns", []),
         "elo_change": {winner_username: new_winner_elo, loser_username: new_loser_elo},
+        # actual deltas — the old elo_change carried the NEW rating, which the
+        # client displayed as "+1012"; keep both for stale clients.
+        "elo_delta": {winner_username: new_winner_elo - old_w, loser_username: new_loser_elo - old_l},
     }
 
 
@@ -262,7 +281,8 @@ def matchmake(authorization: str | None = Header(default=None)):
     with db() as conn:
         elo_row_w = conn.execute("SELECT elo FROM arena_players WHERE username = ?", (winner_username,)).fetchone()
         elo_row_l = conn.execute("SELECT elo FROM arena_players WHERE username = ?", (loser_username,)).fetchone()
-        new_winner_elo, new_loser_elo = update_elo(elo_row_w["elo"] or 1000, elo_row_l["elo"] or 1000)
+        old_w, old_l = elo_row_w["elo"] or 1000, elo_row_l["elo"] or 1000
+        new_winner_elo, new_loser_elo = update_elo(old_w, old_l)
 
         conn.execute("UPDATE arena_players SET wins = wins + 1, elo = ? WHERE username = ?", (new_winner_elo, winner_username))
         conn.execute("UPDATE arena_players SET losses = losses + 1, elo = ? WHERE username = ?", (new_loser_elo, loser_username))
@@ -270,6 +290,7 @@ def matchmake(authorization: str | None = Header(default=None)):
             "INSERT INTO arena_matches (player1, player2, winner, log_json, timestamp) VALUES (?, ?, ?, ?, ?)",
             (username, opponent, winner_username, json.dumps(result.get("log", [])), time.time()),
         )
+        guilds.war_score(conn, winner_username, guilds.WAR_BOUT_SCORE)
 
     return {
         "opponent": opponent,
@@ -278,7 +299,26 @@ def matchmake(authorization: str | None = Header(default=None)):
         "log": result.get("log", []),
         "turns": result.get("turns", []),
         "elo_change": {winner_username: new_winner_elo, loser_username: new_loser_elo},
+        "elo_delta": {winner_username: new_winner_elo - old_w, loser_username: new_loser_elo - old_l},
     }
+
+
+@app.get("/arena/my_matches")
+def my_matches(limit: int = 10, authorization: str | None = Header(default=None)):
+    """The caller's recent bouts, newest first — feeds the RECENT BOUTS
+    ledger so it survives a reload."""
+    limit = max(1, min(25, limit))
+    username = _require_player(authorization)
+    with db() as conn:
+        rows = conn.execute(
+            "SELECT player1, player2, winner, timestamp FROM arena_matches "
+            "WHERE player1 = ? OR player2 = ? ORDER BY id DESC LIMIT ?",
+            (username, username, limit)).fetchall()
+    return {"matches": [
+        {"opponent": r["player2"] if r["player1"] == username else r["player1"],
+         "won": r["winner"] == username, "winner": r["winner"], "at": r["timestamp"]}
+        for r in rows
+    ]}
 
 
 @app.post("/arena/update_floor")
@@ -290,19 +330,223 @@ def update_floor(req: UpdateFloorRequest, authorization: str | None = Header(def
     if req.highest_floor < 1 or req.highest_floor > MAX_REPORTED_FLOOR:
         raise HTTPException(status_code=400, detail=f"Floor must be 1-{MAX_REPORTED_FLOOR}")
     with db() as conn:
+        old = conn.execute("SELECT highest_floor FROM arena_players WHERE username = ?", (username,)).fetchone()
+        old_floor = (old["highest_floor"] or 0) if old else 0
         # Only update if it's strictly greater (so we don't accidentally revert)
         conn.execute(
             "UPDATE arena_players SET highest_floor = ? WHERE username = ? AND highest_floor < ?",
             (req.highest_floor, username, req.highest_floor)
         )
+        # Floors gained during a Lodge War bank war score for the guild.
+        if req.highest_floor > old_floor:
+            guilds.war_score(conn, username, (req.highest_floor - old_floor) * guilds.WAR_FLOOR_SCORE)
     return {"status": "floor updated", "highest_floor": req.highest_floor}
+
+
+# ─── Guilds v1 (guilds.py; design: docs/guild-social-design.md) ─────
+
+class FoundGuildRequest(BaseModel):
+    name: str
+    motto: str = ""
+    banner: dict = {}
+
+class GuildApplyRequest(BaseModel):
+    guild_id: int
+    message: str = ""
+
+class GuildDecideRequest(BaseModel):
+    app_id: int
+    accept: bool
+
+class GuildBuyRequest(BaseModel):
+    item_id: str
+
+
+@app.get("/guild/mine")
+def guild_mine(authorization: str | None = Header(default=None)):
+    username = _require_player(authorization)
+    with db() as conn:
+        return guilds.my_guild(conn, username)
+
+@app.get("/guild/registry")
+def guild_registry(authorization: str | None = Header(default=None)):
+    _require_player(authorization)
+    with db() as conn:
+        return guilds.registry(conn)
+
+@app.post("/guild/found")
+def guild_found(req: FoundGuildRequest, authorization: str | None = Header(default=None)):
+    username = _require_player(authorization)
+    with db() as conn:
+        return guilds.found_guild(conn, username, req.name, req.motto, req.banner)
+
+@app.post("/guild/apply")
+def guild_apply(req: GuildApplyRequest, authorization: str | None = Header(default=None)):
+    username = _require_player(authorization)
+    with db() as conn:
+        return guilds.apply_to_guild(conn, username, req.guild_id, req.message)
+
+@app.post("/guild/applications/decide")
+def guild_decide(req: GuildDecideRequest, authorization: str | None = Header(default=None)):
+    username = _require_player(authorization)
+    with db() as conn:
+        return guilds.decide_application(conn, username, req.app_id, req.accept)
+
+@app.post("/guild/leave")
+def guild_leave(authorization: str | None = Header(default=None)):
+    username = _require_player(authorization)
+    with db() as conn:
+        return guilds.leave_guild(conn, username)
+
+@app.post("/guild/checkin")
+def guild_checkin(authorization: str | None = Header(default=None)):
+    username = _require_player(authorization)
+    with db() as conn:
+        return guilds.checkin(conn, username)
+
+@app.post("/guild/boss/strike")
+def guild_boss_strike(authorization: str | None = Header(default=None)):
+    username = _require_player(authorization)
+    with db() as conn:
+        return guilds.strike_boss(conn, username)
+
+@app.get("/guild/shop")
+def guild_shop(authorization: str | None = Header(default=None)):
+    username = _require_player(authorization)
+    with db() as conn:
+        return guilds.shop(conn, username)
+
+@app.post("/guild/shop/buy")
+def guild_shop_buy(req: GuildBuyRequest, authorization: str | None = Header(default=None)):
+    username = _require_player(authorization)
+    with db() as conn:
+        return guilds.shop_buy(conn, username, req.item_id)
+
+
+@app.get("/guild/perks")
+def guild_perks(authorization: str | None = Header(default=None)):
+    username = _require_player(authorization)
+    with db() as conn:
+        return guilds.perks(conn, username)
+
+
+class PerkBuyRequest(BaseModel):
+    perk_id: str
+
+
+@app.post("/guild/perks/buy")
+def guild_perk_buy(req: PerkBuyRequest, authorization: str | None = Header(default=None)):
+    username = _require_player(authorization)
+    with db() as conn:
+        return guilds.perk_buy(conn, username, req.perk_id)
+
+
+@app.get("/guild/war")
+def guild_war(authorization: str | None = Header(default=None)):
+    username = _require_player(authorization)
+    with db() as conn:
+        return guilds.war_status(conn, username)
+
+
+# ─── The Herald's Wire (chat) ────────────────────────────────────────
+
+class ChatSendRequest(BaseModel):
+    channel: str
+    text: str
+    to: str | None = None
+
+
+@app.post("/chat/send")
+def chat_send(req: ChatSendRequest, authorization: str | None = Header(default=None)):
+    username = _require_player(authorization)
+    with db() as conn:
+        return chat.send(conn, username, req.channel, req.text, req.to)
+
+
+@app.get("/chat/fetch")
+def chat_fetch(channel: str, since: int = 0, authorization: str | None = Header(default=None)):
+    username = _require_player(authorization)
+    with db() as conn:
+        return chat.fetch(conn, username, channel, since)
+
+
+@app.get("/chat/whispers")
+def chat_whispers(authorization: str | None = Header(default=None)):
+    username = _require_player(authorization)
+    with db() as conn:
+        return chat.whisper_threads(conn, username)
+
+
+@app.get("/chat/whisper/{other}")
+def chat_whisper(other: str, since: int = 0, authorization: str | None = Header(default=None)):
+    username = _require_player(authorization)
+    with db() as conn:
+        return chat.whisper_thread(conn, username, other, since)
+
+
+# ─── Social: allies ──────────────────────────────────────────────────
+
+class AllyRequest(BaseModel):
+    username: str
+
+class AllyDecideRequest(BaseModel):
+    username: str
+    accept: bool
+
+
+@app.get("/social/allies")
+def social_allies(authorization: str | None = Header(default=None)):
+    username = _require_player(authorization)
+    with db() as conn:
+        return guilds.ally_list(conn, username)
+
+@app.post("/social/invite")
+def social_invite(req: AllyRequest, authorization: str | None = Header(default=None)):
+    username = _require_player(authorization)
+    with db() as conn:
+        return guilds.ally_invite(conn, username, req.username)
+
+@app.post("/social/decide")
+def social_decide(req: AllyDecideRequest, authorization: str | None = Header(default=None)):
+    username = _require_player(authorization)
+    with db() as conn:
+        return guilds.ally_decide(conn, username, req.username, req.accept)
+
+@app.post("/social/remove")
+def social_remove(req: AllyRequest, authorization: str | None = Header(default=None)):
+    username = _require_player(authorization)
+    with db() as conn:
+        return guilds.ally_remove(conn, username, req.username)
+
+
+MAX_BANNER_JSON_BYTES = 400 * 1024  # paint layer can be a canvas data-URL
+
+
+@app.post("/arena/banner")
+def set_banner(req: BannerRequest, authorization: str | None = Header(default=None)):
+    """Carry the player's Banner Studio standard so opponents see it on
+    leaderboards and the raid map (the PvP mind-games use case)."""
+    username = _require_player(authorization)
+    payload = json.dumps(req.banner)
+    if len(payload.encode()) > MAX_BANNER_JSON_BYTES:
+        raise HTTPException(status_code=400, detail="Banner payload too large")
+    with db() as conn:
+        conn.execute("UPDATE arena_players SET banner_json = ? WHERE username = ?", (payload, username))
+    return {"ok": True}
+
+
+def _banner_of(row) -> dict | None:
+    try:
+        return json.loads(row["banner_json"]) if row["banner_json"] else None
+    except (json.JSONDecodeError, TypeError):
+        return None
 
 
 @app.get("/arena/leaderboard")
 def leaderboard(limit: int = 20):
     with db() as conn:
         pvp_rows = conn.execute(
-            "SELECT username, wins, losses, elo FROM arena_players "
+            "SELECT username, wins, losses, elo, banner_json FROM arena_players "
             "ORDER BY COALESCE(elo, 1000) DESC LIMIT ?",
             (limit,),
         ).fetchall()
@@ -314,7 +558,8 @@ def leaderboard(limit: int = 20):
 
     return {
         "leaderboard": [
-            {"username": r["username"], "wins": r["wins"], "losses": r["losses"], "elo": r["elo"] or 1000}
+            {"username": r["username"], "wins": r["wins"], "losses": r["losses"], "elo": r["elo"] or 1000,
+             "banner": _banner_of(r)}
             for r in pvp_rows
         ],
         "pve_leaderboard": [
@@ -400,6 +645,362 @@ def claim_reward(req: ClaimRewardRequest, authorization: str | None = Header(def
         conn.execute("UPDATE arena_season_rewards SET claimed = 1 WHERE id = ?", (req.reward_id,))
         
     return {"status": "claimed", "reward_type": row["reward_type"], "amount": row["amount"]}
+
+
+# ─── Raids (PvP Base Sieges) ──────────────────────────────────────
+# Opt-in ecosystem: raiders get a spot on the world map, the ability to
+# launch sieges, and a target painted on their own base. Same
+# client-snapshot trust model as /arena/submit_team (see that docstring) —
+# the defender's base_defense/team and the attacker's team are both
+# computed by each player's own local backend and shipped here.
+
+RAID_STEAL_PCT = 0.20            # % of the defender's reported unspent gold / farm ingredients
+RAID_SHIELD_SECONDS = 2 * 3600   # a freshly-raided base can't be hit again immediately
+MAX_RAID_TEAM_SIZE = MAX_TEAM_SIZE
+
+
+def _get_player(conn, username: str):
+    return conn.execute("SELECT * FROM arena_players WHERE username = ?", (username,)).fetchone()
+
+
+def _push_raid_event(conn, username: str, event_type: str, payload: dict):
+    conn.execute(
+        "INSERT INTO raid_events (username, event_type, payload_json, created_at) VALUES (?, ?, ?, ?)",
+        (username, event_type, json.dumps(payload), time.time()),
+    )
+
+
+@app.post("/arena/raid/opt_in")
+def raid_opt_in(req: RaidOptInRequest, authorization: str | None = Header(default=None)):
+    """Toggle raid participation. Opting in places the base at a random free
+    cell on the world grid — you can now launch raids, and be raided."""
+    username = _require_player(authorization)
+    with db() as conn:
+        me = _get_player(conn, username)
+        if req.enable:
+            x, y = me["coord_x"], me["coord_y"]
+            if x is None or y is None:
+                taken = {(r["coord_x"], r["coord_y"]) for r in conn.execute(
+                    "SELECT coord_x, coord_y FROM arena_players WHERE coord_x IS NOT NULL"
+                ).fetchall()}
+                for _ in range(2000):
+                    x, y = random.randrange(WORLD_SIZE), random.randrange(WORLD_SIZE)
+                    if (x, y) not in taken:
+                        break
+                conn.execute(
+                    "UPDATE arena_players SET is_raider = 1, coord_x = ?, coord_y = ? WHERE username = ?",
+                    (x, y, username),
+                )
+            else:
+                conn.execute("UPDATE arena_players SET is_raider = 1 WHERE username = ?", (username,))
+            return {"status": "opted_in", "coordinates": {"x": x, "y": y}}
+        else:
+            # Opting out delists you as a target AND revokes your raid rights;
+            # coordinates are kept so re-opting-in returns you to your plot.
+            conn.execute("UPDATE arena_players SET is_raider = 0 WHERE username = ?", (username,))
+            return {"status": "opted_out"}
+
+
+@app.post("/arena/raid/submit_defense")
+def submit_defense(req: SubmitDefenseRequest, authorization: str | None = Header(default=None)):
+    """Store the caller's defense snapshot: base_defense breakdown (wall/
+    garrison/ship/beasts), the hypothetical strongest defending team (top 5),
+    docked ship tier, and the lootable resources a successful raider can
+    steal from. Built by the caller's local backend (GET /raid/defense_snapshot)."""
+    username = _require_player(authorization)
+    if not req.defenders:
+        raise HTTPException(status_code=400, detail="Defense needs at least one defending hero")
+    if len(req.defenders) > MAX_RAID_TEAM_SIZE:
+        raise HTTPException(status_code=400, detail=f"At most {MAX_RAID_TEAM_SIZE} defenders")
+    if not all(isinstance(h, dict) for h in req.defenders) or not isinstance(req.base_defense, dict):
+        raise HTTPException(status_code=400, detail="Malformed defense payload")
+    payload = json.dumps({
+        "defenders": req.defenders,
+        "base_defense": req.base_defense,
+        "ship_tier": max(0, min(5, int(req.ship_tier or 0))),
+        "lootable": {
+            "gold": max(0, int(req.lootable.get("gold", 0) or 0)),
+            "ingredients": max(0, int(req.lootable.get("ingredients", 0) or 0)),
+        },
+        "counter_intel": {
+            "total": max(0.0, float(req.counter_intel.get("total", 0) or 0)),
+            "breakdown": req.counter_intel.get("breakdown", {}),
+        },
+    })
+    if len(payload.encode()) > MAX_DEFENSE_JSON_BYTES:
+        raise HTTPException(status_code=400, detail="Defense payload too large")
+    with db() as conn:
+        conn.execute(
+            "UPDATE arena_players SET defense_json = ?, defense_updated_at = ? WHERE username = ?",
+            (payload, time.time(), username),
+        )
+    return {"status": "defense submitted", "defenders": len(req.defenders)}
+
+
+@app.get("/arena/raid/map")
+def raid_map(radius: int = DEFAULT_SCOUT_RADIUS, authorization: str | None = Header(default=None)):
+    """Nearby opted-in bases within a coordinate radius (Chebyshev box) of
+    the caller's own base. Defense details stay hidden until scouted."""
+    username = _require_player(authorization)
+    radius = max(1, min(MAX_SCOUT_RADIUS, radius))
+    now = time.time()
+    with db() as conn:
+        me = _get_player(conn, username)
+        if not me["is_raider"] or me["coord_x"] is None:
+            raise HTTPException(status_code=400, detail="Opt in to raiding first (POST /arena/raid/opt_in)")
+        rows = conn.execute(
+            """SELECT username, coord_x, coord_y, elo, highest_floor, defense_json, last_raided_at, banner_json
+               FROM arena_players
+               WHERE is_raider = 1 AND username != ?
+                 AND coord_x BETWEEN ? AND ? AND coord_y BETWEEN ? AND ?""",
+            (username, me["coord_x"] - radius, me["coord_x"] + radius,
+             me["coord_y"] - radius, me["coord_y"] + radius),
+        ).fetchall()
+    return {
+        "my_coordinates": {"x": me["coord_x"], "y": me["coord_y"]},
+        "world_size": WORLD_SIZE,
+        "radius": radius,
+        "bases": [
+            {
+                "username": r["username"],
+                "x": r["coord_x"], "y": r["coord_y"],
+                "distance": max(abs(r["coord_x"] - me["coord_x"]), abs(r["coord_y"] - me["coord_y"])),
+                "elo": r["elo"] or 1000,
+                "highest_floor": r["highest_floor"],
+                "has_defense": bool(r["defense_json"]),
+                "banner": _banner_of(r),
+                "shielded": bool(r["last_raided_at"] and now - r["last_raided_at"] < RAID_SHIELD_SECONDS),
+            }
+            for r in rows
+        ],
+    }
+
+
+@app.post("/arena/raid/scout")
+def raid_scout(req: ScoutRequest, authorization: str | None = Header(default=None)):
+    """Scout a target before committing to a siege. Not a flat info-dump:
+    the caller's recon rating (scout_power, from their local backend's
+    /raid/pay_scout — best Scout-line hero + Mage Tower scrying + battleship
+    aerial recon) is graded against the target's counter-intel (patrols,
+    wards, counter-spies), and the resulting intel tier (0-4) decides how
+    much of the defense report is revealed — from a vague impression through
+    a full dossier (see raids.build_scout_report). The Gold/Aether fee is
+    charged by the scout's own local backend before this call — same
+    client-side economy split as the Training Market's gem cost."""
+    username = _require_player(authorization)
+    target = req.target.strip()
+    if target == username:
+        raise HTTPException(status_code=400, detail="That's your own base")
+    with db() as conn:
+        them = _get_player(conn, target)
+    if not them or not them["is_raider"]:
+        raise HTTPException(status_code=404, detail=f"No raidable base for: {target}")
+    if not them["defense_json"]:
+        raise HTTPException(status_code=400, detail=f"{target} hasn't submitted a defense yet")
+    defense = json.loads(them["defense_json"])
+    # Fuzz-seed on (scout, target, defense version): re-scouting the same
+    # defense repeats the same wrong numbers — the noise can't be averaged
+    # away — but a resubmitted defense rolls fresh fuzz.
+    seed = f"{username}:{target}:{them['defense_updated_at']}"
+    report = build_scout_report(defense, req.scout_power, seed)
+    report["target"] = target
+    return report
+
+
+@app.post("/arena/raid/attack")
+def raid_attack(req: RaidAttackRequest, authorization: str | None = Header(default=None)):
+    """Launch the siege. Resolved server-side as a real combat sim with both
+    sides' stats shifted by their Base/Ship advantages (see raids.py). The
+    victor — invader or defender who repelled them — earns the right to take
+    one prisoner from the losing side (POST /arena/raid/claim_prisoner)."""
+    username = _require_player(authorization)
+    target = req.target.strip()
+    if target == username:
+        raise HTTPException(status_code=400, detail="You can't raid your own base")
+    if not req.team or len(req.team) > MAX_RAID_TEAM_SIZE or not all(isinstance(h, dict) for h in req.team):
+        raise HTTPException(status_code=400, detail=f"Attack team must be 1-{MAX_RAID_TEAM_SIZE} hero dicts")
+    if len(json.dumps(req.team).encode()) > MAX_TEAM_JSON_BYTES:
+        raise HTTPException(status_code=400, detail="Team payload too large")
+
+    now = time.time()
+    with db() as conn:
+        me = _get_player(conn, username)
+        them = _get_player(conn, target)
+        if not me["is_raider"]:
+            raise HTTPException(status_code=400, detail="Opt in to raiding first (POST /arena/raid/opt_in)")
+        if not them or not them["is_raider"]:
+            raise HTTPException(status_code=404, detail=f"No raidable base for: {target}")
+        if not them["defense_json"]:
+            raise HTTPException(status_code=400, detail=f"{target} hasn't submitted a defense yet")
+        if them["last_raided_at"] and now - them["last_raided_at"] < RAID_SHIELD_SECONDS:
+            mins = int((RAID_SHIELD_SECONDS - (now - them["last_raided_at"])) / 60)
+            raise HTTPException(status_code=429, detail=f"{target}'s base is still recovering from the last raid ({mins}m shield left)")
+
+    defense = json.loads(them["defense_json"])
+    result = resolve_siege(
+        attacker_team=req.team,
+        attacker_ship_tier=max(0, min(5, int(req.ship_tier or 0))),
+        defender_team=defense["defenders"],
+        base_defense=defense.get("base_defense", {}),
+        defender_ship_tier=defense.get("ship_tier", 0),
+    )
+
+    attacker_won = result["winner"] == "heroes"
+    winner, loser = (username, target) if attacker_won else (target, username)
+    losing_team = defense["defenders"] if attacker_won else req.team
+
+    spoils = {"gold": 0, "ingredients": 0}
+    if attacker_won:
+        lootable = defense.get("lootable", {})
+        spoils["gold"] = int((lootable.get("gold", 0) or 0) * RAID_STEAL_PCT)
+        spoils["ingredients"] = int((lootable.get("ingredients", 0) or 0) * RAID_STEAL_PCT)
+
+    # Survivors of the losing side (they're captured candidates, not corpses:
+    # siege knockouts aren't permanent deaths). If the whole losing side was
+    # wiped in the sim, every member is a candidate — knocked out and at the
+    # victor's mercy is the fiction either way.
+    candidates = [
+        {
+            "id": h.get("id"), "name": h.get("name"), "hero_class": h.get("hero_class"),
+            "level": h.get("level", 1), "affinity": h.get("affinity", 50),
+            "snapshot": h,
+        }
+        for h in losing_team
+    ]
+
+    with db() as conn:
+        cur = conn.execute(
+            """INSERT INTO raids (attacker, defender, winner, spoils_json, capture_candidates_json, log_json, timestamp)
+               VALUES (?, ?, ?, ?, ?, ?, ?)""",
+            (username, target, winner, json.dumps(spoils), json.dumps(candidates),
+             json.dumps(result.get("log", [])), now),
+        )
+        raid_id = cur.lastrowid
+        conn.execute("UPDATE arena_players SET last_raided_at = ? WHERE username = ?", (now, target))
+        if attacker_won:
+            conn.execute("UPDATE arena_players SET raid_wins = raid_wins + 1 WHERE username = ?", (username,))
+            conn.execute("UPDATE arena_players SET defense_losses = defense_losses + 1 WHERE username = ?", (target,))
+        else:
+            conn.execute("UPDATE arena_players SET raid_losses = raid_losses + 1 WHERE username = ?", (username,))
+            conn.execute("UPDATE arena_players SET defense_wins = defense_wins + 1 WHERE username = ?", (target,))
+        # The defender wasn't online for this — their inbox tells their client
+        # what to apply locally (resource losses; capture comes separately).
+        _push_raid_event(conn, target, "raided", {
+            "raid_id": raid_id,
+            "attacker": username,
+            "defended_successfully": not attacker_won,
+            "gold_lost": spoils["gold"],
+            "ingredients_lost": spoils["ingredients"],
+        })
+
+    return {
+        "raid_id": raid_id,
+        "winner": winner,
+        "loser": loser,
+        "attacker_won": attacker_won,
+        "spoils": spoils,
+        "capture_candidates": [
+            {k: c[k] for k in ("id", "name", "hero_class", "level", "affinity")}
+            for c in candidates
+        ] if winner == username else [],
+        "siege": result.get("siege"),
+        "log": result.get("log", []),
+        "turns": result.get("turns", []),
+    }
+
+
+@app.post("/arena/raid/claim_prisoner")
+def claim_prisoner(req: ClaimPrisonerRequest, authorization: str | None = Header(default=None)):
+    """The raid's victor picks ONE surviving hero from the losing side to
+    take prisoner. Returns the full hero snapshot for local integration —
+    the captive keeps their original loyalty, so a high-affinity hero enters
+    the Rebellious Phase on arrival (see backend /raid/integrate_prisoner)."""
+    username = _require_player(authorization)
+    with db() as conn:
+        raid = conn.execute("SELECT * FROM raids WHERE id = ?", (req.raid_id,)).fetchone()
+        if not raid:
+            raise HTTPException(status_code=404, detail="Raid not found")
+        if raid["winner"] != username:
+            raise HTTPException(status_code=403, detail="Only the raid's victor may take prisoners")
+        if raid["prisoner_claimed"]:
+            raise HTTPException(status_code=409, detail="A prisoner was already taken from this raid")
+        candidates = json.loads(raid["capture_candidates_json"] or "[]")
+        chosen = next((c for c in candidates if c.get("id") == req.hero_id), None)
+        if not chosen:
+            raise HTTPException(status_code=404, detail="That hero isn't among the raid's capture candidates")
+        loser = raid["defender"] if raid["winner"] == raid["attacker"] else raid["attacker"]
+        conn.execute(
+            "UPDATE raids SET prisoner_claimed = 1, prisoner_json = ? WHERE id = ?",
+            (json.dumps(chosen), req.raid_id),
+        )
+        _push_raid_event(conn, loser, "hero_captured", {
+            "raid_id": req.raid_id,
+            "captor": username,
+            "hero_id": chosen.get("id"),
+            "hero_name": chosen.get("name"),
+        })
+    return {"status": "captured", "prisoner": chosen["snapshot"], "original_master": loser}
+
+
+@app.get("/arena/raid/events")
+def raid_events(authorization: str | None = Header(default=None)):
+    """Unseen raid outcomes for the caller (their base was raided / a hero
+    of theirs was captured). Marks them seen — the client applies each one
+    to the local save (see backend /raid/apply_raid_event)."""
+    username = _require_player(authorization)
+    with db() as conn:
+        rows = conn.execute(
+            "SELECT id, event_type, payload_json, created_at FROM raid_events WHERE username = ? AND seen = 0 ORDER BY id ASC",
+            (username,),
+        ).fetchall()
+        if rows:
+            conn.execute("UPDATE raid_events SET seen = 1 WHERE username = ? AND seen = 0", (username,))
+    return {"events": [
+        {"id": r["id"], "type": r["event_type"], "payload": json.loads(r["payload_json"]), "at": r["created_at"]}
+        for r in rows
+    ]}
+
+
+# ─── Server-Wide Tournaments ──────────────────────────────────────
+
+@app.get("/arena/tournaments")
+def tournaments_status(authorization: str | None = Header(default=None)):
+    """Current week's tournament state: phase (registration Mon-Wed, battles
+    Thu-Sat, payouts Sunday), per-format entry counts, the caller's own
+    registrations, and standings once a bracket has resolved."""
+    username = _require_player(authorization)
+    with db() as conn:
+        return tournaments.get_status(conn, username)
+
+
+@app.post("/arena/tournament/register")
+def tournament_register(req: TournamentRegisterRequest, authorization: str | None = Header(default=None)):
+    """Submit a specific team to one of the week's brackets during the
+    Registration Phase (Monday-Wednesday). Team size must match the format:
+    1v1 Duels, 2v2 Pairs, 4v4 Warbands, or 5-hero Battle Royale."""
+    username = _require_player(authorization)
+    if req.format not in TOURNAMENT_FORMATS:
+        raise HTTPException(status_code=400, detail=f"Unknown format. One of: {', '.join(TOURNAMENT_FORMATS)}")
+    required = TOURNAMENT_FORMATS[req.format]
+    if len(req.team) != required or not all(isinstance(h, dict) for h in req.team):
+        raise HTTPException(status_code=400, detail=f"The {req.format} bracket takes exactly {required} hero(es)")
+    if len(json.dumps(req.team).encode()) > MAX_TEAM_JSON_BYTES:
+        raise HTTPException(status_code=400, detail="Team payload too large")
+    with db() as conn:
+        return tournaments.register(conn, username, req.format, req.team)
+
+
+@app.get("/arena/tournament/standings")
+def tournament_standings(format: str, week: str | None = None, authorization: str | None = Header(default=None)):
+    """Bracket standings. During Thu-Sat this lazily runs the bracket's
+    auto-battler rounds the first time anyone asks; on Sunday it also
+    triggers payouts (top of the leaderboard gets Summon Tickets and an
+    exclusive Cosmetic in their reward inbox)."""
+    _require_player(authorization)
+    if format not in TOURNAMENT_FORMATS:
+        raise HTTPException(status_code=400, detail=f"Unknown format. One of: {', '.join(TOURNAMENT_FORMATS)}")
+    with db() as conn:
+        return tournaments.get_standings(conn, format, week)
 
 
 # ─── Training Market ──────────────────────────────────────────────

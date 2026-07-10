@@ -40,8 +40,20 @@ def craft_premade(req: PremadeCraftReq):
         
         req_mats = json.loads(recipe["materials_json"])
 
-        if gold < recipe["gold_cost"]:
-            raise HTTPException(status_code=400, detail=f"Not enough gold. Need {recipe['gold_cost']}")
+        # Support revamp: a Blacksmith assigned to the Forge discounts crafting
+        # gold costs by star (support_service.CRAFT_DISCOUNT, up to 45% at 7★).
+        # Cheaper, never free — materials are always paid in full.
+        gold_cost = recipe["gold_cost"]
+        try:
+            from services.support_service import get_support_effects
+            disc = get_support_effects(conn).get("craft_discount_pct", 0)
+            if disc:
+                gold_cost = max(1, int(gold_cost * (1 - disc / 100.0)))
+        except Exception:
+            pass
+
+        if gold < gold_cost:
+            raise HTTPException(status_code=400, detail=f"Not enough gold. Need {gold_cost}")
 
         from services.materials_service import get_material_total, consume_material
         for m, qty in req_mats.items():
@@ -49,7 +61,7 @@ def craft_premade(req: PremadeCraftReq):
                 raise HTTPException(status_code=400, detail=f"Not enough {m}. Need {qty}.")
 
         # Deduct
-        new_gold = gold - recipe["gold_cost"]
+        new_gold = gold - gold_cost
         for m, qty in req_mats.items():
             consume_material(inv_mats, m, qty)
 
@@ -90,8 +102,10 @@ def craft_premade(req: PremadeCraftReq):
         
         equip_id = save_equipment(equip, conn)
         equip["id"] = equip_id
-        
-        return {"success": True, "equipment": equip}
+
+    from services.quests_service import bump as bump_rite
+    bump_rite("craft")
+    return {"success": True, "equipment": equip}
 
 @router.post("/craft/creative")
 def craft_creative(req: CreativeCraftReq):
@@ -126,5 +140,7 @@ def craft_creative(req: CreativeCraftReq):
             "INSERT INTO recipes (name, type, description, materials_json, gold_cost, base_stat_mult, is_discovered) VALUES (?, ?, ?, ?, ?, ?, 1)",
             (recipe_name, equip["type"], recipe_desc, json.dumps(req.materials), 250, 1.2)
         )
-        
-        return {"success": True, "equipment": equip, "new_recipe": recipe_name}
+
+    from services.quests_service import bump as bump_rite
+    bump_rite("craft")
+    return {"success": True, "equipment": equip, "new_recipe": recipe_name}

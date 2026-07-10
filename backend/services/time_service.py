@@ -107,6 +107,19 @@ def process_passive_generation(conn):
         for a in assigned:
             multiplier += 0.20 if a["hero_class"] in preferred else 0.10
 
+        # Support revamp: a Merchant on the Market / Farmer on the Farm adds a
+        # star-scaled bonus on top (support_service.INCOME_BONUS — up to +75%
+        # at 7★), so a high-star economist is a real jackpot.
+        try:
+            from services.support_service import get_support_effects
+            fx = get_support_effects(conn)
+            if f["type"] == 'Market':
+                multiplier += fx.get("merchant_income_bonus", 0)
+            elif f["type"] == 'Farm':
+                multiplier += fx.get("farmer_income_bonus", 0)
+        except Exception:
+            pass
+
         if f["type"] == 'Market':
             base_amt = 100 * f["level"]
             gold_gen += int(base_amt * multiplier) * ticks
@@ -126,6 +139,19 @@ def process_passive_generation(conn):
         # Training Grounds XP is handled by services/training_service.py
         # now (regimen-aware — flat XP is just the "focus" default), so it's
         # no longer processed here to avoid double-ticking.
+
+    # Athenaeum logistics research (Swift Logistics, Caravan Routes, …)
+    # multiplies everything the base generates passively.
+    try:
+        from services.athenaeum_service import get_research_bonuses
+        gen_pct = get_research_bonuses(conn).get("passive_gen_pct", 0)
+        if gen_pct:
+            mult = 1.0 + gen_pct / 100.0
+            gold_gen = int(gold_gen * mult)
+            ingredients_gen = int(ingredients_gen * mult)
+            aether_gen = int(aether_gen * mult)
+    except Exception:
+        pass
 
     if gold_gen > 0 or ingredients_gen > 0 or aether_gen > 0:
         conn.execute(

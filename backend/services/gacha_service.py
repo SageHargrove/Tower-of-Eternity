@@ -29,12 +29,17 @@ GOLD_WEIGHTS = {
 RARITY_WEIGHTS = {**GOLD_WEIGHTS, **{k: v for k, v in GEM_WEIGHTS.items() if k not in GOLD_WEIGHTS}}
 TOTAL_WEIGHT = sum(RARITY_WEIGHTS.values())
 
-def pull_rarity(min_star: int = 1, max_star: int = 7, currency: str = "gem") -> int:
+def pull_rarity(min_star: int = 1, max_star: int = 7, currency: str = "gem",
+                weights: dict = None) -> int:
     """Roll a birth star rarity using the appropriate weight table for the
     given currency ('gem' or 'gold').  min_star/max_star are still respected
     as a safety clamp but the weight tables already encode the intended range,
-    so no re-normalization artefacts from clamping a shared table."""
-    weights = GEM_WEIGHTS if currency == "gem" else GOLD_WEIGHTS
+    so no re-normalization artefacts from clamping a shared table.
+
+    weights: an explicit weight table (e.g. a season's boosted rate-up)
+    overrides the currency default when provided."""
+    if weights is None:
+        weights = GEM_WEIGHTS if currency == "gem" else GOLD_WEIGHTS
     allowed = {s: w for s, w in weights.items() if min_star <= s <= max_star}
     if not allowed:
         return min_star
@@ -194,27 +199,43 @@ EQUIPMENT_GRADE_WEIGHTS = {
         "A-": 4500, "A": 2500, "A+": 1200,
         "S-": 500, "S": 250, "S+": 50,
     },
+    # Seasonal forge — a boosted gem table that can, rarely, temper the
+    # mythforged grades (SS/SSS/Z) the standard forge never reaches.
+    "seasonal": {
+        "B-": 24000, "B": 16000, "B+": 10000,
+        "A-": 9000, "A": 5500, "A+": 3000,
+        "S-": 1400, "S": 800, "S+": 400,
+        "SS": 200, "SSS": 70, "Z": 20,
+    },
 }
 # Kept as a name (no longer the actual roll mechanism) so the `/equipment-odds`
 # endpoint's existing bucket grouping still reads sensibly in the UI.
 EQUIPMENT_PULL_ODDS = {
     "gold": [("D-", "D", "D+"), ("C-", "C", "C+"), ("B-", "B", "B+")],
     "gem":  [("C-", "C", "C+"), ("B-", "B", "B+"), ("A-", "A", "A+"), ("S-", "S", "S+")],
+    "seasonal": [("B-", "B", "B+"), ("A-", "A", "A+"), ("S-", "S", "S+"), ("SS", "SSS", "Z")],
 }
 
-def pull_equipment_gacha(conn, currency: str = "gold") -> dict:
+def pull_equipment_gacha(conn, currency: str = "gold", seasonal: bool = False) -> dict:
     from services.equipment_service import _roll_equipment_stats, RARITY_MULTS, EQUIPMENT_ADJECTIVES, _display_type_name
     import random
 
-    currency = currency if currency in EQUIPMENT_PULL_COST else "gold"
-    cost = EQUIPMENT_PULL_COST[currency]
-    col = "gems" if currency == "gem" else "gold"
+    # Seasonal is a gem-priced calling at a premium, on the boosted table.
+    if seasonal:
+        cost = int(EQUIPMENT_PULL_COST["gem"] * 1.2)
+        col = "gems"
+        weight_key = "seasonal"
+    else:
+        currency = currency if currency in EQUIPMENT_PULL_COST else "gold"
+        cost = EQUIPMENT_PULL_COST[currency]
+        col = "gems" if currency == "gem" else "gold"
+        weight_key = currency
     base = conn.execute(f"SELECT {col} FROM base WHERE id = 1").fetchone()
     if base[col] < cost:
         raise ValueError(f"Not enough {col}.")
     conn.execute(f"UPDATE base SET {col} = {col} - ? WHERE id = 1", (cost,))
 
-    weights = EQUIPMENT_GRADE_WEIGHTS[currency]
+    weights = EQUIPMENT_GRADE_WEIGHTS[weight_key]
     total = sum(weights.values())
     roll = random.uniform(0, total)
     cumulative = 0

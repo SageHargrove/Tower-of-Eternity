@@ -72,6 +72,10 @@ async function request(path, options = {}) {
 }
 
 export const getChatLogs = (limit = 10) => request(`/chat/?limit=${limit}`)
+export const getHearth = () => request('/chat/hearth')
+export const sendHearthWord = (tone) => request('/chat/word', { method: 'POST', body: JSON.stringify({ tone }) })
+export const getAthenaeumState = () => request('/base/facilities/athenaeum/state')
+export const studyAthenaeumNode = (nodeId) => request('/base/facilities/athenaeum/study', { method: 'POST', body: JSON.stringify({ node_id: nodeId }) })
 export const egoAutoTeam = (teamId, egoHeroId) => request('/heroes/team/ego_auto', { method: 'POST', body: JSON.stringify({ team_id: teamId, ego_hero_id: egoHeroId }) })
 export const getEgoRecommendation = (heroId) => request(`/heroes/${heroId}/ego_recommendation`)
 
@@ -82,7 +86,18 @@ export const setMasterName = (name) => request('/base/master-name', { method: 'P
 export const completeTutorial = () => request('/base/tutorial/complete', { method: 'POST' })
 export const upgradeBase = () => request('/base/upgrade', { method: 'POST' })
 export const restHeroes = () => request('/base/rest', { method: 'POST' })
-export const runDailyDungeon = (type) => request(`/base/daily_dungeon/${type}`, { method: 'POST' })
+export const runDailyDungeon = (type, tier = 1) => request(`/base/daily_dungeon/${type}?tier=${tier}`, { method: 'POST' })
+export const getDailyDungeonStatus = () => request('/base/daily_dungeon/status')
+export const getHeraldFeed = () => request('/herald/')
+export const getExpeditions = () => request('/base/expeditions')
+export const dispatchExpedition = (lane, heroIds) => request('/base/expeditions/dispatch', { method: 'POST', body: JSON.stringify({ lane, hero_ids: heroIds }) })
+export const collectExpedition = (lane) => request('/base/expeditions/collect', { method: 'POST', body: JSON.stringify({ lane }) })
+export const recallExpedition = (lane) => request('/base/expeditions/recall', { method: 'POST', body: JSON.stringify({ lane }) })
+export const getTavern = () => request('/base/tavern')
+export const buyTavernRound = (heroId = null) => request('/base/tavern/round', { method: 'POST', body: JSON.stringify({ hero_id: heroId }) })
+export const getSparkWishlist = () => request('/gacha/wishlist')
+export const setSparkWishlist = (classes) => request('/gacha/wishlist', { method: 'POST', body: JSON.stringify({ classes }) })
+export const payLocalFee = (amount, reason = '') => request('/base/pay_fee', { method: 'POST', body: JSON.stringify({ amount, reason }) })
 export const getBaseFloors = () => request('/base/floors')
 export const assignBaseFloor = (heroId, floor) => request('/base/floors/assign', { method: 'POST', body: JSON.stringify({ hero_id: heroId, floor }) })
 
@@ -118,7 +133,7 @@ export const craftPremadeRecipe = (crafterId, recipeId) => request('/forge/craft
 
 // Team banner
 export const getBanner = () => request('/base/banner')
-export const saveBanner = (templateTier, emblem, paint) => request('/base/banner', { method: 'POST', body: JSON.stringify({ template_tier: templateTier, emblem, paint }) })
+export const saveBanner = (templateTier, emblem, paint, extra = {}) => request('/base/banner', { method: 'POST', body: JSON.stringify({ template_tier: templateTier, emblem, paint, ...extra }) })
 
 // Dining Hall cooking + Alchemist aether refining
 export const getDiningCatalog = () => request('/base/dining/catalog')
@@ -147,6 +162,8 @@ export const useSummonTicket = (itemName) => request('/gacha/use-ticket', { meth
 // Achievements
 export const getAchievements = () => request('/achievements/')
 export const claimAchievement = (achievementId) => request('/achievements/claim', { method: 'POST', body: JSON.stringify({ achievement_id: achievementId }) })
+export const getRites = () => request('/achievements/rites')
+export const claimRite = (questId) => request('/achievements/rites/claim', { method: 'POST', body: JSON.stringify({ quest_id: questId }) })
 
 // Heroes
 export const listHeroes = (aliveOnly = false) => request(`/heroes/?alive_only=${aliveOnly}`)
@@ -171,6 +188,10 @@ export const getGiftCatalog = () => request('/heroes/gifts/catalog')
 export const giveGift = (heroId, giftId) => request(`/heroes/${heroId}/gift`, { method: 'POST', body: JSON.stringify({ gift_id: giftId }) })
 export const getShip = () => request('/base/ship')
 export const buildShip = () => request('/base/ship/build', { method: 'POST' })
+export const refitShip = (stat, delta) => request('/base/ship/refit', { method: 'POST', body: JSON.stringify({ stat, delta }) })
+export const buyRefitPoint = () => request('/base/ship/refit/buy_point', { method: 'POST' })
+export const getFreePullStatus = () => request('/gacha/free-status')
+export const freePull = () => request('/gacha/free-pull', { method: 'POST' })
 export const renameShip = (name) => request('/base/ship/rename', { method: 'POST', body: JSON.stringify({ name }) })
 export const craftMaterialEquipment = (material, targetClass) => request('/base/craft-equipment', { method: 'POST', body: JSON.stringify({ material, target_class: targetClass }) })
 export const craftBandages = (crafterId, quantity = 1) => request('/base/infirmary/craft-bandages', { method: 'POST', body: JSON.stringify({ crafter_id: crafterId, quantity }) })
@@ -195,8 +216,9 @@ export const unequipAllHero = (heroId) => request('/equipment/unequip-all', { me
 export const equipConsumable = (heroId, itemName) => request('/base/heroes/equip-consumable', { method: 'POST', body: JSON.stringify({ hero_id: heroId, item_name: itemName }) })
 
 // Gacha
-export const pullHeroes = (count = 1, usePortrait = false, currency = 'gem') => request('/gacha/pull', { method: 'POST', body: JSON.stringify({ count, use_portrait: usePortrait, currency }) })
-export const pullEquipment = (count = 1, currency = 'gold') => request('/gacha/equipment-pull', { method: 'POST', body: JSON.stringify({ count, currency }) })
+export const pullHeroes = (count = 1, usePortrait = false, currency = 'gem', banner = 'standard') => request('/gacha/pull', { method: 'POST', body: JSON.stringify({ count, use_portrait: usePortrait, currency, banner }) })
+export const pullEquipment = (count = 1, currency = 'gold', banner = 'standard') => request('/gacha/equipment-pull', { method: 'POST', body: JSON.stringify({ count, currency, banner }) })
+export const getSeason = () => request('/gacha/season')
 export const getOdds = (currency = 'gem') => request(`/gacha/odds?currency=${currency}`)
 export const getEquipmentOdds = (currency = 'gold') => request(`/gacha/equipment-odds?currency=${currency}`)
 export const getPityInfo = () => request('/gacha/pity-info')
@@ -230,3 +252,19 @@ export const deleteProfile = (name) => request('/profiles/delete', { method: 'PO
 export const getMailList = () => request('/base/mail/list')
 export const claimMail = (mailId) => request('/base/mail/claim', { method: 'POST', body: JSON.stringify({ mail_id: mailId }) })
 export const receiveMail = (sender, subject, body, rewardsJson) => request('/base/mail/receive', { method: 'POST', body: JSON.stringify({ sender, subject, body, rewards_json: rewardsJson }) })
+
+/* ============================================================
+   Base Raids (local side) — the raid defense snapshot, scouting
+   spend, and applying results/prisoners against your own save.
+   The World/Arena server calls live in api/arenaServerClient.js.
+   ============================================================ */
+export const raidDefenseSnapshot = () => request('/raid/defense_snapshot')
+export const raidScoutPower = () => request('/raid/scout_power')
+export const raidPayScout = (currency = 'gold') => request('/raid/pay_scout', { method: 'POST', body: JSON.stringify({ currency }) })
+export const raidApplyAttackResult = (won, goldStolen = 0, ingredientsStolen = 0) => request('/raid/apply_attack_result', { method: 'POST', body: JSON.stringify({ won, gold_stolen: goldStolen, ingredients_stolen: ingredientsStolen }) })
+export const raidApplyEvent = (eventType, payload = {}) => request('/raid/apply_raid_event', { method: 'POST', body: JSON.stringify({ event_type: eventType, payload }) })
+export const raidIntegratePrisoner = (prisoner, originalMaster) => request('/raid/integrate_prisoner', { method: 'POST', body: JSON.stringify({ prisoner, original_master: originalMaster }) })
+export const raidListPrisoners = () => request('/raid/prisoners')
+export const raidWinOverPrisoner = (heroId) => request(`/raid/prisoner/${heroId}/win_over`, { method: 'POST' })
+export const setGuildBoons = (heroExpPct, refitDiscountPct) =>
+  request('/base/guild_boons', { method: 'POST', body: JSON.stringify({ hero_exp_pct: heroExpPct, refit_discount_pct: refitDiscountPct }) })

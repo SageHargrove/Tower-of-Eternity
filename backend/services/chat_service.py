@@ -259,6 +259,99 @@ Format:
         print(f"[Chat] Failed to generate chat: {e}")
         return {"status": "error", "message": str(e)}
 
+# ─── The Hearth: a word to the company ──────────────────────────────
+#
+# The player can send one of three words down to the company from the
+# Hearth drawer. Each nudges the whole living roster's mood a little and
+# gets an in-character reaction back (LLM when available, canned when not).
+
+HEARTH_WORD_COOLDOWN_SECS = 300
+
+HEARTH_TONES = {
+    "rally": {
+        "instruction": "The commander just sent word to RALLY — a rousing call to push higher up the Tower. Heroes react in character: fired up, wry, or grumbling but game.",
+        "sql": "UPDATE heroes SET morale = MIN(100, morale + 3) WHERE is_alive = 1",
+        "fallback": ["To the stairs, then. Again.", "You heard the word. Sharpen up.", "Fine. But I'm finishing my drink first."],
+    },
+    "reassure": {
+        "instruction": "The commander just sent a REASSURING word — steady, warm, telling the company they're doing well and are looked after. Heroes react in character: touched, deflecting, or quietly grateful.",
+        "sql": "UPDATE heroes SET stress = MAX(0, stress - 4) WHERE is_alive = 1",
+        "fallback": ["...That helps more than I'd admit.", "Tell the commander we're fine. Mostly.", "See? Someone up there remembers us."],
+    },
+    "rest": {
+        "instruction": "The commander just sent word to LET THEM REST — no climbing today, take it easy. Heroes react in character: relieved, suspicious of the kindness, or already asleep.",
+        "sql": "UPDATE heroes SET stress = MAX(0, stress - 2), fatigue = MAX(0, COALESCE(fatigue, 0) - 3) WHERE is_alive = 1",
+        "fallback": ["Don't have to tell me twice.", "A whole day? What's the catch?", "Wake me when the Tower's gone."],
+    },
+}
+
+
+def hearth_word(tone: str) -> dict:
+    if tone not in HEARTH_TONES:
+        return {"status": "error", "message": "Unknown word."}
+    spec = HEARTH_TONES[tone]
+
+    with db() as conn:
+        try:
+            conn.execute("ALTER TABLE base ADD COLUMN last_hearth_word TIMESTAMP")
+        except Exception:
+            pass
+        base = conn.execute("SELECT last_hearth_word FROM base WHERE id = 1").fetchone()
+        last = dict(base).get("last_hearth_word") if base else None
+        if last:
+            try:
+                elapsed = (datetime.utcnow() - datetime.strptime(last, "%Y-%m-%d %H:%M:%S")).total_seconds()
+                if elapsed < HEARTH_WORD_COOLDOWN_SECS:
+                    return {"status": "cooldown", "remaining": int(HEARTH_WORD_COOLDOWN_SECS - elapsed)}
+            except ValueError:
+                pass
+
+        heroes = conn.execute(
+            "SELECT id, name, personality, hero_class, level FROM heroes WHERE is_alive = 1"
+        ).fetchall()
+        if not heroes:
+            return {"status": "error", "message": "No one is left to hear it."}
+
+        conn.execute(spec["sql"])
+        conn.execute("UPDATE base SET last_hearth_word = CURRENT_TIMESTAMP WHERE id = 1")
+
+    speakers = random.sample([dict(h) for h in heroes], min(3, len(heroes)))
+    profiles = "\n".join(f"- {h['name']}: Lvl {h['level']} {h['hero_class']}. Personality: {h['personality']}" for h in speakers)
+    prompt = f"""
+You are writing hero reactions in a dark-fantasy tower-climbing game.
+{spec['instruction']}
+
+The heroes reacting are:
+{profiles}
+
+Write ONE short reaction line per hero (a single sentence each, in their own voice).
+Return ONLY a valid JSON array, no markdown fences:
+[{{"speaker": "Hero Name", "message": "Their line"}}, ...]
+"""
+    chat_data = None
+    try:
+        response = _generate_chat_text(prompt, max_tokens=200, temperature=0.9)
+        parsed = json.loads(_clean_json(response))
+        if isinstance(parsed, list) and parsed:
+            chat_data = parsed
+    except Exception as e:
+        print(f"[Hearth] LLM reaction failed, using fallback: {e}")
+    if not chat_data:
+        lines = random.sample(spec["fallback"], min(len(speakers), len(spec["fallback"])))
+        chat_data = [{"speaker": h["name"], "message": line} for h, line in zip(speakers, lines)]
+
+    with db() as conn:
+        conn.execute(
+            "INSERT INTO hero_chat_logs (location, message, participants) VALUES (?, ?, ?)",
+            ("The Hearth", json.dumps(chat_data), ", ".join(h["name"] for h in speakers)),
+        )
+        conn.execute("""
+            DELETE FROM hero_chat_logs
+            WHERE id NOT IN (SELECT id FROM hero_chat_logs ORDER BY created_at DESC LIMIT 5)
+        """)
+    return {"status": "success", "chat": chat_data, "cooldown": HEARTH_WORD_COOLDOWN_SECS}
+
+
 import time
 import threading
 

@@ -10,6 +10,10 @@ tactical variety, not "combat" as a single undifferentiated default):
   conquest       — A larger enemy wave to clear by force, no twist beyond the numbers
   war            — The hardest non-boss set-piece fight: biggest wave, toughened stats
   retrieve       — A fight guarding something worth taking; guaranteed bonus loot on a win
+  retrieval      — Objective mission: a designated Runner channels the objective (never
+                   attacks) while the team keeps them alive for the turn limit. Tanky
+                   runner who soaks the aggro vs. evasive runner who dodges it — see
+                   combat_service.py's is_retrieval/RETRIEVAL_TURN_LIMIT handling.
   ambush         — Enemies get a guaranteed first strike round 1, regardless of speed
   blitz          — Enemies gain a stacking +20% ATK/SPD every round — a pure burst race
   cursed_ground  — Team starts the fight already debuffed (poisoned + HP cap reduced)
@@ -58,6 +62,7 @@ def get_floor_type(floor_number: int) -> str:
         "conquest": 6,
         "war": 3,
         "retrieve": 6,
+        "retrieval": 6,
         "ambush": 10,
         "blitz": 8,
         "cursed_ground": 7,
@@ -103,6 +108,7 @@ FLOOR_FLAVOR_INTRO = {
     "conquest": "A war band holds this floor. Every last one of them stands between you and the stairs up.",
     "war": "Banners, fire, and steel — this floor is a battlefield in miniature, and you've just walked into it.",
     "retrieve": "Something valuable is held here, guarded. Take it from them.",
+    "retrieval": "A sealed mechanism dominates the chamber. Someone must work it — undisturbed — while the rest hold the line.",
     "ambush": "The corridor is too quiet. Too late — they were waiting.",
     "blitz": "The air crackles with something that isn't yours. Whatever's here, it's getting stronger by the second.",
     "cursed_ground": "The air here is wrong — your team feels it the moment they step through.",

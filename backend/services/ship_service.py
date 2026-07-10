@@ -50,11 +50,89 @@ def _skydock_builders(conn) -> dict:
 
 
 def _ensure_columns(conn):
-    for col, ddl in (("ship_tier", "INTEGER DEFAULT 0"), ("ship_name", "TEXT")):
+    for col, ddl in (
+        ("ship_tier", "INTEGER DEFAULT 0"),
+        ("ship_name", "TEXT"),
+        # Refit: a free point-allocation pool across Speed/Firepower/Armor.
+        # NO auto tier-up — tier is the hull class, set at build; refit makes
+        # each ship unique (design decision, Skydock chat 2026-07-07).
+        ("ship_refit_json", "TEXT DEFAULT '{}'"),
+        ("ship_refit_points", "INTEGER DEFAULT 0"),
+    ):
         try:
             conn.execute(f"ALTER TABLE base ADD COLUMN {col} {ddl}")
         except Exception:
             pass
+
+
+# ─── Refit ───────────────────────────────────────────────────────────
+# Each hull tier grants a base pool at build time; more points are bought
+# with gold at a rising price. Points move freely between the three
+# categories (deallocate and reallocate at will) — the pool is the limit.
+
+REFIT_STATS = ("speed", "fire", "armor")
+REFIT_POOL_PER_TIER = 3           # granted when a new hull is laid
+REFIT_POINT_BASE_COST = 4000      # gold; cost = base * (owned_points + 1)
+REFIT_POINT_CAP = 30
+
+
+def _refit_state(base_row) -> tuple[dict, int]:
+    import json as _json
+    try:
+        alloc = _json.loads(base_row["ship_refit_json"] or "{}")
+    except Exception:
+        alloc = {}
+    alloc = {s: int(alloc.get(s, 0)) for s in REFIT_STATS}
+    return alloc, int(base_row["ship_refit_points"] or 0)
+
+
+def allocate_refit(stat: str, delta: int) -> dict:
+    if stat not in REFIT_STATS:
+        raise ValueError("Refit points go to Speed, Firepower, or Armor.")
+    if delta not in (-1, 1):
+        raise ValueError("One point at a time — the fitters are careful people.")
+    import json as _json
+    with db() as conn:
+        _ensure_columns(conn)
+        base = conn.execute("SELECT ship_tier, ship_refit_json, ship_refit_points FROM base WHERE id = 1").fetchone()
+        if not (base["ship_tier"] or 0):
+            raise ValueError("Lay a keel first — there is nothing to refit.")
+        alloc, pool = _refit_state(base)
+        spent = sum(alloc.values())
+        if delta > 0 and spent >= pool:
+            raise ValueError("No refit points left — buy one, or free one from another category.")
+        if delta < 0 and alloc[stat] <= 0:
+            raise ValueError(f"No points allocated to {stat}.")
+        alloc[stat] += delta
+        conn.execute("UPDATE base SET ship_refit_json = ? WHERE id = 1", (_json.dumps(alloc),))
+    return {"ok": True, "refit": alloc, "unspent": pool - sum(alloc.values())}
+
+
+def _refit_discount_pct(conn) -> int:
+    """Skywrights guild boon, synced from the world server (see
+    /base/guild_boons). 0 when guildless or the column doesn't exist yet."""
+    try:
+        row = conn.execute("SELECT guild_refit_discount_pct FROM base WHERE id = 1").fetchone()
+        return int(row["guild_refit_discount_pct"] or 0)
+    except Exception:
+        return 0
+
+
+def buy_refit_point() -> dict:
+    with db() as conn:
+        _ensure_columns(conn)
+        base = conn.execute("SELECT gold, ship_tier, ship_refit_points FROM base WHERE id = 1").fetchone()
+        if not (base["ship_tier"] or 0):
+            raise ValueError("Lay a keel first — there is nothing to refit.")
+        pool = int(base["ship_refit_points"] or 0)
+        if pool >= REFIT_POINT_CAP:
+            raise ValueError("The hull holds no more fittings — the fitters refuse.")
+        cost = REFIT_POINT_BASE_COST * (pool + 1)
+        cost = int(round(cost * (1 - min(50, _refit_discount_pct(conn)) / 100.0)))
+        if base["gold"] < cost:
+            raise ValueError(f"Not enough gold. The fitters ask {cost:,}g for the next point.")
+        conn.execute("UPDATE base SET gold = gold - ?, ship_refit_points = ship_refit_points + 1 WHERE id = 1", (cost,))
+    return {"ok": True, "points": pool + 1, "cost": cost}
 
 
 def get_ship_status() -> dict:
@@ -80,6 +158,8 @@ def get_ship_status() -> dict:
             else:
                 can_build = True
 
+        full = conn.execute("SELECT ship_refit_json, ship_refit_points FROM base WHERE id = 1").fetchone()
+        alloc, pool = _refit_state(full)
         return {
             "tier": tier,
             "ship": ({"tier": tier, **current} if current else None),
@@ -88,6 +168,12 @@ def get_ship_status() -> dict:
             "can_build": can_build,
             "blocker": blocker,
             "builders": builders,
+            "refit": {
+                "allocated": alloc, "pool": pool, "unspent": pool - sum(alloc.values()),
+                "next_point_cost": (int(round(REFIT_POINT_BASE_COST * (pool + 1) * (1 - min(50, _refit_discount_pct(conn)) / 100.0)))
+                                    if pool < REFIT_POINT_CAP else None),
+                "cap": REFIT_POINT_CAP,
+            },
         }
 
 
@@ -110,9 +196,13 @@ def build_next_tier() -> dict:
         if base["gold"] < nxt["cost"]:
             raise ValueError(f"Not enough gold. Need {nxt['cost']:,}g.")
 
-        conn.execute("UPDATE base SET gold = gold - ?, ship_tier = ? WHERE id = 1", (nxt["cost"], tier))
+        # a new hull grants its share of the refit pool
+        conn.execute(
+            "UPDATE base SET gold = gold - ?, ship_tier = ?, "
+            "ship_refit_points = COALESCE(ship_refit_points, 0) + ? WHERE id = 1",
+            (nxt["cost"], tier, REFIT_POOL_PER_TIER))
 
-    return {"ok": True, "tier": tier, "name": nxt["name"]}
+    return {"ok": True, "tier": tier, "name": nxt["name"], "refit_points_granted": REFIT_POOL_PER_TIER}
 
 
 def rename_ship(name: str) -> dict:
@@ -149,6 +239,12 @@ def get_base_defense(conn) -> dict:
         engineer = any(r["hero_class"] == "Magic Engineer" for r in rows)
         garrison_rating = sum(r["level"] for r in rows) * (2 if engineer else 1) + bastion["level"] * 5
     ship_rating = SHIP_TIERS.get(ship_tier, {}).get("defense", 0)
+    # Refit fittings harden the hull: Firepower and Armor both raise the
+    # docked ship's contribution (Speed pays off on expeditions instead).
+    if ship_tier:
+        full = conn.execute("SELECT ship_refit_json, ship_refit_points FROM base WHERE id = 1").fetchone()
+        alloc, _pool = _refit_state(full)
+        ship_rating += alloc.get("fire", 0) * 3 + alloc.get("armor", 0) * 2
 
     # Captured beasts guarding the grounds (Bestiary, floor 30+).
     from services.endgame_service import bestiary_defense

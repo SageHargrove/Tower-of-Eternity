@@ -9,8 +9,23 @@ CHECKPOINT = os.getenv("COMFY_CHECKPOINT", "noobaiXLNAIXL_vPred10Version.safeten
 LORA_NAME = os.getenv("COMFY_LORA", None)
 LORA_STRENGTH = float(os.getenv("COMFY_LORA_STRENGTH", "0.8"))
 
+# v-prediction checkpoints (NoobAI vPred etc.) sampled like a normal eps
+# model produce exactly the artifacts we saw in portraits/cached: some
+# outputs fried (crushed blacks, neon saturation), others collapsed to
+# near-grayscale. The documented fix is a RescaleCFG pass and a lower CFG.
+# Auto-detected from the checkpoint filename; override with COMFY_VPRED=0/1.
+_vpred_env = os.getenv("COMFY_VPRED")
+IS_VPRED = (_vpred_env == "1") if _vpred_env in ("0", "1") else ("vpred" in CHECKPOINT.lower().replace("_", "").replace("-", ""))
+CFG = float(os.getenv("COMFY_CFG", "5.0" if IS_VPRED else "7.0"))
+RESCALE_MULT = float(os.getenv("COMFY_RESCALE_CFG", "0.7"))
+# Impact Pack FaceDetailer pass (installed 2026-07). COMFY_FACE_DETAILER=0
+# disables; if the packs are missing, generation retries without it anyway.
+FACE_DETAIL = os.getenv("COMFY_FACE_DETAILER", "1") == "1"
 
-def _build_workflow(prompt: str, negative: str = "", seed: int = None, init_image_name: str = None, denoise: float = 0.45, width: int = 832, height: int = 1216, hires: bool = False, hires_denoise: float = 0.55, lora_override: str = None, lora_strength_override: float = None) -> dict:
+
+def _build_workflow(prompt: str, negative: str = "", seed: int = None, init_image_name: str = None, denoise: float = 0.45, width: int = 832, height: int = 1216, hires: bool = False, hires_denoise: float = 0.62, lora_override: str = None, lora_strength_override: float = None, face_detail: bool = None) -> dict:
+    if face_detail is None:
+        face_detail = FACE_DETAIL
     if seed is None:
         seed = random.randint(0, 2**32 - 1)
 
@@ -52,26 +67,52 @@ def _build_workflow(prompt: str, negative: str = "", seed: int = None, init_imag
         }
     }
 
-    # Add LoRA node if configured, rewire model/clip sources. A per-call
-    # override (lora_override) takes precedence over the COMFY_LORA env var
-    # so a caller (e.g. the equipment icon script) can use a different LoRA
-    # than whatever's configured for hero portrait generation, without
-    # touching that global setting.
-    lora_name = lora_override if lora_override is not None else LORA_NAME
-    lora_strength = lora_strength_override if lora_strength_override is not None else LORA_STRENGTH
-    if lora_name:
-        workflow["10"] = {
-            "inputs": {
-                "lora_name": lora_name,
-                "strength_model": lora_strength,
-                "strength_clip": lora_strength,
-                "model": ["4", 0],
-                "clip": ["4", 1]
-            },
-            "class_type": "LoraLoader"
+    # LoRA stack. COMFY_LORA accepts a comma-separated list, each entry
+    # optionally carrying its own strength after a colon:
+    #   COMFY_LORA="darkFantasy_illustrious.safetensors:0.55,addMicroDetails_illu.safetensors:0.3"
+    # Entries without a strength use COMFY_LORA_STRENGTH. A per-call
+    # override (lora_override, same syntax) takes precedence, so a caller
+    # (e.g. the equipment icon script) can use a different stack without
+    # touching the global setting. Loaders chain 10, 21, 22, ...
+    lora_spec = lora_override if lora_override is not None else LORA_NAME
+    default_strength = lora_strength_override if lora_strength_override is not None else LORA_STRENGTH
+    if lora_spec:
+        entries = []
+        for part in str(lora_spec).split(","):
+            part = part.strip()
+            if not part:
+                continue
+            if ":" in part:
+                name, _, s = part.rpartition(":")
+                try:
+                    entries.append((name.strip(), float(s)))
+                except ValueError:
+                    entries.append((part, default_strength))
+            else:
+                entries.append((part, default_strength))
+        for i, (name, strength) in enumerate(entries):
+            node_id = "10" if i == 0 else str(20 + i)  # 10, 21, 22, ...
+            workflow[node_id] = {
+                "inputs": {
+                    "lora_name": name,
+                    "strength_model": strength,
+                    "strength_clip": strength,
+                    "model": model_source,
+                    "clip": clip_source
+                },
+                "class_type": "LoraLoader"
+            }
+            model_source = [node_id, 0]
+            clip_source = [node_id, 1]
+
+    # v-pred sampling correction — core ComfyUI node, sits after the
+    # checkpoint/LoRA and feeds every KSampler below.
+    if IS_VPRED:
+        workflow["20"] = {
+            "inputs": {"multiplier": RESCALE_MULT, "model": model_source},
+            "class_type": "RescaleCFG"
         }
-        model_source = ["10", 0]
-        clip_source = ["10", 1]
+        model_source = ["20", 0]
 
     workflow["6"] = {
         "inputs": {"text": full_prompt, "clip": clip_source},
@@ -94,11 +135,14 @@ def _build_workflow(prompt: str, negative: str = "", seed: int = None, init_imag
         denoise_val = denoise
         base_width, base_height = width, height
     elif hires:
-        # First pass renders smaller (at the checkpoint's natural strong
-        # resolution for complex scenes), second pass upscales to the real
-        # target size and refines.
-        base_width = (int(width * 0.65) // 8) * 8
-        base_height = (int(height * 0.65) // 8) * 8
+        # First pass composes at the requested size — which should be the
+        # checkpoint's native training res (832×1216 for NoobAI-XL); the
+        # second pass upscales 1.5× and refines. The old version composed
+        # the base pass at 0.65× (≈540×790) — BELOW the model's coherent
+        # range, which is where the broken anatomy/proportions came from —
+        # and "upscaled" merely back to native, so detail never exceeded a
+        # single-pass render either.
+        base_width, base_height = width, height
         workflow["5"] = {
             "inputs": {"width": base_width, "height": base_height, "batch_size": 1},
             "class_type": "EmptyLatentImage"
@@ -117,7 +161,7 @@ def _build_workflow(prompt: str, negative: str = "", seed: int = None, init_imag
         "inputs": {
             "seed": seed,
             "steps": 28,
-            "cfg": 7.0,
+            "cfg": CFG,
             "sampler_name": "euler_ancestral",
             "scheduler": "normal",
             "denoise": denoise_val,
@@ -134,8 +178,8 @@ def _build_workflow(prompt: str, negative: str = "", seed: int = None, init_imag
             "inputs": {
                 "samples": ["3", 0],
                 "upscale_method": "bislerp",
-                "width": width,
-                "height": height,
+                "width": (int(width * 1.5) // 8) * 8,
+                "height": (int(height * 1.5) // 8) * 8,
                 "crop": "disabled"
             },
             "class_type": "LatentUpscale"
@@ -144,7 +188,7 @@ def _build_workflow(prompt: str, negative: str = "", seed: int = None, init_imag
             "inputs": {
                 "seed": seed + 1,
                 "steps": 20,
-                "cfg": 7.0,
+                "cfg": CFG,
                 "sampler_name": "euler_ancestral",
                 "scheduler": "normal",
                 "denoise": hires_denoise,
@@ -155,6 +199,55 @@ def _build_workflow(prompt: str, negative: str = "", seed: int = None, init_imag
             },
             "class_type": "KSampler"
         }
+
+    # FaceDetailer (Impact Pack): detects the face in the decoded image and
+    # re-renders that crop at high resolution — the fix for tiny broken
+    # eyes at full-body framing. If no face is detected (monsters), it
+    # passes the image through untouched. generate_portrait_comfy retries
+    # without it if ComfyUI rejects the workflow (packs not installed).
+    if face_detail:
+        workflow["31"] = {
+            "inputs": {"model_name": "bbox/face_yolov8m.pt"},
+            "class_type": "UltralyticsDetectorProvider"
+        }
+        workflow["30"] = {
+            "inputs": {
+                "image": ["8", 0],
+                "model": model_source,
+                "clip": clip_source,
+                "vae": ["4", 2],
+                "positive": ["6", 0],
+                "negative": ["7", 0],
+                "bbox_detector": ["31", 0],
+                "guide_size": 512,
+                "guide_size_for": True,
+                "max_size": 1024,
+                "seed": seed + 2,
+                "steps": 20,
+                "cfg": CFG,
+                "sampler_name": "euler_ancestral",
+                "scheduler": "normal",
+                "denoise": 0.45,
+                "feather": 5,
+                "noise_mask": True,
+                "force_inpaint": True,
+                "bbox_threshold": 0.5,
+                "bbox_dilation": 10,
+                "bbox_crop_factor": 3.0,
+                "sam_detection_hint": "center-1",
+                "sam_dilation": 0,
+                "sam_threshold": 0.93,
+                "sam_bbox_expansion": 0,
+                "sam_mask_hint_threshold": 0.7,
+                "sam_mask_hint_use_negative": "False",
+                "drop_size": 10,
+                "wildcard": "",
+                "cycle": 1,
+            },
+            "class_type": "FaceDetailer"
+        }
+        # save the detailed image instead of the raw decode
+        workflow["9"]["inputs"]["images"] = ["30", 0]
 
     return workflow
 
@@ -231,7 +324,7 @@ def _upload_image(file_path: str) -> str | None:
         return None
 
 
-def generate_portrait_comfy(prompt: str, save_path: str, init_image_path: str = None, denoise: float = 0.45, negative: str = "", width: int = 832, height: int = 1216, hires: bool = False, hires_denoise: float = 0.55, lora_override: str = None, lora_strength_override: float = None) -> bool:
+def generate_portrait_comfy(prompt: str, save_path: str, init_image_path: str = None, denoise: float = 0.45, negative: str = "", width: int = 832, height: int = 1216, hires: bool = False, hires_denoise: float = 0.62, lora_override: str = None, lora_strength_override: float = None, _noise_retry: bool = False) -> bool:
     if not is_comfy_running():
         print("[ComfyUI] Server not running — skipping.")
         return False
@@ -242,6 +335,12 @@ def generate_portrait_comfy(prompt: str, save_path: str, init_image_path: str = 
 
     workflow = _build_workflow(prompt, negative=negative, init_image_name=init_image_name, denoise=denoise, width=width, height=height, hires=hires, hires_denoise=hires_denoise, lora_override=lora_override, lora_strength_override=lora_strength_override)
     prompt_id = _queue_prompt(workflow)
+    if not prompt_id and FACE_DETAIL:
+        # Most likely the Impact Pack nodes aren't available — retry the
+        # same generation without the FaceDetailer pass rather than failing.
+        print("[ComfyUI] Queue failed with FaceDetailer — retrying without it.")
+        workflow = _build_workflow(prompt, negative=negative, init_image_name=init_image_name, denoise=denoise, width=width, height=height, hires=hires, hires_denoise=hires_denoise, lora_override=lora_override, lora_strength_override=lora_strength_override, face_detail=False)
+        prompt_id = _queue_prompt(workflow)
     if not prompt_id:
         return False
 
@@ -250,4 +349,32 @@ def generate_portrait_comfy(prompt: str, save_path: str, init_image_path: str = 
         print("[ComfyUI] Timed out waiting for result.")
         return False
 
-    return _download_image(filename, save_path)
+    if not _download_image(filename, save_path):
+        return False
+
+    # Rare v-pred seed collapse produces full-frame noise soup. Every valid
+    # render on this pipeline has a large near-black region (the void
+    # background); noise soup has none. Detect and retry once with a fresh
+    # seed. `_noise_retry` guards against infinite recursion.
+    if not _noise_retry and _looks_like_noise(save_path):
+        print("[ComfyUI] Output looks like seed-collapse noise — retrying once.")
+        return generate_portrait_comfy(prompt, save_path, init_image_path=init_image_path,
+                                       denoise=denoise, negative=negative, width=width, height=height,
+                                       hires=hires, hires_denoise=hires_denoise,
+                                       lora_override=lora_override, lora_strength_override=lora_strength_override,
+                                       _noise_retry=True)
+    return True
+
+
+def _looks_like_noise(path: str) -> bool:
+    """True when the image has almost no dark pixels — the signature of a
+    collapsed all-noise render on this pipeline (valid portraits always
+    carry a large near-black void background)."""
+    try:
+        from PIL import Image
+        im = Image.open(path).convert("L").resize((64, 64))
+        px = list(im.getdata())
+        dark = sum(1 for p in px if p < 45)
+        return (dark / len(px)) < 0.05
+    except Exception:
+        return False

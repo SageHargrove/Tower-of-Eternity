@@ -12,13 +12,14 @@ load_dotenv()
 
 client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
 
-# Hero chatter is the one place voice/personality actually matters (it's
-# free-form conversation, not a structured description) — confirmed real
-# complaint that Gemini's tone reads stiff/over-explainy there specifically.
-# Everything else (zone themes, event narration, boss naming) is shorter,
-# more atmospheric/descriptive text where that's less of a liability, so it
-# stays on Gemini rather than switching every single call over and leaving
-# the remaining Gemini credit with nothing left to spend on.
+# Claude/Haiku is now the PRIMARY text-generation provider for every
+# narrative call in this file (hero bios, combat narration, event text,
+# zone themes, boss naming, legacy text, lore entries, creative-craft
+# flavor) — cheaper and reads noticeably better than Gemini across the
+# board, not just for hero chatter. Gemini is kept only as an automatic
+# fallback (see _generate_with_claude_fallback) for a save running before
+# ANTHROPIC_API_KEY is configured, or if a Claude call itself fails — so
+# nothing breaks outright if that key ever lapses again.
 _anthropic_client = None
 if os.getenv("ANTHROPIC_API_KEY"):
     import anthropic
@@ -27,11 +28,10 @@ if os.getenv("ANTHROPIC_API_KEY"):
 CLAUDE_CHAT_MODEL = "claude-haiku-4-5-20251001"
 
 def generate_with_claude(prompt: str, max_tokens: int = 600, temperature: float = 0.9) -> str:
-    """Same shape/contract as _generate_with_fallback (raises on failure,
-    caller decides the fallback) but for the Anthropic-backed hero chatter
-    path. Raises if ANTHROPIC_API_KEY isn't set rather than silently
-    falling back to Gemini — that fallback would defeat the entire point of
-    switching providers for quality."""
+    """Raises on failure (no ANTHROPIC_API_KEY, or the call itself errors) —
+    caller decides the fallback. See _generate_with_claude_fallback for the
+    version every generate_* function in this file actually uses, which
+    catches this and falls back to Gemini automatically."""
     if _anthropic_client is None:
         raise RuntimeError("ANTHROPIC_API_KEY not set — cannot use Claude/Haiku.")
     response = _anthropic_client.messages.create(
@@ -143,6 +143,19 @@ def _generate_with_fallback(prompt: str, max_tokens: int = 600, temperature: flo
     raise Exception(f"All Gemini models exhausted. Last error: {last_error}")
 
 
+def _generate_with_claude_fallback(prompt: str, max_tokens: int = 600, temperature: float = 0.9) -> str:
+    """The primary entry point every generate_* function below actually
+    calls: Claude/Haiku first, and only falls back to the Gemini chain
+    (_generate_with_fallback) if Claude is unavailable or errors — same
+    resilience pattern chat_service.py already used for hero chatter,
+    just applied to every narrative call in this file now."""
+    try:
+        return generate_with_claude(prompt, max_tokens=max_tokens, temperature=temperature)
+    except Exception as e:
+        print(f"[LLM] Claude/Haiku unavailable ({e}), falling back to Gemini")
+        return _generate_with_fallback(prompt, max_tokens=max_tokens, temperature=temperature)
+
+
 def _clean_json(raw: str) -> str:
     """Strip markdown fences if model adds them."""
     raw = re.sub(r'^```json\s*', '', raw)
@@ -209,7 +222,7 @@ Respond ONLY with valid JSON and nothing else — no markdown, no backticks, no 
 {{
   "name": "First and Last name (MUST have a surname to ensure absolute uniqueness. culturally varied — pull from diverse real-world naming traditions)",
   "title": "Short epithet or nickname (e.g. 'The Twice-Burned', 'Ash of the North')",
-  "backstory": "2-3 sentences. Specific, evocative, no tropes.",
+  "backstory": "8-12 sentences telling their full life story in order: origins, the wound or wonder that shaped them, how they came to the Tower, and what they still carry. Specific, evocative, no tropes. This is revealed to the player sentence by sentence as the hero ascends, so EVERY sentence should stand alone as a satisfying fragment, and later sentences should hold the deepest secrets.",
   "personality": "1-2 sentences. How they act under pressure.",
   "gender": "male, female, or other",
   "portrait_prompt": "anime portrait tags: specific hair color, hair style, skin tone, facial feature, clothing detail, expression, mood lighting. Must be visually distinct.",
@@ -217,13 +230,14 @@ Respond ONLY with valid JSON and nothing else — no markdown, no backticks, no 
   "battle_tendency": "Stoic"
 }}"""
 
-    raw = _generate_with_fallback(prompt, max_tokens=900, temperature=0.9)
+    # max_tokens raised for the long-form chronicle (8-12 sentence backstory).
+    raw = _generate_with_claude_fallback(prompt, max_tokens=1600, temperature=0.9)
     try:
         data = json.loads(_clean_json(raw))
     except json.JSONDecodeError:
         print(f"[LLM] JSON parse failed, raw response was:\n{raw}\nRetrying with strict JSON prompt...")
-        retry_prompt = prompt + "\n\nIMPORTANT: Your previous response was not valid JSON, likely because it was cut off. Keep backstory and personality SHORT. Respond with ONLY the raw JSON object. No markdown, no backticks, no explanation."
-        raw = _generate_with_fallback(retry_prompt, max_tokens=900, temperature=0.7)
+        retry_prompt = prompt + "\n\nIMPORTANT: Your previous response was not valid JSON, likely because it was cut off. Keep the backstory tighter (6-8 sentences). Respond with ONLY the raw JSON object. No markdown, no backticks, no explanation."
+        raw = _generate_with_claude_fallback(retry_prompt, max_tokens=1600, temperature=0.7)
         data = json.loads(_clean_json(raw))
 
     # Models occasionally write the literal string "null" instead of JSON null
@@ -251,7 +265,7 @@ Make the battle sound desperate, brutal, and cinematic. Be specific about the he
 Describe it as if observing a tense turn-based battle unfold before your eyes, emphasizing the decisive blows, the weight of every strike, and near-misses.
 Do not sugarcoat injuries or deaths. Respond with only the narration text, no preamble."""
 
-    return _generate_with_fallback(prompt, max_tokens=400, temperature=0.8)
+    return _generate_with_claude_fallback(prompt, max_tokens=400, temperature=0.8)
 
 
 def generate_turn_narrations(log_lines: list[str], hero_names: list[str]) -> list[str] | None:
@@ -278,7 +292,7 @@ Return EXACTLY {len(log_lines)} lines, same order, one rewritten sentence per in
 Respond ONLY with a valid JSON array of {len(log_lines)} strings, no markdown, no preamble."""
 
     try:
-        raw = _generate_with_fallback(prompt, max_tokens=max(300, len(log_lines) * 30), temperature=0.85)
+        raw = _generate_with_claude_fallback(prompt, max_tokens=max(300, len(log_lines) * 30), temperature=0.85)
         lines = json.loads(_clean_json(raw))
         if isinstance(lines, list) and len(lines) == len(log_lines):
             return [str(l) for l in lines]
@@ -303,7 +317,7 @@ Respond ONLY with valid JSON and nothing else — no markdown, no backticks:
   ]
 }}"""
 
-    raw = _generate_with_fallback(prompt, max_tokens=400, temperature=0.85)
+    raw = _generate_with_claude_fallback(prompt, max_tokens=400, temperature=0.85)
     return json.loads(_clean_json(raw))
 
 
@@ -319,7 +333,7 @@ Make the situation feel tense, dangerous, and morally ambiguous.
 The player will have to make a difficult, agonizing decision immediately after this. Make the consequences of their impending decision feel incredibly heavy, as if the heroes' lives depend on what you choose.
 Be specific with hero names and their reactions to the eerie scene.
 Respond with only the narration text."""
-    return _generate_with_fallback(prompt, max_tokens=200, temperature=0.85)
+    return _generate_with_claude_fallback(prompt, max_tokens=200, temperature=0.85)
 
 
 def generate_event_resolution_narrative(theme: str, choice_label: str, effects: dict, hero_names: list[str]) -> str:
@@ -335,7 +349,7 @@ If the effects are negative (loss of health, stress gained, trauma), describe th
 If the effects are positive, describe the fleeting relief or the grim satisfaction.
 Be specific with hero names.
 Grim, atmospheric, and highly descriptive. Respond with only the narration text."""
-    return _generate_with_fallback(prompt, max_tokens=200, temperature=0.8)
+    return _generate_with_claude_fallback(prompt, max_tokens=200, temperature=0.8)
 
 
 def generate_zone_theme(start_floor: int) -> str:
@@ -348,7 +362,7 @@ Example: "The Bleeding Archives: Shelves of flesh-bound tomes whisper madness to
 
 Respond with only the zone name and description."""
     try:
-        return _generate_with_fallback(prompt, max_tokens=100, temperature=0.9).strip()
+        return _generate_with_claude_fallback(prompt, max_tokens=100, temperature=0.9).strip()
     except Exception:
         return "The Dark Unknown: Shadows obscure the path ahead."
 
@@ -373,7 +387,7 @@ Situation: {context}
 
 Write ONE short sentence as the character's spoken reaction. In-character, emotional, dark tone.
 Use first person. No quotes. No action tags. Just the dialogue line."""
-    return _generate_with_fallback(prompt, max_tokens=60, temperature=0.9)
+    return _generate_with_claude_fallback(prompt, max_tokens=60, temperature=0.9)
 
 
 def generate_legacy_text(hero_name: str, birth_star: int, floors: int, kills: int, backstory: str) -> tuple[str, str]:
@@ -394,7 +408,7 @@ Format your response EXACTLY as:
 TITLE: [title here]
 FLAVOR: [flavor text here]"""
     try:
-        text = _generate_with_fallback(prompt, max_tokens=120, temperature=0.85)
+        text = _generate_with_claude_fallback(prompt, max_tokens=120, temperature=0.85)
         title_match = re.search(r"TITLE:\s*(.+)", text)
         flavor_match = re.search(r"FLAVOR:\s*(.+)", text)
         title = title_match.group(1).strip() if title_match else f"The Memory of {hero_name}"
@@ -420,7 +434,7 @@ Return ONLY valid JSON in this format:
 Keep multipliers between 0.7 and 2.0. The modifier should reflect the theme.
 """
     try:
-        raw = _generate_with_fallback(prompt, max_tokens=150, temperature=0.7)
+        raw = _generate_with_claude_fallback(prompt, max_tokens=150, temperature=0.7)
         return json.loads(_clean_json(raw))
     except Exception as e:
         print(f"Failed to generate boss: {e}")
@@ -456,7 +470,7 @@ def generate_creative_craft(description: str, materials: dict, power_pool: int, 
     }}
     """
     
-    resp = call_gemini(prompt)
+    resp = _generate_with_claude_fallback(prompt, max_tokens=300, temperature=0.85)
     try:
         import json
         data = json.loads(resp.strip().strip('`').replace('json', ''))
@@ -549,7 +563,7 @@ Respond in exactly this format with no extra commentary:
 TITLE: <a short evocative title, 2-5 words>
 TEXT: <the journal page text>"""
     try:
-        raw = _generate_with_fallback(prompt, max_tokens=220, temperature=0.95)
+        raw = _generate_with_claude_fallback(prompt, max_tokens=220, temperature=0.95)
         title, text = "Untitled Page", raw.strip()
         for line in raw.splitlines():
             if line.strip().upper().startswith("TITLE:"):

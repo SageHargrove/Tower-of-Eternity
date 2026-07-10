@@ -1,16 +1,16 @@
 import React, { useState } from 'react'
 import { synthesizeHero } from '../api/client'
 import { playRiteHum } from '../audio'
+import { CLASS_FAMILIES } from './HeroCard'
 
-// Full-screen ritual chamber for hero synthesis. Fully opaque — the roster
-// page shouldn't bleed through a rite. Drag heroes from the pool onto the
-// pedestals; the rite grants the vessel XP (through the normal leveling
-// pipeline), never raw stats.
-//
-// Background art hook: drop an image at
-//   backend/static/facilities/Synthesis Chamber.png
-// and it will render automatically behind the chamber (same convention as
-// facility banners).
+/*
+ * SYNTHESIS CHAMBER — full-screen ritual (mockup "Tavern - Illuminated.dc.html",
+ * screen label "Synthesis Chamber"). Center: the Vessel with XP projection.
+ * Left: Ego Resonance + Inheritance. Right: The Roster Watches (morale/stress/
+ * trauma costs). Bottom: the offerings rail (no soul limit) and the rite
+ * actions. The rite grants the vessel XP through the normal leveling
+ * pipeline, never raw stats.
+ */
 
 // Mirrors routers/heroes.py synthesize_hero's XP formula so the preview
 // matches what the rite actually grants.
@@ -19,183 +19,78 @@ function previewXp(sacrifice, resonant) {
   return resonant ? base * 2 : base
 }
 
-const MAX_OFFERINGS = 3
+function familyColor(cls) {
+  for (const fam of Object.values(CLASS_FAMILIES)) {
+    if (fam.members.includes(cls)) return fam.color
+  }
+  return '#c8a9f5'
+}
 
-// Multi-offering pedestal — up to MAX_OFFERINGS souls stacked side by side.
-function SacrificePedestal({ heroes, onRemove, onDropHero, synthesizing }) {
-  const [dragOver, setDragOver] = useState(false)
-  const accent = 'var(--red)'
-  const full = heroes.length >= MAX_OFFERINGS
-
+// Diamond soul tile art — mini composite, falling back to a monogram.
+function SoulDiamond({ hero, accent }) {
+  const [failed, setFailed] = useState(false)
+  const hasArt = hero.portrait_path && !hero.portrait_path.includes('default_')
   return (
-    <div style={{ width: 250, textAlign: 'center' }}>
-      <div style={{ fontFamily: 'Cinzel, serif', letterSpacing: '0.15em', textTransform: 'uppercase', fontSize: '0.85rem', color: accent, marginBottom: '0.6rem' }}>
-        The Offering{heroes.length > 1 ? 's' : ''} {heroes.length > 0 && `(${heroes.length}/${MAX_OFFERINGS})`}
-      </div>
-      <div
-        onDragOver={(e) => { e.preventDefault(); setDragOver(true) }}
-        onDragLeave={() => setDragOver(false)}
-        onDrop={(e) => {
-          e.preventDefault()
-          setDragOver(false)
-          const heroId = e.dataTransfer.getData('heroId')
-          if (heroId && !synthesizing && !full) onDropHero(Number(heroId))
-        }}
-        style={{
-          width: 200, height: 290, margin: '0 auto', borderRadius: 8,
-          border: heroes.length ? `2px solid ${accent}` : `2px dashed ${dragOver ? accent : 'var(--border-hi)'}`,
-          boxShadow: heroes.length ? '0 0 30px rgba(192,64,64,0.45)' : dragOver ? '0 0 20px rgba(192,64,64,0.35)' : 'none',
-          display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4,
-          background: dragOver ? 'rgba(80,30,130,0.25)' : 'rgba(0,0,0,0.55)',
-          overflow: 'hidden', position: 'relative', padding: 4,
-          transition: 'box-shadow 0.3s, border-color 0.3s, background 0.2s',
-        }}
-      >
-        {heroes.length === 0 ? (
-          <div className="text-dim" style={{ fontStyle: 'italic', fontSize: '0.85rem', padding: '1rem' }}>
-            Click or drag up to {MAX_OFFERINGS} heroes here
-          </div>
-        ) : heroes.map(hero => (
-          <div
-            key={hero.id}
-            onClick={!synthesizing ? () => onRemove(hero.id) : undefined}
-            title={!synthesizing ? `${hero.name} — click to remove` : hero.name}
-            style={{ flex: 1, height: '96%', minWidth: 0, cursor: synthesizing ? 'default' : 'pointer', borderRadius: 4, overflow: 'hidden', border: '1px solid rgba(192,64,64,0.5)' }}
-          >
-            {hero.portrait_path ? (
-              <img
-                src={`/heroes/${hero.id}/card-image?mini=true`}
-                onError={(e) => { e.target.onerror = null; e.target.src = `/${hero.portrait_path}` }}
-                draggable={false}
-                style={{ width: '100%', height: '100%', objectFit: 'cover', objectPosition: 'center top', animation: synthesizing ? 'synth-consume 2.2s ease-in forwards' : 'none' }}
-                alt={hero.name}
-              />
-            ) : (
-              <div style={{ height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: 'Cinzel, serif', color: accent, fontSize: '0.7rem', padding: 4, animation: synthesizing ? 'synth-consume 2.2s ease-in forwards' : 'none' }}>{hero.name}</div>
-            )}
-          </div>
-        ))}
-      </div>
-      <div style={{ marginTop: '0.6rem', minHeight: '2.6rem' }}>
-        {heroes.length > 0 ? (
-          <div style={{ fontSize: '0.75rem', color: 'var(--text-hi)', lineHeight: 1.5 }}>
-            {heroes.map(h => <div key={h.id} style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{h.name} <span className="text-dim">Lv.{h.level} · {(h.current_star || h.birth_star)}★</span></div>)}
-          </div>
-        ) : (
-          <div className="text-dim" style={{ fontSize: '0.75rem', fontStyle: 'italic' }}>Consumed — permanently</div>
-        )}
-      </div>
-    </div>
+    <span style={{ position: 'absolute', inset: 0, transform: 'rotate(45deg) scale(.72)', border: `1px solid ${accent}`, background: 'linear-gradient(135deg,#241018,#0c0710)', display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}>
+      {hasArt && !failed ? (
+        <img src={`/heroes/${hero.id}/card-image?mini=1`} alt={hero.name} draggable={false} onError={() => setFailed(true)}
+          style={{ width: '142%', height: '142%', objectFit: 'cover', transform: 'rotate(-45deg)', flex: 'none' }} />
+      ) : (
+        <span style={{ transform: 'rotate(-45deg)', fontFamily: "'Cinzel',serif", fontWeight: 700, fontSize: 16, color: accent }}>{(hero.name || '?')[0]}</span>
+      )}
+    </span>
   )
 }
 
-function Pedestal({ hero, role, onClear, onDropHero, synthesizing }) {
-  const isTarget = role === 'target'
-  const accent = isTarget ? 'var(--gold)' : 'var(--red)'
-  const label = isTarget ? 'The Vessel' : 'The Offering'
-  const hint = isTarget ? 'Receives the power' : 'Consumed — permanently'
-  const [dragOver, setDragOver] = useState(false)
-
-  const anim = synthesizing ? (isTarget ? 'synth-empower 1s ease-in-out infinite' : 'synth-consume 2.2s ease-in forwards') : 'none'
-
-  return (
-    <div style={{ width: 250, textAlign: 'center' }}>
-      <div style={{ fontFamily: 'Cinzel, serif', letterSpacing: '0.15em', textTransform: 'uppercase', fontSize: '0.85rem', color: accent, marginBottom: '0.6rem' }}>
-        {label}
-      </div>
-      <div
-        onClick={hero && !synthesizing ? onClear : undefined}
-        onDragOver={(e) => { e.preventDefault(); setDragOver(true) }}
-        onDragLeave={() => setDragOver(false)}
-        onDrop={(e) => {
-          e.preventDefault()
-          setDragOver(false)
-          const heroId = e.dataTransfer.getData('heroId')
-          if (heroId && !synthesizing) onDropHero(Number(heroId))
-        }}
-        title={hero && !synthesizing ? 'Click to remove' : undefined}
-        style={{
-          width: 200, height: 290, margin: '0 auto', borderRadius: 8,
-          border: hero ? `2px solid ${accent}` : `2px dashed ${dragOver ? accent : 'var(--border-hi)'}`,
-          boxShadow: hero
-            ? `0 0 30px ${isTarget ? 'rgba(201,168,76,0.45)' : 'rgba(192,64,64,0.45)'}`
-            : dragOver ? `0 0 20px ${isTarget ? 'rgba(201,168,76,0.35)' : 'rgba(192,64,64,0.35)'}` : 'none',
-          display: 'flex', alignItems: 'center', justifyContent: 'center',
-          background: dragOver ? 'rgba(80,30,130,0.25)' : 'rgba(0,0,0,0.55)',
-          cursor: hero && !synthesizing ? 'pointer' : 'default',
-          overflow: 'hidden', position: 'relative',
-          transition: 'box-shadow 0.3s, border-color 0.3s, background 0.2s',
-        }}
-      >
-        {hero ? (
-          hero.portrait_path ? (
-            <img
-              src={`/heroes/${hero.id}/card-image?mini=true`}
-              onError={(e) => { e.target.onerror = null; e.target.src = `/${hero.portrait_path}` }}
-              draggable={false}
-              style={{ width: '100%', height: '100%', objectFit: 'cover', objectPosition: 'center top', animation: anim }}
-              alt={hero.name}
-            />
-          ) : (
-            <div style={{ fontFamily: 'Cinzel, serif', color: accent, padding: '1rem', animation: anim }}>{hero.name}</div>
-          )
-        ) : (
-          <div className="text-dim" style={{ fontStyle: 'italic', fontSize: '0.85rem', padding: '1rem' }}>
-            Click or drag a hero here
-          </div>
-        )}
-      </div>
-      <div style={{ marginTop: '0.6rem', minHeight: '2.6rem' }}>
-        {hero ? (
-          <>
-            <div style={{ fontFamily: 'Cinzel, serif', color: 'var(--text-hi)' }}>{hero.name}</div>
-            <div className="text-dim" style={{ fontSize: '0.75rem' }}>
-              Lv.{hero.level} {hero.hero_class} · {(hero.current_star || hero.birth_star)}★
-            </div>
-          </>
-        ) : (
-          <div className="text-dim" style={{ fontSize: '0.75rem', fontStyle: 'italic' }}>{hint}</div>
-        )}
-      </div>
-    </div>
-  )
-}
+const microStyle = { fontFamily: "'Cinzel',serif", letterSpacing: '.14em', fontSize: 9 }
 
 export default function SynthesisChamber({ heroes, onClose, onComplete }) {
-  const [targetId, setTargetId] = useState(null)
-  const [sacrificeIds, setSacrificeIds] = useState([])
+  const [vesselId, setVesselId] = useState(null)
+  const [offerIds, setOfferIds] = useState([])
+  const [picker, setPicker] = useState(null) // 'vessel' | 'offering' | null
   const [synthesizing, setSynthesizing] = useState(false)
   const [result, setResult] = useState(null)
   const [error, setError] = useState(null)
 
   const alive = heroes.filter(h => h.is_alive)
-  const target = alive.find(h => h.id === targetId) || null
-  const sacrifices = sacrificeIds.map(id => alive.find(h => h.id === id)).filter(Boolean)
+  const vessel = alive.find(h => h.id === vesselId) || null
+  const offerings = offerIds.map(id => alive.find(h => h.id === id)).filter(Boolean)
 
-  const anyResonant = target && sacrifices.some(s => s.hero_class === target.hero_class && target.hero_class !== 'Classless')
-  const xpGain = target ? sacrifices.reduce((sum, s) =>
-    sum + previewXp(s, s.hero_class === target.hero_class && target.hero_class !== 'Classless'), 0) : 0
+  const isResonant = s => vessel && s.hero_class === vessel.hero_class && vessel.hero_class !== 'Classless'
+  const resonantCount = offerings.filter(isResonant).length
+  const totalXp = vessel ? offerings.reduce((sum, s) => sum + previewXp(s, isResonant(s)), 0) : 0
+  const count = offerings.length
 
-  function placeOnPedestal(role, heroId) {
-    setError(null)
-    setResult(null)
-    if (role === 'target') {
-      setSacrificeIds(ids => ids.filter(id => id !== heroId))
-      setTargetId(heroId)
-    } else {
-      // Favorites are protected — they can be the vessel, never the offering.
-      const hero = alive.find(h => h.id === heroId)
-      if (hero?.is_favorite) {
-        setError(`${hero.name} is a Favorite — protected from being sacrificed. Unfavorite them first if you truly mean it.`)
-        return
-      }
-      if (heroId === targetId) setTargetId(null)
-      setSacrificeIds(ids => ids.includes(heroId) || ids.length >= MAX_OFFERINGS ? ids : [...ids, heroId])
+  // Project the vessel's level after the rite (level cost mirrors level*100).
+  let projLevel = vessel?.level || 1
+  let projXp = (vessel?.xp || 0) + totalXp
+  while (projXp >= projLevel * 100 && projLevel < 120) { projXp -= projLevel * 100; projLevel++ }
+  const xpPct = Math.min(100, (projXp / Math.max(1, projLevel * 100)) * 100)
+
+  const trauma = count === 0 ? 'NONE' : count <= 1 ? 'LOW' : count <= 3 ? 'MODERATE' : count <= 5 ? 'HIGH' : 'SEVERE'
+  const traumaColor = count <= 1 ? '#8fbf9f' : count <= 3 ? '#d8bb84' : '#e06060'
+  const canBegin = !!vessel && count > 0 && !synthesizing
+
+  function addOffering(hero) {
+    setError(null); setResult(null)
+    // Favorites are protected — they can be the vessel, never the offering.
+    if (hero.is_favorite) {
+      setError(`${hero.name} is a Favorite — protected from being sacrificed. Unfavorite them first if you truly mean it.`)
+      return
     }
+    if (hero.id === vesselId) setVesselId(null)
+    setOfferIds(ids => ids.includes(hero.id) ? ids : [...ids, hero.id])
+  }
+
+  function setVessel(hero) {
+    setError(null); setResult(null)
+    setOfferIds(ids => ids.filter(id => id !== hero.id))
+    setVesselId(hero.id)
+    setPicker(null)
   }
 
   async function beginRite() {
-    if (!target || sacrifices.length === 0) return
+    if (!canBegin) return
     setSynthesizing(true)
     setError(null)
     playRiteHum()
@@ -204,12 +99,11 @@ export default function SynthesisChamber({ heroes, onClose, onComplete }) {
       // empower keyframes are the whole ceremony; an instant response
       // made it feel dead.
       const [res] = await Promise.all([
-        synthesizeHero(target.id, sacrifices.map(s => s.id)),
+        synthesizeHero(vessel.id, offerings.map(s => s.id)),
         new Promise(r => setTimeout(r, 2300)),
       ])
       setResult(res)
-      setTargetId(null)
-      setSacrificeIds([])
+      setOfferIds([])
       if (onComplete) onComplete()
     } catch (e) {
       setError(e.message)
@@ -219,22 +113,11 @@ export default function SynthesisChamber({ heroes, onClose, onComplete }) {
   }
 
   return (
-    <div style={{
-      position: 'fixed', inset: 0, zIndex: 900,
-      background: '#060309',
-      display: 'flex', flexDirection: 'column', alignItems: 'center',
-      overflowY: 'auto', padding: '2rem 1rem',
-    }}>
+    <div style={{ position: 'fixed', inset: 0, zIndex: 900, background: '#070409', overflowY: 'auto', fontFamily: "'Cormorant Garamond',serif", color: '#efe8da' }}>
       <style>{`
-        @keyframes synth-hum {
-          0%   { opacity: 0.75; filter: drop-shadow(0 0 8px rgba(160, 80, 255, 0.5)); transform: rotate(0deg); }
-          50%  { opacity: 1; filter: drop-shadow(0 0 30px rgba(160, 80, 255, 1)); transform: rotate(180deg); }
-          100% { opacity: 0.75; filter: drop-shadow(0 0 8px rgba(160, 80, 255, 0.5)); transform: rotate(360deg); }
-        }
-        @keyframes synth-idle {
-          0%, 100% { filter: drop-shadow(0 0 6px rgba(160, 80, 255, 0.4)); }
-          50% { filter: drop-shadow(0 0 14px rgba(160, 80, 255, 0.7)); }
-        }
+        @keyframes rite-pulse2 { 0%,100% { opacity:.5 } 50% { opacity:1 } }
+        @keyframes rite-spin2 { to { transform:translate(-50%,-50%) rotate(360deg) } }
+        @keyframes synth-ember { 0% { transform:translateY(0); opacity:0 } 15% { opacity:.8 } 100% { transform:translateY(-150px); opacity:0 } }
         @keyframes synth-consume {
           0%   { filter: none; opacity: 1; transform: translateX(0); }
           20%  { transform: translateX(-3px); }
@@ -246,172 +129,233 @@ export default function SynthesisChamber({ heroes, onClose, onComplete }) {
         }
         @keyframes synth-empower {
           0%, 100% { filter: brightness(1); }
-          50% { filter: brightness(1.35) saturate(1.2) drop-shadow(0 0 18px rgba(201,168,76,0.9)); }
+          50% { filter: brightness(1.35) saturate(1.2) drop-shadow(0 0 18px rgba(224,96,128,0.9)); }
         }
-        @keyframes synth-result-in {
-          from { opacity: 0; transform: scale(0.85); }
-          to   { opacity: 1; transform: scale(1); }
-        }
+        @keyframes synth-result-in { from { opacity: 0; transform: scale(0.85); } to { opacity: 1; transform: scale(1); } }
+        .synth-rail::-webkit-scrollbar { height:0; width:0; }
+        .synth-rail { scrollbar-width:none; -ms-overflow-style:none; }
       `}</style>
 
-      {/* Ambient glow layered over the opaque base */}
-      <div style={{
-        position: 'fixed', inset: 0, pointerEvents: 'none',
-        background: 'radial-gradient(ellipse 70% 60% at 50% 38%, rgba(80, 30, 130, 0.4), transparent 70%)',
-      }} />
+      {/* ambient: crimson-violet ritual gloom */}
+      <div style={{ position: 'fixed', inset: 0, pointerEvents: 'none', background: 'radial-gradient(60% 70% at 50% 44%, rgba(120,30,60,.3), rgba(0,0,0,0) 62%), radial-gradient(80% 70% at 50% 100%, rgba(60,28,110,.28), rgba(0,0,0,0) 65%)' }} />
+      <div style={{ position: 'fixed', inset: 0, pointerEvents: 'none', background: 'repeating-linear-gradient(115deg, rgba(184,151,98,.05) 0 1px, transparent 1px 120px), repeating-linear-gradient(-65deg, rgba(150,110,230,.045) 0 1px, transparent 1px 120px)' }} />
+      <div style={{ position: 'fixed', left: '82%', top: '40%', width: 271, height: 271, transform: 'rotate(45deg)', border: '1px solid rgba(150,110,230,.1)', pointerEvents: 'none' }} />
+      <div style={{ position: 'fixed', left: '6%', top: '44%', width: 252, height: 252, transform: 'rotate(45deg)', border: '1px solid rgba(150,110,230,.08)', pointerEvents: 'none' }} />
+      <span style={{ position: 'fixed', left: '44%', top: '40%', width: 3, height: 3, borderRadius: '50%', background: '#e06080', boxShadow: '0 0 8px #e06080', animation: 'synth-ember 6s linear infinite', pointerEvents: 'none' }} />
+      <span style={{ position: 'fixed', left: '57%', top: '44%', width: 3, height: 3, borderRadius: '50%', background: '#c8a9f5', boxShadow: '0 0 8px #c8a9f5', animation: 'synth-ember 7s linear 2s infinite', pointerEvents: 'none' }} />
 
-      {/* Optional backdrop art — hidden until the file exists */}
-      <img
-        src="/static/facilities/Synthesis Chamber.png"
-        alt=""
-        onError={(e) => { e.target.style.display = 'none' }}
-        style={{ position: 'fixed', inset: 0, width: '100%', height: '100%', objectFit: 'cover', opacity: 0.25, pointerEvents: 'none' }}
-      />
-
-      <div style={{ width: '100%', maxWidth: 1200, position: 'relative' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: '0.3rem' }}>
-          <div style={{ fontFamily: 'Cinzel, serif', fontSize: '1.8rem', color: '#b06aff', textShadow: '0 0 15px rgba(160,80,255,0.5)' }}>
-            ⚗ Synthesis Chamber
-          </div>
-          <button className="btn" onClick={onClose} disabled={synthesizing}>Leave the Chamber</button>
+      <div style={{ position: 'relative', maxWidth: 1280, margin: '0 auto', padding: '34px 40px 90px', minHeight: '100%' }}>
+        {/* header */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 14, position: 'relative', zIndex: 6 }}>
+          <button onClick={onClose} disabled={synthesizing} title="Back to the roster"
+            style={{ width: 24, height: 24, border: '1px solid rgba(184,151,98,.5)', background: 'none', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: "'Cinzel',serif", fontSize: 12, color: '#c9bfa8', cursor: 'pointer' }}>‹</button>
+          <span onClick={onClose} style={{ fontFamily: "'Cinzel',serif", letterSpacing: '.26em', fontSize: 12, color: 'var(--muted)', cursor: 'pointer' }}>ALL HEROES</span>
         </div>
-        <div className="text-dim" style={{ fontStyle: 'italic', marginBottom: '2rem' }}>
-          Two souls enter. One leaves stronger. The Tower does not refund what it takes.
+        <div style={{ textAlign: 'center', marginTop: -24 }}>
+          <div style={{ fontFamily: "'Cinzel',serif", fontWeight: 900, fontSize: 32, letterSpacing: '.1em', color: 'var(--text-hi)', textShadow: '0 0 30px rgba(192,64,96,.5)' }}>SYNTHESIS CHAMBER</div>
+          <div style={{ fontSize: 15, fontStyle: 'italic', color: '#b58a9d', marginTop: 2 }}>What is given cannot be returned.</div>
         </div>
 
-        {/* Pedestals + rite summary */}
-        <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'flex-start', gap: '2.5rem', flexWrap: 'wrap', marginBottom: '2rem' }}>
-          <Pedestal hero={target} role="target" synthesizing={synthesizing}
-            onClear={() => setTargetId(null)} onDropHero={(id) => placeOnPedestal('target', id)} />
-
-          <div style={{ width: 300, textAlign: 'center', paddingTop: '2.2rem' }}>
-            <img
-              src="/icons/magic_synthesis.png"
-              alt=""
-              draggable={false}
-              style={{
-                width: 90, height: 90, display: 'inline-block',
-                animation: synthesizing ? 'synth-hum 1.2s linear infinite' : 'synth-idle 3s ease-in-out infinite',
-              }}
-              onError={(e) => { e.target.outerHTML = '<div style="font-size:2.4rem;color:#b06aff">◈</div>' }}
-            />
-
-            {result ? (
-              <div style={{ marginTop: '1rem', border: '1px solid var(--green)', background: 'rgba(74,154,106,0.12)', borderRadius: 8, padding: '1.1rem', animation: 'synth-result-in 0.35s ease-out' }}>
-                <div style={{ fontFamily: 'Cinzel, serif', color: 'var(--green)', marginBottom: '0.4rem' }}>The Rite Is Complete</div>
-                <div className="text-sm" style={{ lineHeight: 1.5 }}>{result.message || 'The offering has been consumed.'}</div>
-                {result.xp_gained != null && (
-                  <div style={{ marginTop: '0.5rem', fontFamily: 'Cinzel, serif', fontSize: '1.2rem', color: 'var(--gold)' }}>
-                    +{result.xp_gained.toLocaleString()} XP
-                  </div>
-                )}
-                <button className="btn" style={{ marginTop: '0.8rem' }} onClick={() => setResult(null)}>Synthesize Again</button>
+        {/* three-column ritual floor */}
+        <div style={{ display: 'flex', gap: 24, alignItems: 'flex-start', justifyContent: 'space-between', marginTop: 26, position: 'relative', zIndex: 5, flexWrap: 'wrap' }}>
+          {/* LEFT: resonance + inheritance */}
+          <div style={{ width: 220, flex: 'none' }}>
+            <div style={{ border: '1px solid rgba(192,64,96,.5)', background: 'linear-gradient(160deg,rgba(80,20,40,.3),rgba(10,6,14,.7))', padding: '13px 15px', clipPath: 'polygon(0 0,100% 0,100% 100%,10px 100%)' }}>
+              <div style={{ fontFamily: "'Cinzel',serif", fontWeight: 700, letterSpacing: '.2em', fontSize: 11, color: '#e06080', textShadow: '0 0 10px rgba(224,96,128,.5)' }}>EGO RESONANCE</div>
+              <div style={{ fontSize: 14, fontStyle: 'italic', color: '#c8a8b5', marginTop: 6, lineHeight: 1.45 }}>
+                {resonantCount} of your souls share the vessel's class — their essence burns twice as bright. <span style={{ color: '#e06080', fontWeight: 600 }}>×2 XP</span>
               </div>
-            ) : (
-              <>
-                {sacrifices.length > 0 && target ? (
-                  <div style={{ marginTop: '0.8rem', border: '1px solid rgba(160,80,255,0.4)', background: 'rgba(80,30,130,0.15)', borderRadius: 8, padding: '0.9rem' }}>
-                    <div style={{ fontFamily: 'Cinzel, serif', fontSize: '0.75rem', letterSpacing: '0.1em', textTransform: 'uppercase', color: '#b06aff', marginBottom: '0.5rem' }}>
-                      {target.name} will absorb
-                    </div>
-                    <div style={{ fontFamily: 'Cinzel, serif', fontSize: '1.6rem', color: 'var(--gold)', textShadow: '0 0 10px rgba(201,168,76,0.5)' }}>
-                      +{xpGain.toLocaleString()} XP
-                    </div>
-                    {anyResonant && (
-                      <div style={{ marginTop: '0.5rem', color: '#b06aff', fontFamily: 'Cinzel, serif', fontSize: '0.8rem', textShadow: '0 0 8px rgba(160,80,255,0.7)' }}>
-                        ✦ EGO RESONANCE — matching-class XP doubled ✦
-                      </div>
-                    )}
-                    <div style={{ marginTop: '0.5rem', fontSize: '0.7rem', color: 'var(--text-dim)', fontStyle: 'italic' }}>
-                      May also inherit skills or traits from {sacrifices.length > 1 ? 'each offering' : sacrifices[0].name}.
-                    </div>
-                  </div>
-                ) : (
-                  <div className="text-dim" style={{ marginTop: '1rem', fontSize: '0.85rem', fontStyle: 'italic' }}>
-                    Click or drag a vessel and up to {MAX_OFFERINGS} offerings onto the pedestals.
-                  </div>
-                )}
-
-                <button
-                  className="btn"
-                  disabled={!target || sacrifices.length === 0 || synthesizing}
-                  onClick={beginRite}
-                  style={{
-                    marginTop: '1rem', width: '100%', padding: '0.9rem', fontSize: '1rem',
-                    border: '2px solid #b06aff', color: '#d0a0ff', borderRadius: 8,
-                    background: 'rgba(80,30,130,0.25)',
-                    boxShadow: target && sacrifices.length > 0 ? '0 0 20px rgba(160,80,255,0.4)' : 'none',
-                  }}
-                >
-                  {synthesizing ? 'The chamber hums…' : 'Begin the Rite'}
-                </button>
-
-                {target && sacrifices.length > 0 && !synthesizing && (
-                  <div style={{ marginTop: '0.6rem', fontSize: '0.72rem', color: 'var(--red)', fontStyle: 'italic' }}>
-                    {sacrifices.map(s => s.name).join(', ')} will be lost forever. Every living hero witnesses the rite —
-                    {sacrifices.length > 1
-                      ? ' and a mass sacrifice compounds: each additional soul consumed hits the roster\'s trauma, stress, and morale harder than the last.'
-                      : ' expect trauma, stress, and shaken morale across the roster.'}
-                  </div>
-                )}
-                {error && <div className="text-red" style={{ marginTop: '0.5rem', fontSize: '0.85rem' }}>{error}</div>}
-              </>
-            )}
+            </div>
+            <div style={{ marginTop: 12, border: '1px solid rgba(150,110,230,.4)', background: 'rgba(12,7,24,.6)', padding: '13px 15px', clipPath: 'polygon(0 0,100% 0,100% 100%,10px 100%)' }}>
+              <div style={{ fontFamily: "'Cinzel',serif", fontWeight: 700, letterSpacing: '.2em', fontSize: 11, color: '#c8a9f5' }}>INHERITANCE</div>
+              <div style={{ fontSize: 14, fontStyle: 'italic', color: '#b5a8c8', marginTop: 6, lineHeight: 1.45 }}>
+                <span style={{ color: '#c8a9f5', fontWeight: 600 }}>{Math.min(85, count * 14)}%</span> chance the vessel learns a skill from the offered.
+              </div>
+            </div>
           </div>
 
-          <SacrificePedestal heroes={sacrifices} synthesizing={synthesizing}
-            onRemove={(id) => setSacrificeIds(ids => ids.filter(x => x !== id))}
-            onDropHero={(id) => placeOnPedestal('sacrifice', id)} />
-        </div>
+          {/* CENTER: the vessel */}
+          <div style={{ width: 220, flex: 'none', textAlign: 'center', position: 'relative', margin: '0 auto' }}>
+            {/* ritual rings */}
+            <div style={{ position: 'absolute', left: '50%', top: 92, width: 340, height: 340, transform: 'translate(-50%,-50%)', border: '1px dashed rgba(192,64,96,.4)', borderRadius: '50%', animation: 'rite-spin2 50s linear infinite', pointerEvents: 'none' }} />
+            <div style={{ position: 'absolute', left: '50%', top: 92, width: 284, height: 284, transform: 'translate(-50%,-50%)', border: '1px solid rgba(150,110,230,.22)', borderRadius: '50%', pointerEvents: 'none' }} />
 
-        {/* Hero pool — drag from here onto a pedestal */}
-        <div className="section-header">Living Heroes — click or drag onto a pedestal (vessel first)</div>
-        <div style={{
-          display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(132px, 1fr))', gap: '1rem',
-          maxHeight: '36vh', overflowY: 'auto', padding: '0.5rem 0.2rem',
-        }}>
-          {alive.map(h => {
-            const role = h.id === targetId ? 'target' : sacrificeIds.includes(h.id) ? 'sacrifice' : null
-            const ring = role === 'target' ? 'var(--gold)' : role === 'sacrifice' ? 'var(--red)' : 'var(--border)'
-            return (
-              <div
-                key={h.id}
-                draggable={!synthesizing}
-                onDragStart={(e) => e.dataTransfer.setData('heroId', String(h.id))}
-                onClick={() => {
-                  // Click works too: fills the vessel first, then offerings;
-                  // clicking someone already placed pulls them back off.
-                  if (synthesizing) return
-                  if (h.id === targetId) { setTargetId(null); return }
-                  if (sacrificeIds.includes(h.id)) { setSacrificeIds(ids => ids.filter(x => x !== h.id)); return }
-                  placeOnPedestal(targetId ? 'sacrifice' : 'target', h.id)
-                }}
-                style={{ textAlign: 'center', cursor: synthesizing ? 'default' : 'pointer', opacity: role ? 1 : 0.9 }}
-                title={role ? `On the ${role} pedestal — click to remove` : 'Click or drag onto a pedestal (vessel first, then offerings)'}
-              >
-                {h.portrait_path ? (
-                  <img
-                    src={`/${h.portrait_path}`}
-                    alt={h.name}
-                    draggable={false}
-                    style={{
-                      width: 110, height: 110, borderRadius: '50%', objectFit: 'cover', objectPosition: 'center 15%',
-                      border: `2px solid ${ring}`,
-                      boxShadow: role ? `0 0 14px ${ring}` : 'none',
-                      pointerEvents: 'none',
-                    }}
-                  />
+            <div style={{ position: 'relative', width: 150, height: 184, margin: '0 auto' }}>
+              <div style={{ position: 'absolute', inset: -7, border: '1px solid rgba(184,151,98,.4)' }} />
+              <div onClick={() => !synthesizing && setPicker('vessel')} title={vessel ? 'Change the vessel' : 'Choose the vessel'}
+                style={{ position: 'absolute', inset: 0, border: vessel ? '1px solid rgba(184,151,98,.65)' : '1px dashed rgba(184,151,98,.5)', boxShadow: vessel ? '0 0 34px rgba(192,64,96,.35)' : 'none', cursor: 'pointer', overflow: 'hidden', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#0c0710' }}>
+                {vessel ? (
+                  vessel.portrait_path && !vessel.portrait_path.includes('default_') ? (
+                    <img src={`/heroes/${vessel.id}/card-image?mini=true`} alt={vessel.name} draggable={false}
+                      onError={(e) => { e.target.onerror = null; e.target.src = `/${vessel.portrait_path}` }}
+                      style={{ width: '100%', height: '100%', objectFit: 'cover', objectPosition: 'center top', animation: synthesizing ? 'synth-empower 1s ease-in-out infinite' : 'none' }} />
+                  ) : (
+                    <span style={{ fontFamily: "'Cinzel',serif", fontWeight: 900, fontSize: 40, color: '#d8bb84' }}>{vessel.name[0]}</span>
+                  )
                 ) : (
-                  <div style={{ width: 110, height: 110, borderRadius: '50%', margin: '0 auto', background: 'var(--bg-card)', border: `2px solid ${ring}`, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-dim)' }}>?</div>
+                  <span style={{ ...microStyle, letterSpacing: '.2em', color: '#b58a9d', padding: '0 14px', lineHeight: 1.8 }}>CHOOSE<br />THE VESSEL</span>
                 )}
-                <div style={{ fontSize: '0.78rem', marginTop: '0.3rem', color: role ? ring : 'var(--text-hi)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                  {!!h.is_favorite && <span style={{ color: '#e06080' }} title="Favorite — protected from sacrifice">♥ </span>}{h.name}
+              </div>
+            </div>
+            <div style={{ fontFamily: "'Cinzel',serif", fontWeight: 900, fontSize: 22, color: 'var(--text-hi)', marginTop: 10 }}>{vessel ? vessel.name.toUpperCase() : '—'}</div>
+            <div style={{ fontFamily: "'Cinzel',serif", fontSize: 10, letterSpacing: '.26em', color: '#d8bb84', marginTop: 3 }}>
+              THE VESSEL{vessel ? ` · ${vessel.hero_class.toUpperCase()}` : ''}
+            </div>
+            {vessel && (
+              <div style={{ marginTop: 10 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 4 }}>
+                  <span style={{ ...microStyle, letterSpacing: '.18em', color: 'var(--muted)' }}>
+                    LV {vessel.level} {totalXp > 0 && <>→ <span style={{ color: '#ffd88a' }}>{projLevel}</span></>}
+                  </span>
+                  <span style={{ ...microStyle, color: '#8fbf9f' }}>{totalXp > 0 ? `+${totalXp.toLocaleString()} XP` : 'NO OFFERINGS'}</span>
                 </div>
-                <div className="text-dim" style={{ fontSize: '0.68rem' }}>Lv.{h.level} · {(h.current_star || h.birth_star)}★ · {h.hero_class}</div>
+                <div style={{ height: 5, background: 'rgba(0,0,0,.55)', border: '1px solid rgba(184,151,98,.35)' }}>
+                  <div style={{ width: `${xpPct}%`, height: '100%', background: 'linear-gradient(90deg,#8b46d6,#e06080,#ffd88a)', animation: totalXp > 0 ? 'rite-pulse2 3s ease-in-out infinite' : 'none' }} />
+                </div>
               </div>
-            )
-          })}
+            )}
+            {result && (
+              <div style={{ marginTop: 12, border: '1px solid rgba(74,154,106,.5)', background: 'rgba(20,40,28,.4)', padding: '10px 12px', animation: 'synth-result-in .35s ease-out', clipPath: 'polygon(0 0,100% 0,100% 100%,10px 100%)' }}>
+                <div style={{ fontFamily: "'Cinzel',serif", letterSpacing: '.18em', fontSize: 10, color: '#8fbf9f' }}>THE RITE IS COMPLETE</div>
+                <div style={{ fontSize: 13, fontStyle: 'italic', color: '#a8bfae', marginTop: 4, lineHeight: 1.4 }}>{result.message || 'The offerings have been consumed.'}</div>
+                {result.xp_gained != null && <div style={{ fontFamily: "'Cormorant Garamond',serif", fontWeight: 700, fontSize: 19, color: '#ffd88a', marginTop: 4 }}>+{result.xp_gained.toLocaleString()} XP</div>}
+              </div>
+            )}
+            {error && <div style={{ marginTop: 10, fontSize: 13, fontStyle: 'italic', color: '#e08585' }}>{error}</div>}
+          </div>
+
+          {/* RIGHT: the rite's cost */}
+          <div style={{ width: 220, flex: 'none' }}>
+            <div style={{ border: '1px solid rgba(192,64,64,.55)', background: 'linear-gradient(160deg,rgba(80,16,20,.35),rgba(10,6,14,.7))', padding: '13px 15px', clipPath: 'polygon(0 0,100% 0,100% 100%,0 100%,10px 50%)' }}>
+              <div style={{ fontFamily: "'Cinzel',serif", fontWeight: 700, letterSpacing: '.2em', fontSize: 11, color: '#e08585' }}>THE ROSTER WATCHES</div>
+              <div style={{ fontSize: 14, fontStyle: 'italic', color: '#c8a8a8', marginTop: 6, lineHeight: 1.45 }}>
+                Offer as many souls as you dare — but every living hero witnesses the rite, and the horror lingers.
+              </div>
+              <div style={{ marginTop: 9, display: 'flex', flexDirection: 'column', gap: 5 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', ...microStyle }}>
+                  <span style={{ color: 'var(--muted)' }}>MORALE · ALL HEROES</span><span style={{ color: '#e08585' }}>{count === 0 ? '—' : `−${count * 6}`}</span>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', ...microStyle }}>
+                  <span style={{ color: 'var(--muted)' }}>STRESS · ALL HEROES</span><span style={{ color: '#e08585' }}>{count === 0 ? '—' : `+${count * 9}`}</span>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', ...microStyle }}>
+                  <span style={{ color: 'var(--muted)' }}>TRAUMA RISK</span><span style={{ color: traumaColor }}>{trauma}</span>
+                </div>
+                <div style={{ fontFamily: "'Cinzel',serif", fontSize: 8, letterSpacing: '.12em', color: '#8a5a6c' }}>THE MORE OFFERED, THE DEEPER THE SCARS</div>
+              </div>
+            </div>
+          </div>
         </div>
+
+        {/* offering rail */}
+        <div style={{ maxWidth: 712, margin: '30px auto 0', position: 'relative', zIndex: 6 }}>
+          <div style={{ border: '1px solid rgba(192,64,96,.4)', background: 'linear-gradient(180deg,rgba(40,12,24,.5),rgba(10,6,14,.7))', padding: '12px 14px', clipPath: 'polygon(0 0,100% 0,100% 100%,12px 100%)' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 9, marginBottom: 10 }}>
+              <span style={{ width: 6, height: 6, transform: 'rotate(45deg)', background: '#e06080', display: 'inline-block' }} />
+              <span style={{ fontFamily: "'Cinzel',serif", letterSpacing: '.24em', fontSize: 10, color: '#e0a8b8' }}>OFFERINGS</span>
+              <span style={{ fontFamily: "'Cinzel',serif", letterSpacing: '.16em', fontSize: 9, color: '#8a5a6c' }}>{count} SOULS · NO LIMIT</span>
+              <span style={{ flex: 1 }} />
+              <button onClick={() => setOfferIds([])} disabled={count === 0 || synthesizing}
+                style={{ cursor: count > 0 ? 'pointer' : 'default', background: 'none', fontFamily: "'Cinzel',serif", fontSize: 8, letterSpacing: '.16em', color: count > 0 ? '#b58a9d' : '#5a4450', border: '1px solid rgba(150,110,230,.3)', padding: '4px 10px' }}>
+                RELEASE ALL
+              </button>
+            </div>
+            <div className="synth-rail" style={{ display: 'flex', alignItems: 'stretch', gap: 10, overflowX: 'auto', paddingBottom: 2 }}>
+              {offerings.map(o => {
+                const accent = familyColor(o.hero_class)
+                const res = isResonant(o)
+                const xp = previewXp(o, res)
+                return (
+                  <div key={o.id} onClick={() => !synthesizing && setOfferIds(ids => ids.filter(x => x !== o.id))} title="Release this soul"
+                    style={{ cursor: 'pointer', flex: '0 0 auto', width: 86, padding: '8px 6px', border: '1px solid rgba(192,64,96,.3)', background: 'rgba(12,7,20,.5)', animation: synthesizing ? 'synth-consume 2.2s ease-in forwards' : 'none' }}>
+                    <div style={{ position: 'relative', width: 52, height: 52, margin: '0 auto' }}>
+                      <SoulDiamond hero={o} accent={accent} />
+                      {res && <span title="Resonant · ×2 XP" style={{ position: 'absolute', right: -4, top: -4, width: 12, height: 12, transform: 'rotate(45deg)', background: '#e06080', boxShadow: '0 0 8px #e06080' }} />}
+                    </div>
+                    <div style={{ fontFamily: "'Cinzel',serif", fontSize: 10, letterSpacing: '.06em', color: 'var(--text-hi)', marginTop: 6, textAlign: 'center', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{o.name.toUpperCase()}</div>
+                    <div style={{ fontFamily: "'Cinzel',serif", fontSize: 7, letterSpacing: '.12em', color: '#b58a9d', marginTop: 1, textAlign: 'center' }}>{o.hero_class.toUpperCase()} · LV {o.level}</div>
+                    <div style={{ fontFamily: "'Cinzel',serif", fontSize: 7, letterSpacing: '.1em', marginTop: 3, textAlign: 'center', color: res ? '#e06080' : 'var(--muted)' }}>+{xp.toLocaleString()} XP{res ? ' ×2' : ''}</div>
+                  </div>
+                )
+              })}
+              <div onClick={() => !synthesizing && setPicker('offering')}
+                style={{ cursor: 'pointer', flex: '0 0 auto', width: 86, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '8px 6px', border: '1px dashed rgba(192,64,96,.55)', background: 'rgba(30,10,18,.35)' }}>
+                <span style={{ fontSize: 22, color: '#e06080', lineHeight: 1 }}>＋</span>
+                <span style={{ fontFamily: "'Cinzel',serif", fontSize: 8, letterSpacing: '.14em', color: '#b58a9d', marginTop: 6 }}>ADD SOUL</span>
+                <span style={{ fontFamily: "'Cinzel',serif", fontSize: 7, letterSpacing: '.1em', color: '#6f4a58', marginTop: 2 }}>FROM ROSTER</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* actions */}
+        <div style={{ display: 'flex', justifyContent: 'center', gap: 14, marginTop: 26, position: 'relative', zIndex: 6 }}>
+          <button onClick={beginRite} disabled={!canBegin}
+            style={{
+              fontFamily: "'Cinzel',serif", fontWeight: 700, letterSpacing: '.26em', fontSize: 13,
+              color: canBegin ? 'var(--text-hi)' : '#8a5a6c',
+              background: canBegin ? 'linear-gradient(120deg,#7a2038,#4a1024)' : 'rgba(30,12,18,.5)',
+              border: `1px solid ${canBegin ? 'rgba(224,96,128,.6)' : 'rgba(150,110,230,.25)'}`,
+              padding: '12px 32px', clipPath: 'polygon(10px 0,100% 0,calc(100% - 10px) 100%,0 100%)',
+              boxShadow: canBegin ? '0 0 26px rgba(192,64,96,.4)' : 'none',
+              animation: canBegin ? 'rite-pulse2 4s ease-in-out infinite' : 'none',
+              cursor: canBegin ? 'pointer' : 'default',
+            }}>
+            {synthesizing ? 'THE CHAMBER HUMS…' : canBegin ? 'BEGIN THE RITE' : vessel ? 'OFFER A SOUL' : 'CHOOSE A VESSEL'}
+          </button>
+          <button onClick={() => { setOfferIds([]); setVesselId(null); setResult(null); setError(null) }} disabled={synthesizing}
+            style={{ fontFamily: "'Cinzel',serif", fontWeight: 600, letterSpacing: '.26em', fontSize: 12, color: 'var(--muted)', background: 'none', border: '1px solid rgba(150,110,230,.35)', padding: '12px 22px', clipPath: 'polygon(10px 0,100% 0,calc(100% - 10px) 100%,0 100%)', cursor: 'pointer' }}>
+            RELEASE THEM
+          </button>
+        </div>
+
+        {/* soul picker */}
+        {picker && (
+          <div style={{ position: 'fixed', inset: 0, zIndex: 950, background: 'rgba(4,3,8,.75)', display: 'flex', alignItems: 'center', justifyContent: 'center' }} onClick={() => setPicker(null)}>
+            <div onClick={e => e.stopPropagation()}
+              style={{ width: 640, maxWidth: '94vw', maxHeight: '76vh', overflowY: 'auto', border: '1px solid rgba(192,64,96,.5)', background: 'linear-gradient(160deg,#1c0d18,#0b0710)', boxShadow: '0 30px 90px rgba(0,0,0,.78)', clipPath: 'polygon(0 0,100% 0,100% 100%,16px 100%)', padding: '18px 22px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
+                <span style={{ width: 7, height: 7, transform: 'rotate(45deg)', background: '#e06080', display: 'inline-block' }} />
+                <span style={{ fontFamily: "'Cinzel',serif", letterSpacing: '.26em', fontSize: 10, color: '#e0a8b8' }}>
+                  {picker === 'vessel' ? 'CHOOSE THE VESSEL' : 'OFFER SOULS'}
+                </span>
+                <span style={{ flex: 1 }} />
+                <button onClick={() => setPicker(null)} style={{ width: 24, height: 24, border: '1px solid rgba(184,151,98,.5)', background: 'none', color: '#c9bfa8', cursor: 'pointer', fontFamily: "'Cinzel',serif" }}>✕</button>
+              </div>
+              {picker === 'offering' && (
+                <div style={{ fontSize: 13, fontStyle: 'italic', color: '#b58a9d', marginBottom: 10 }}>Click to add — favorites (♥) are protected from the rite.</div>
+              )}
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2,1fr)', gap: 8 }}>
+                {alive
+                  .filter(h => h.id !== vesselId && !offerIds.includes(h.id))
+                  .map(h => {
+                    const accent = familyColor(h.hero_class)
+                    const protectedFav = picker === 'offering' && !!h.is_favorite
+                    return (
+                      <div key={h.id}
+                        onClick={() => { if (protectedFav) return; picker === 'vessel' ? setVessel(h) : addOffering(h) }}
+                        style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '7px 10px', border: '1px solid rgba(184,151,98,.25)', background: 'rgba(12,7,24,.45)', cursor: protectedFav ? 'not-allowed' : 'pointer', opacity: protectedFav ? .5 : 1 }}>
+                        <div style={{ position: 'relative', width: 38, height: 38, flex: 'none' }}>
+                          <SoulDiamond hero={h} accent={accent} />
+                        </div>
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ fontFamily: "'Cinzel',serif", fontWeight: 700, fontSize: 11, letterSpacing: '.06em', color: 'var(--text-hi)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                            {!!h.is_favorite && <span style={{ color: '#e06080' }}>♥ </span>}{h.name.toUpperCase()}
+                          </div>
+                          <div style={{ fontFamily: "'Cinzel',serif", fontSize: 8, letterSpacing: '.14em', color: 'var(--muted)', marginTop: 2 }}>
+                            {h.hero_class.toUpperCase()} · LV {h.level} · {(h.current_star || h.birth_star)}★
+                          </div>
+                        </div>
+                        {picker === 'offering' && !protectedFav && (
+                          <span style={{ fontFamily: "'Cinzel',serif", fontSize: 9, color: '#8fbf9f' }}>+{previewXp(h, vessel ? h.hero_class === vessel.hero_class && vessel.hero_class !== 'Classless' : false).toLocaleString()} XP</span>
+                        )}
+                      </div>
+                    )
+                  })}
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   )

@@ -261,6 +261,7 @@ def maybe_reconcile_pending_profiles():
 class PullRequest(BaseModel):
     count: int = 1
     currency: str = "gem"  # "gem" (2-7★, premium) or "gold" (1-4★, cheap/common)
+    banner: str = "standard"  # "standard" or "seasonal" (limited-time rate-up)
 
 def _create_one_hero(birth_star: int, is_synergy: bool = False, is_leader: bool = False,
                       current_synergy: str = None, synergy_theme_desc: str = "") -> dict:
@@ -371,12 +372,26 @@ def pull_heroes(req: PullRequest):
     if req.count < 1 or req.count > 10:
         raise HTTPException(status_code=400, detail="Pull 1-10 heroes at a time")
 
-    use_gold = req.currency == "gold"
+    from services.season_service import current_season, season_weights
+    season = current_season()
+    seasonal = req.banner == "seasonal"
+    if seasonal and not season.get("active"):
+        raise HTTPException(status_code=400, detail="The seasonal calling has closed.")
+
+    # Seasonal is always a gem calling — a boosted rate-up at a premium price.
+    use_gold = req.currency == "gold" and not seasonal
     min_star, max_star = (1, 4) if use_gold else (1, 7)
     # Heroes are the premium pull — gold cost sits above equipment's (the
     # Forge/Blacksmith will eventually be the real equipment source anyway).
-    cost = 500 * req.count if use_gold else 100 * req.count
+    # Seasonal costs 20% over the standard gem calling for its richer odds.
+    if seasonal:
+        cost = 120 * req.count
+    elif use_gold:
+        cost = 500 * req.count
+    else:
+        cost = 100 * req.count
     currency_col = "gold" if use_gold else "gems"
+    season_wt = season_weights() if seasonal else None
 
     with db() as conn:
         base_row = conn.execute("SELECT gold, gems, max_roster_size FROM base WHERE id = 1").fetchone()
@@ -395,7 +410,13 @@ def pull_heroes(req: PullRequest):
     synergy_leader_idx = -1
     synergy_theme_desc = ""
 
-    if req.count == 10 and random.random() < 0.25:
+    if seasonal:
+        # Every soul from the seasonal Gate belongs to the season's court and
+        # wears its theme — that's what makes seasonal pulls a coherent set.
+        synergy_group_name = season["synergy_group"]
+        synergy_theme_desc = season["theme_desc"]
+        synergy_indices = set(range(req.count))
+    elif req.count == 10 and random.random() < 0.25:
         themes = [
             ("The Crimson Vanguard", "wearing identical crimson cloaks and silver armor"),
             ("The Obsidian Order", "clad in heavy dark armor with violet glowing runes"),
@@ -417,7 +438,7 @@ def pull_heroes(req: PullRequest):
 
     results = []
     currency_str = "gold" if use_gold else "gem"
-    rolled_rarities = [pull_rarity(min_star, max_star, currency=currency_str) for _ in range(req.count)]
+    rolled_rarities = [pull_rarity(min_star, max_star, currency=currency_str, weights=season_wt) for _ in range(req.count)]
 
     if synergy_group_name:
         follower_rarities = [rolled_rarities[i] for i in synergy_indices if i != synergy_leader_idx]
@@ -459,11 +480,73 @@ def pull_heroes(req: PullRequest):
     with db() as conn:
         conn.execute("UPDATE base SET total_summons = total_summons + ? WHERE id = 1", (req.count,))
 
+    from services.quests_service import bump as bump_rite
+    bump_rite("summon", req.count)
+
     with db() as conn:
         base_row = conn.execute("SELECT gems FROM base WHERE id = 1").fetchone()
         new_gems = base_row["gems"] if base_row else 0
 
     return {"pulled": results, "cost": cost, "gems": new_gems}
+
+# ─── Free Daily Calling — one soul, on the house, resets at UTC dawn ──
+# (Summon Altar spec: the green FREE DAILY CALLING panel.) Rolls with the
+# gold-summon table (1-4★), costs nothing, doesn't build sparks or pity.
+
+def _ensure_free_pull_column(conn):
+    try:
+        conn.execute("ALTER TABLE base ADD COLUMN last_free_pull TEXT")
+    except Exception:
+        pass
+
+
+def _utc_today() -> str:
+    from datetime import datetime, timezone
+    return datetime.now(timezone.utc).strftime("%Y-%m-%d")
+
+
+def _seconds_to_utc_dawn() -> int:
+    from datetime import datetime, timezone
+    now = datetime.now(timezone.utc)
+    return int(86400 - (now.hour * 3600 + now.minute * 60 + now.second))
+
+
+@router.get("/free-status")
+def free_pull_status():
+    with db() as conn:
+        _ensure_free_pull_column(conn)
+        row = conn.execute("SELECT last_free_pull FROM base WHERE id = 1").fetchone()
+    return {
+        "available": (row["last_free_pull"] if row else None) != _utc_today(),
+        "resets_in_seconds": _seconds_to_utc_dawn(),
+    }
+
+
+@router.post("/free-pull")
+def free_pull():
+    with db() as conn:
+        _ensure_free_pull_column(conn)
+        base_row = conn.execute("SELECT last_free_pull, max_roster_size FROM base WHERE id = 1").fetchone()
+        if base_row and base_row["last_free_pull"] == _utc_today():
+            raise HTTPException(status_code=400, detail="The Gate's charity is spent — it opens again at dawn.")
+        roster_count = conn.execute("SELECT COUNT(*) AS c FROM heroes WHERE is_alive = 1").fetchone()["c"]
+        max_roster = (base_row["max_roster_size"] if base_row else 10) or 10
+        if roster_count + 1 > max_roster:
+            raise HTTPException(status_code=400, detail=f"Roster is full ({roster_count}/{max_roster}) — make room before the free calling.")
+        conn.execute("UPDATE base SET last_free_pull = ? WHERE id = 1", (_utc_today(),))
+
+    birth_star = pull_rarity(1, 4, currency="gold")
+    hero_dict = _create_one_hero(birth_star)
+
+    with db() as conn:
+        conn.execute("UPDATE base SET total_summons = total_summons + 1 WHERE id = 1")
+
+    from services.quests_service import bump as bump_rite
+    bump_rite("summon")
+
+    return {"pulled": [hero_dict], "cost": 0, "free": True,
+            "resets_in_seconds": _seconds_to_utc_dawn()}
+
 
 class UseTicketRequest(BaseModel):
     item_name: str  # e.g. "5-Star Summon Ticket"
@@ -517,16 +600,22 @@ def pull_equipment(req: PullRequest):
     from services.gacha_service import pull_equipment_gacha
     from services.equipment_service import save_equipment
 
+    seasonal = req.banner == "seasonal"
+    if seasonal:
+        from services.season_service import current_season
+        if not current_season().get("active"):
+            raise HTTPException(status_code=400, detail="The seasonal forge has cooled.")
     currency = req.currency if req.currency in ("gold", "gem") else "gold"
     with db() as conn:
         results = []
         for _ in range(req.count):
             try:
-                equip_dict = pull_equipment_gacha(conn, currency)
+                equip_dict = pull_equipment_gacha(conn, currency, seasonal=seasonal)
                 equip_id = save_equipment(equip_dict, conn=conn)
                 equip_dict["id"] = equip_id
                 results.append(equip_dict)
-                if currency == "gem":
+                # Seasonal is a gem-currency calling — it builds equip sparks too.
+                if currency == "gem" or seasonal:
                     conn.execute("UPDATE base SET equip_spark_points = equip_spark_points + 1 WHERE id = 1")
             except ValueError as e:
                 if str(e).startswith("Not enough"):
@@ -535,6 +624,20 @@ def pull_equipment(req: PullRequest):
                     break
                 raise
         return {"results": results}
+
+@router.get("/season")
+def get_season():
+    """The live seasonal-summon descriptor (name, days remaining, boosted
+    odds). `active` is False when no season window is open — the frontend
+    hides the seasonal banner in that case."""
+    from services.season_service import current_season, season_weights
+    s = current_season()
+    if s.get("active"):
+        weights = season_weights()
+        total = sum(weights.values())
+        s = {**s, "odds": {str(k): round(v / total * 100, 4) for k, v in weights.items()}}
+    return s
+
 
 @router.get("/odds")
 def get_odds(currency: str = "gem"):
@@ -630,6 +733,63 @@ def equip_spark_redeem():
     return {"equipment": equip_dict, "spark_cost": EQUIP_SPARK_THRESHOLD}
 
 
+# ─── Spark Wishlist — name up to three classes; the guaranteed 5★ from a
+# spark redeem will be one of them. Freely changeable until the spark is
+# spent. Stored additively in base.spark_wishlist_json.
+
+def _wishlist_pool():
+    from services.class_service import COMBAT_BASE_CLASSES, SUPPORT_BASE_CLASSES
+    return COMBAT_BASE_CLASSES + SUPPORT_BASE_CLASSES
+
+
+def _ensure_wishlist_column(conn):
+    try:
+        conn.execute("ALTER TABLE base ADD COLUMN spark_wishlist_json TEXT")
+    except Exception:
+        pass
+
+
+def _get_wishlist(conn) -> list:
+    _ensure_wishlist_column(conn)
+    row = conn.execute("SELECT spark_wishlist_json FROM base WHERE id = 1").fetchone()
+    try:
+        wl = json.loads(row["spark_wishlist_json"]) if row and row["spark_wishlist_json"] else []
+    except (json.JSONDecodeError, TypeError):
+        wl = []
+    pool = _wishlist_pool()
+    return [c for c in wl if c in pool][:3]
+
+
+class WishlistRequest(BaseModel):
+    classes: list[str]
+
+
+@router.get("/wishlist")
+def get_wishlist():
+    with db() as conn:
+        base = conn.execute("SELECT spark_points FROM base WHERE id = 1").fetchone()
+        return {
+            "classes": _get_wishlist(conn),
+            "pool": _wishlist_pool(),
+            "spark_points": (base["spark_points"] if base else 0) or 0,
+            "threshold": SPARK_THRESHOLD,
+        }
+
+
+@router.post("/wishlist")
+def set_wishlist(req: WishlistRequest):
+    pool = _wishlist_pool()
+    classes = [c for c in dict.fromkeys(req.classes) if c in pool][:3]
+    if len(classes) != len(req.classes):
+        bad = [c for c in req.classes if c not in pool]
+        if bad:
+            raise HTTPException(status_code=400, detail=f"Unknown class: {bad[0]}")
+    with db() as conn:
+        _ensure_wishlist_column(conn)
+        conn.execute("UPDATE base SET spark_wishlist_json = ? WHERE id = 1", (json.dumps(classes),))
+    return {"ok": True, "classes": classes}
+
+
 @router.post("/spark-redeem")
 def spark_redeem():
     """Spend spark points (gem hero pulls only) for a guaranteed random 5★ hero."""
@@ -646,6 +806,7 @@ def spark_redeem():
 
         # Deduct sparks
         conn.execute("UPDATE base SET spark_points = spark_points - ? WHERE id = 1", (SPARK_THRESHOLD,))
+        wishlist = _get_wishlist(conn)
 
     # Pull a guaranteed 5★ using the normal pull mechanism but overriding rarity
     from services.gacha_service import generate_base_stats, generate_aptitudes, apply_class_stat_bias
@@ -656,11 +817,17 @@ def spark_redeem():
     stats = generate_base_stats(birth_star)
     aptitudes = generate_aptitudes(birth_star)
 
-    cached_data = pop_cached_portrait(birth_star)
+    # Wishlist honored here: the guaranteed 5★ is one of the named classes,
+    # preferring a cached portrait already drawn for that class.
+    import random
+    target_class = random.choice(wishlist) if wishlist else None
+    cached_data = pop_cached_portrait(birth_star, class_name=target_class)
     old_path, p_gender, p_class = cached_data if cached_data else (None, None, None)
 
     hero_class, hidden_class = assign_class(birth_star)
-    if p_class:
+    if target_class:
+        hero_class = target_class
+    elif p_class:
         hero_class = p_class
     stats = apply_class_stat_bias(stats, hero_class)
 
@@ -673,8 +840,8 @@ def spark_redeem():
     traits_json = json.dumps(traits)
 
     extra_prompt = ""
-    if p_class:
-        extra_prompt += f" This hero's class is {p_class}."
+    if target_class or p_class:
+        extra_prompt += f" This hero's class is {hero_class}."
     if p_gender and p_gender != "unknown":
         extra_prompt += f" This hero is {p_gender} — their NAME must be an unmistakably {p_gender} name, and the gender field must be \"{p_gender}\"."
     profile = build_instant_profile(birth_star, p_gender)

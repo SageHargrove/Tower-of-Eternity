@@ -54,14 +54,33 @@ def _enqueue(priority: int, fn, *args):
 # ---------------------------------------------------------------------------
 
 BASE_STYLE = (
-    "(Solo Leveling manhwa art style:1.25), dark fantasy anime, "
-    "(bold black ink outlines:1.15), thick clean lineart, cel shading, hard shadow edges, "
+    # style anchor at 1.3. POSITIVE-side weights only — weighted NEGATIVE
+    # additions are what caused the r9 drift. Fading-into-bg is now handled by
+    # the LIGHTING FIX block below (front key light) rather than by cranking
+    # rim light, which only lit edges and left the front of the figure dark.
+    "(Solo Leveling manhwa art style:1.3), dark fantasy anime, "
+    # ink/lineart weights raised: the dominant volume-run reject is a glossy
+    # 3D-CG drift whose defining absence is LINEART
+    "(bold black ink outlines:1.25), (thick clean lineart:1.15), (cel shading:1.1), hard shadow edges, "
     "highly detailed facial shading, multiple distinct shading tones, colored midtones in shadow, "
     "detailed hair strands, textured hair shading, "
     "rich saturated colors, vivid true-to-color hair, natural skin tone unaffected by lighting, "
-    "plain simple dark background, uniform near-black backdrop, no scenery, no environment, "
-    "sharp rim lighting along silhouette edge, intense contrast, "
-    "intricate details, masterpiece, best quality, same universe aesthetic"
+    # Danbooru-native background/lighting tags — NoobAI reads these far more
+    # reliably than the old prose ("plain simple dark background..."), which
+    # also fought the anti-flat-background negatives and compromised on gray.
+    # A/B verified 2026-07-06 (fixed seed): true black gradient, richer gold
+    # trim, truer costume colors.
+    "simple background, dark background, (black background:1.1), gradient background, "
+    # LIGHTING FIX (2026-07-08, A/B verified on Real_ToE ep10): the manhwa LoRA
+    # is already dark-leaning, and backlighting/chiaroscuro/dramatic-shadow were
+    # silhouetting the subject (lower bodies faded to pure black). Swapped those
+    # three for a front key light + illumination tags, dropped black-bg 1.2->1.1
+    # and rim 1.25->1.1. Full bodies now survive; void background preserved.
+    "(rim lighting:1.1), (character fully illuminated:1.25), bright key light on the figure, "
+    "front lighting, full body clearly visible, well-lit character, crisp visible details, high contrast, "
+    # very awa / absurdres are NoobAI's own top-quality training tags — they
+    # pull toward the highest-scored slice of its dataset.
+    "intricate details, masterpiece, best quality, very awa, absurdres, newest, same universe aesthetic"
 )
 
 # Full-body, fixed framing. A single full-body asset is stored per hero and
@@ -72,10 +91,49 @@ BASE_STYLE = (
 # framing is exactly what produced bust shots with no legs.
 FRAMING = (
     "(full body:1.35), (full-length character illustration:1.3), head to feet fully visible, "
-    "entire body inside the frame, standing heroic pose, feet near the bottom edge of the frame, "
-    "character centered horizontally, the character occupies about 70 percent of the frame height, "
+    "entire body inside the frame, feet near the bottom edge of the frame, "
+    "character centered horizontally, (the character fills most of the frame height:1.1), "
     "fully clothed, wearing a detailed outfit, plain empty background"
 )
+
+# Pose/camera variety — the old FRAMING hard-coded "standing heroic pose",
+# which produced the same stiff mannequin stance on every hero. One of these
+# is rolled per generation instead; all are full-body-compatible danbooru
+# tag combos so the framing contract above still holds.
+# GOLDEN SET — the exact 12 poses of the batch the user called perfect.
+# The 22-pose expansion + camera angles (r7-r11) caused the progressive
+# realism drift: complex compositions (foreshortened lunges, airborne
+# leaps, map-crouches, dutch angles) push the model off its cel-shaded
+# prior. Do NOT expand this list without A/B evidence.
+POSES = [
+    "standing, contrapposto, hand on hilt, cape billowing in the wind",
+    "walking toward viewer, mid-stride, coat flaring behind",
+    "fighting stance, weapon drawn and lowered at the side, blood on blade",
+    "action pose, weapon raised, dynamic angle",
+    "looking back over shoulder, three-quarter view, wind-swept",
+    "kneeling on one knee, sword planted in the ground, head bowed slightly",
+    "leaning weight on one leg, arms crossed, confident",
+    "casting a spell, one arm extended, magic swirling around hand",
+    "crouching low, ready to strike, predatory posture",
+    "standing at ease, hand resting on weapon, gaze to the side",
+    "mid-turn, cloak swirling, dramatic movement",
+    "one hand raised adjusting gauntlet, casual poise",
+]
+
+# No camera tokens — the golden batch had none.
+CAMERAS = [""]
+
+# Weapon-referencing poses are wrong for non-combat professions (a Farmer
+# posing with a raised weapon, r7). Support classes draw from the neutral
+# list only.
+_WEAPON_WORDS = ("weapon", "sword", "hilt", "sheath", "blade")
+POSES_NEUTRAL = [p for p in POSES if not any(w in p for w in _WEAPON_WORDS)]
+NONCOMBAT_CLASSES = {"Chef", "Medic", "Scout", "Blacksmith", "Quartermaster",
+                     "Tactician", "Priest", "Alchemist", "Merchant", "Farmer", "Classless"}
+
+def _random_pose(hero_class: str = None) -> str:
+    pool = POSES_NEUTRAL if hero_class in NONCOMBAT_CLASSES else POSES
+    return random.choice(CAMERAS) + random.choice(pool)
 
 # Pushes generation away from the failure modes seen in practice:
 # soft painterly/semi-realistic rendering, flat vector-poster coloring,
@@ -83,14 +141,25 @@ FRAMING = (
 # washed-out/sketch-like underdeveloped renders, and hair glowing so hard
 # it loses its actual color (the "everyone has cyan hair" problem).
 NEGATIVE_STYLE = (
-    "soft airbrushed shading, painterly, semi-realistic skin texture, photographic, 3d render, "
-    "blurred shading, soft gradient blending, watercolor, (flat vector art:1.3), (solid flat color fill:1.3), "
-    "(face painted in one flat color:1.3), skin rendered as a single flat tone, no shadow tones on face, "
+    # Eye/face integrity — at full-body framing the face is small, so eye
+    # defects are the first thing to break; weight these hard.
+    "(bad eyes:1.2), (asymmetric eyes:1.2), poorly drawn eyes, cross-eyed, "
+    "wonky eyes, misaligned pupils, extra pupils, deformed iris, dead eyes, "
+    "(bad face:1.1), poorly drawn face, malformed face, "
+    "(text:1.3), (watermark:1.3), signature, artist name, logo, username, speech bubble, letters, "
+    # The dominant volume-run reject: glossy 3D-CG render (porcelain skin,
+    # chrome specular armor, no lineart). Weighted and early. The old
+    # anti-flat weights below are DE-WEIGHTED — they were punishing cel
+    # shading and pushing renders toward this glossy compromise.
+    "(3d render:1.3), (cgi:1.25), (glossy plastic skin:1.2), porcelain doll skin, "
+    "video game cinematic render, unreal engine, octane render, chrome specular highlights, "
+    "soft airbrushed shading, painterly, semi-realistic skin texture, photographic, "
+    "blurred shading, soft gradient blending, watercolor, flat vector art, solid flat color fill, "
+    "face painted in one flat color, skin rendered as a single flat tone, no shadow tones on face, "
     "poster art, low contrast flat colors, muddy shading, "
     "blotchy skin discoloration, harsh shadow patches, uneven skin tone, "
     "completely black face, no facial detail, crushed blacks, underexposed face, silhouette face, "
-    "flat solid color background, single flat color fill background, pure white background, "
-    "pure black flat background, plain empty black background, neon flat colored background, solid red background, "
+    "pure white background, neon flat colored background, solid red background, "
     "(bright neon background:1.4), (loud saturated flat background:1.4), (glowing neon yellow background:1.3), "
     "(glowing neon green background:1.3), electric lime background, highlighter-colored background, "
     "(oversaturated:1.2), garish clashing colors, radioactive color palette, "
@@ -106,8 +175,10 @@ NEGATIVE_STYLE = (
     "halo blending into hair color, (flat solid color hair:1.3), (untextured hair:1.2), single-tone hair mass with no strand detail, "
     "skin tinted blue, unnatural skin discoloration from background lighting, "
     "huge oversized eyes, exaggerated eye proportions, disproportionate giant eyes, "
-    "blurry, low quality, watermark, text, signature, bad anatomy, "
-    "deformed, ugly, disfigured, worst quality, jpeg artifacts, "
+    "blurry, low quality, watermark, text, signature, (bad anatomy:1.2), "
+    "(bad proportions:1.2), malformed limbs, extra limbs, missing limbs, short legs, "
+    "long torso, wrong proportions, bad hands, extra fingers, lowres, "
+    "deformed, ugly, disfigured, (worst quality:1.2), jpeg artifacts, "
     "hair extending beyond frame edges, hair cropped at image border, hair cut off by frame, "
     "long hair flowing out of frame, hair touching image edge, "
     # Full-body framing enforcement — these bust/crop modes were ~20-30% of
@@ -116,7 +187,19 @@ NEGATIVE_STYLE = (
     "(upper body only:1.4), face close up, zoomed in on face, cut off at the waist, "
     "cropped at chest, cropped legs, cut off legs, missing legs, missing feet, "
     "feet out of frame, legs out of frame, out of frame, "
+    # h02 failure: character rendered tiny/distant; h06 failure: dark outfit
+    # dissolving into the black backdrop (2026-07-06)
+    "(tiny distant figure:1.2), (zoomed out:1.2), far away shot, small figure in a large empty frame, "
+    # keep these UNWEIGHTED-ish — bumping them to 1.3/1.2/1.2 in r9
+    # coincided with a batch-wide realism drift (over-weighted negatives
+    # distort style); r7's 1.2/plain/plain was the last good state
+    "(body dissolving into darkness:1.2), limbs fading into the background, dark clothing merging with background, "
     "detailed scenery background, busy background, environment background, landscape background, "
+    # ground/floor creep — the void should hold only a soft shadow under
+    # the feet, never terrain (merchant-on-rubble / berserker-on-white-floor
+    # failures, 2026-07-06)
+    "(rocky ground:1.2), rubble, stone floor, dirt ground, grass, terrain, "
+    "(textured floor:1.2), tiled floor, wooden floor, bright white floor, glowing floor, "
     "glowing orb behind character, glowing circle behind character, halo effect background, "
     "magic circle background, floating colored sphere background, spotlight circle background, "
     "vignette ring, glowing aura sphere, radial light burst background"
@@ -144,6 +227,16 @@ NEGATIVE_STYLE = (
 # creature prompts (goblin, rat, hyena) toward sexualized "monster girl"
 # anime-pinup interpretations instead of actual monsters.
 MONSTER_STYLE = (
+    # e621 anchor tags first — NoobAI is danbooru+e621 trained, and these
+    # three tags are the strongest lever away from the anime-human prior.
+    # A/B verified 2026-07-06 (fixed seed, Abyssal Lurker): without them the
+    # "twisted abyssal beast" rendered as an anime merman; with them, an
+    # actual quadruped creature.
+    "no humans, monster, feral, "
+    # NOTE: do NOT add e621's "toony"/"digital media (artwork)" style tags —
+    # tried 2026-07-06, they made renders WORSE (r5 wolf/spider regressed vs
+    # r4). The r4 recipe (this one) is the verified baseline: user kept its
+    # wolf and chimera.
     "(Solo Leveling manhwa art style, cel-shaded anime illustration:1.35), dark fantasy anime monster design, "
     "monstrous and beast-like in form, not a human or attractive humanoid figure, fully non-sexual, "
     "(bold black ink outlines:1.25), thick clean lineart, cel shading, multiple distinct shading tones, "
@@ -154,7 +247,8 @@ MONSTER_STYLE = (
     "dramatic rim lighting accenting edges only — the body itself stays clearly visible and colorful, "
     "neither shadowed into blackness nor blown out into white, "
     "intense contrast in shading without losing surface detail or overexposing, "
-    "intricate details, masterpiece, best quality"
+    "(well-lit subject:1.2), vibrant color accents, "
+    "intricate details, masterpiece, best quality, very awa, absurdres, newest"
 )
 
 # Evil-humanoid style — for enemies that are actually person-shaped
@@ -182,7 +276,7 @@ HUMANOID_EVIL_STYLE = (
     "rich saturated but balanced colors across the entire body, vivid distinct material colors, "
     "highly detailed surface texture, full-body or three-quarter pose, "
     "dark atmospheric background, dramatic rim lighting accenting edges only, "
-    "intricate details, masterpiece, best quality"
+    "intricate details, masterpiece, best quality, very awa, absurdres, newest"
 )
 
 HUMANOID_EVIL_NEGATIVE = NEGATIVE_STYLE + (
@@ -208,6 +302,10 @@ HUMANOID_ENEMY_NAMES = {
     "The Ashen Colossus", "Stoneheart the Unbroken", "The Obsidian Tyrant",
     "The Drowned Naga Queen", "Knight-Captain Mordrek", "Pit Fiend Commander",
     "Goblin King", "Vaelor, the Fallen Ascendant",
+    # Harpy/Frost Wight are person-shaped — they render far better through
+    # the hero-grade humanoid recipe than MONSTER_STYLE (Liam, 2026-07-06:
+    # "for humanoid ones you could pull from the humanoid prompts").
+    "Harpy", "Frost Wight",
     "Kobold", "Skeleton", "Feral Ghoul", "Wraith", "Vampire Spawn", "Primordial Vampire",
     "Demon Lord", "Archdemon", "Ancient Guardian",
     "Gorrath the Bonebreaker", "The Rotcaller, Warlord of the Fester Host",
@@ -215,7 +313,13 @@ HUMANOID_ENEMY_NAMES = {
 }
 
 MONSTER_NEGATIVE = NEGATIVE_STYLE + (
-    ", silhouette, full black silhouette, backlit silhouette, "
+    # e621 tags pull hard toward photoreal wildlife — pin the 2D style with
+    # weighted realism negatives (venom stalker/spider came back photoreal
+    # without these, 2026-07-06)
+    ", (photorealistic:1.3), (realistic:1.25), wildlife photography, taxidermy, "
+    "live action, 3d model render, cgi creature, "
+    "(murky:1.2), muddy dark rendering, underexposed subject, indistinct dark shapes, "
+    "silhouette, full black silhouette, backlit silhouette, "
     "subject rendered as a flat black shape, glowing aura with no body detail visible, "
     "creature reduced to shadow, rim-lit silhouette with no surface detail, "
     "indiscernible black shape, mostly black image, almost entirely black image, "
@@ -261,15 +365,18 @@ TIER_FLAVOR = {
     # gear/effects at higher tiers.
     1: "humble commoner attire rendered in rich detail — layered weathered traveling clothes with "
        "visible fabric texture, stitched patches, frayed hems, worn leather cords, detailed cloth folds "
-       "and creases, no armor, no magical effects",
+       "and creases, no armor, no magical effects, ordinary unassuming person",
     2: "novice adventurer outfit rendered in rich detail — sturdy layered travel garb with detailed "
        "stitching and buckles, a worn belt with small pouches, textured cloth and leather, "
        "lightly equipped, no magical effects",
-    3: "(seasoned fighter:1.1), modest well-maintained gear with detailed straps and fittings, no special effects",
-    4: "(elite warrior:1.15), ornate gear",
-    5: "(legendary hero:1.2), ornate gear, intricate accessories, imposing presence",
+    # "gear" is banned vocabulary — it tokenizes toward mecha (see
+    # CLASS_OUTFITS comment; a Thief in "hooded leather gear" rendered in a
+    # mech suit). "equipment"/"armor"/"attire" carry the same meaning safely.
+    3: "(seasoned fighter:1.1), modest well-maintained equipment with detailed straps and fittings, no special effects",
+    4: "(elite warrior:1.15), ornate detailed equipment, confident bearing",
+    5: "(legendary hero:1.2), ornate armor and attire, intricate accessories, imposing presence",
     6: "(near-mythic champion:1.25), intricate ornate armor, elaborate jewelry, "
-       "glowing magical aura in background, commanding presence",
+       "glowing magical aura in background, (commanding intimidating presence:1.1)",
     7: "(godlike legendary being:1.3), elaborate ornate armor, intricate magical markings, "
        "glowing weapon or artifact, dramatic glowing aura in background, "
        "overwhelming presence, reality-bending power",
@@ -352,21 +459,39 @@ EXPRESSIONS = [
     "stoic unreadable expression",
 ]
 
+# Danbooru-native clothing tags. Two hard-won rules: avoid the word "gear"
+# (it tokenizes toward mecha/機械 — a Thief in "hooded leather gear" came out
+# in a mech suit), and every class gets an explicit outfit — the old vague
+# DEFAULT_OUTFIT ("dark fantasy adventurer's clothing") was where support
+# classes like Merchant drifted off-style.
 CLASS_OUTFITS = {
-    "Warrior": "heavy battle armor, pauldrons, weathered cloak",
-    "Knight": "ornate plate armor, engraved pauldrons",
-    "Berserker": "tribal fur armor, war paint, exposed scars",
-    "Paladin": "holy silver armor, glowing sigils",
-    "Spearman": "light scale armor, leather straps",
-    "Thief": "dark hooded leather gear, concealed blades",
-    "Archer": "leather vambraces, hooded ranger cloak",
-    "Mage": "flowing arcane robes, glowing runes",
-    "Acolyte": "simple holy vestments, prayer beads",
-    "Spellsword": "runed half-plate armor, glowing blade motifs",
-    "Magic Engineer": "techno-arcane goggles, mechanical gauntlet",
-    "Classless": "plain worn traveling clothes",
+    "Warrior": "heavy armor, pauldrons, weathered torn cloak, gauntlets, sturdy leather boots",
+    "Knight": "ornate plate armor, engraved pauldrons, surcoat, armored sabatons",
+    "Berserker": "fur trim armor, war paint, bare shoulders, scars, fur-wrapped boots",
+    "Paladin": "silver plate armor, white cape, glowing sigils, gorget, armored sabatons",
+    "Spearman": "scale armor, leather straps, shoulder plate, sashes, leather boots",
+    "Thief": "black hooded cloak, dark leather armor, dagger sheath on thigh, fingerless gloves, face-shadowing hood, soft leather boots",
+    "Archer": "hooded green cloak, leather vambraces, quiver on back, bow, leather boots",
+    # Tome, not staff — established art preference (staffs render badly and
+    # the game's Mage identity is the Tome; see frontend prefs)
+    "Mage": "long flowing robe, wide sleeves, glowing runes on fabric, holding an open arcane tome, glowing magical script floating from its pages, pointed leather shoes",
+    "Acolyte": "simple holy vestments, prayer beads, cloth sash, simple sandals",
+    "Spellsword": "half-plate armor over cloth, runed sword, glowing blade, armored boots",
+    "Magic Engineer": "goggles on head, leather apron, mechanical gauntlet on one arm, tool belt, heavy work boots",
+    "Classless": "worn traveling clothes, patched cloak, simple tunic",
+    # support & profession classes — previously all fell to the default
+    "Chef": "chef whites reimagined as fantasy garb, apron, rolled sleeves, cleaver at the belt, sturdy shoes",
+    "Medic": "long coat with satchel, bandage rolls at the belt, gloves, leather shoes",
+    "Scout": "camouflage cloak, light leather armor, spyglass at the hip, soft travel boots",
+    "Blacksmith": "sturdy work shirt with rolled sleeves, heavy leather apron, thick gloves, soot smudges, hammer at the belt, heavy work boots",
+    "Quartermaster": "practical field uniform, ledger satchel, many belt pouches, sturdy boots",
+    "Tactician": "military longcoat with epaulettes, map case, white gloves, polished riding boots",
+    "Priest": "ornate ecclesiastical robes, gold trim stole, censer, simple shoes",
+    "Alchemist": "long dark coat, potion vials strapped across chest, stained gloves, leather shoes",
+    "Merchant": "rich fabric doublet, fur-lined mantle, coin pouch and rings, traveling pack, fine leather boots",
+    "Farmer": "rustic work clothes, straw hat on back, sickle at the belt, worn work boots",
 }
-DEFAULT_OUTFIT = "dark fantasy adventurer's clothing"
+DEFAULT_OUTFIT = "dark fantasy traveling clothes, worn cloak, leather boots"
 
 # ---------------------------------------------------------------------------
 # Prompt building
@@ -418,7 +543,7 @@ def _prompt_from_traits(traits: dict, hero_class: str, birth_star: int) -> str:
         f"{gender_tag}, {traits['race']}, {traits['hair']}, {traits['skin']}, {traits['eyes']}, "
         f"{traits['expression']}, {traits['feature']}{glasses_tag}, {outfit}, {_tier_flavor(birth_star)}, "
         f"looking at viewer, {_quality_tag(birth_star)}, "
-        f"{FRAMING}, {BASE_STYLE}"
+        f"{_random_pose(hero_class)}, {FRAMING}, {BASE_STYLE}"
     )
 
 def build_varied_prompt(birth_star: int = 1, gender: str = "unknown") -> tuple:
@@ -451,15 +576,25 @@ def get_cache_counts() -> dict:
         """).fetchall()
     return {r["birth_star"]: r["cnt"] for r in rows}
 
-def pop_cached_portrait(birth_star: int):
-    """Claim a pre-generated portrait for this star. Returns (path, gender, class_name) or None."""
+def pop_cached_portrait(birth_star: int, class_name: str = None):
+    """Claim a pre-generated portrait for this star. Returns (path, gender, class_name) or None.
+    Pass class_name to prefer a portrait drawn for that class (spark wishlist)."""
     with db() as conn:
-        row = conn.execute("""
-            SELECT id, path, gender, class_name FROM portrait_cache
-            WHERE birth_star = ? AND used = 0
-            ORDER BY created_at ASC
-            LIMIT 1
-        """, (birth_star,)).fetchone()
+        row = None
+        if class_name:
+            row = conn.execute("""
+                SELECT id, path, gender, class_name FROM portrait_cache
+                WHERE birth_star = ? AND used = 0 AND class_name = ?
+                ORDER BY created_at ASC
+                LIMIT 1
+            """, (birth_star, class_name)).fetchone()
+        if not row:
+            row = conn.execute("""
+                SELECT id, path, gender, class_name FROM portrait_cache
+                WHERE birth_star = ? AND used = 0
+                ORDER BY created_at ASC
+                LIMIT 1
+            """, (birth_star,)).fetchone()
         if not row:
             return None
         conn.execute("UPDATE portrait_cache SET used = 1 WHERE id = ?", (row["id"],))
@@ -544,7 +679,10 @@ def _generate_one_cached(birth_star: int):
         prompt, gender, hero_class = build_varied_prompt(birth_star)
         os.makedirs(CACHE_DIR, exist_ok=True)
         filename = f"{CACHE_DIR}/cached_{birth_star}star_{int(time.time())}_{random.randint(1000, 9999)}.png"
-        success = generate_portrait_comfy(prompt, filename, negative=NEGATIVE_STYLE)
+        # hires=True: two-pass upscale-refine. Cache fill is a background
+        # job, so the ~2x generation time is free — and the second pass is
+        # what rescues small faces/eyes at full-body framing.
+        success = generate_portrait_comfy(prompt, filename, negative=NEGATIVE_STYLE, hires=True)
         if success:
             add_to_cache(birth_star, filename, gender, hero_class)
             print(f"[Cache] Generated {birth_star}★ {hero_class} ({gender}) portrait -> {filename}")
@@ -627,21 +765,26 @@ ENEMY_DIR = "static/portraits/enemies"
 # glow accent) — that's what keeps the sampler from collapsing the whole body
 # into shadow. See MONSTER_STYLE/MONSTER_NEGATIVE above for why.
 ENEMY_PORTRAIT_HINTS = {
-    "Corpse Rat": "(a giant diseased RODENT, not a wolf or dog:1.3), a long pointed rat snout with whiskers, large round tattered rat ears, a long hairless scarred tail, mottled grey-brown patchy fur rendered with dense individual fur tufts and visible grime, exposed yellowed bone at the joints, glowing sickly green eyes, sharp yellowed rodent incisors, hunched on all fours like vermin, standing in a dark atmospheric ruined alley littered with debris and bones, dramatic shadow play across its body, highly detailed and richly textured",
+    "Corpse Rat": "(rat, rodent, murid, feral, quadruped:1.3), a giant plague rat hunched in a torchlit sewer tunnel, a long pointed rat snout with whiskers, large round tattered ears, (a long pink hairless tail:1.2), oversized yellowed incisors, mottled grey-brown patchy fur with visible grime, sickly green glow from its eyes and open sores lighting its face, warm torchlight falling from a grate above",
     "Grave Scarab": "an armored undead SCARAB BEETLE, an insect with six segmented bronze-tinted legs and a glossy dark purple-black beetle carapace, glowing teal rune cracks across its shell, faintly glowing curled antennae, low to the ground like an insect",
     "Plague Crawler": "a centipede-like plague beast, a long segmented insectoid body with dozens of dark red jointed legs, sickly olive-green chitinous segments, oozing yellow pustules, small mandibles, low slithering posture",
-    "Abyssal Spider": "a giant EIGHT-LEGGED SPIDER, a glossy deep violet arachnid carapace with red banded markings, eight glowing amber eyes clustered on its head, dripping pale green venom from curved fangs, thin spindly segmented spider legs",
+    "Abyssal Spider": "(spider, arachnid, feral:1.2), a giant spider descending from luminous silk strands, glossy deep violet carapace with red banded markings (clearly lit:1.2), eight glowing amber eyes, curved fangs dripping pale green venom, thin segmented legs silhouetted against a mist-blue cave mouth lit by cold moonlight behind it",
     "Hollow Knight": "a hollow undead knight standing upright in weathered bronze-green plate armor, an empty helm with a faint blue spectral glow leaking from the visor and joints, a tattered crimson cloth sash, a knightly battle stance",
     "Bone Warden": "a skeletal guardian standing firmly on bleached white bone legs in a defensive stance, bone plating fused with tarnished silver armor across its chest and shoulders, glowing violet runes etched along its ribs and skull, gripping a weapon",
     "Flame Wraith": "a humanoid wraith composed of dark orange and red flame, charred black tattered robes with glowing ember-orange seams, flames visibly licking along its silhouette and within its hood, glowing ember-orange eyes",
     "Shriek Shade": "a screaming humanoid wraith, a hooded ghostly form rendered almost entirely in near-black with very dark deep-lavender undertones, subtle lighter-grey grain and highlights along the folds and tattered edges of its robes so the shape isn't perfectly flat, a clearly readable hooded humanoid silhouette, a gaping hollow mouth frozen in a scream, two small dim white dot-eyes, faint tendrils trailing from its form",
-    "Stone Golem": "a hunched, stocky rock golem creature, its entire body covered in thick rough-hewn slabs of grey granite rock fused together like overlapping armor plates, deep jagged cracks and heavily pitted weathered texture across every slab, patches of moss in the crevices, glowing molten-orange light seeping through the cracks between the rock plates, two glowing orange eyes set within a craggy rock face, oversized boulder-like fists",
+    "Stone Golem": "(golem, rock creature:1.2), a hulking stone golem standing in a torchlit ancient ruin, rough granite slabs stacked like overlapping armor with moss in the crevices, (molten orange light glowing from the cracks between plates, lighting its own chest and arms:1.2), two furnace-orange eyes in a craggy face, oversized boulder fists, warm torchlight on broken pillars behind",
     "Dread Brute": "a hulking humanoid brute, scarred dark-tan skin, rusted iron-brown armor plating on its shoulders and forearms, gripping a crude obsidian-black weapon with glowing red runes along the blade, a snarling expression",
     "Abyssal Lurker": "a twisted abyssal beast crouched low on multiple clawed limbs, slick dark teal hide with bioluminescent cyan markings, rows of glowing white eyes along its head, translucent membranous fins along its spine",
-    "Carrion Bat": "a giant CARRION BAT swooping forward, leathery dark brown-purple bat wings spread wide with visible vein texture and torn ragged edges, a fanged bat snout with oversized pointed bat ears, deep wrinkled skin folds across its face and wings, glowing yellow eyes, small clawed hind legs with sharp talons, patchy matted fur with visible individual tufts and grime, dark atmospheric cave background with jagged rock silhouettes, dramatic rim lighting along its wings and fur, richly detailed and textured",
+    "Carrion Bat": "(bat, feral, membranous wings:1.2), a giant carrion bat swooping beneath a full moon, leathery brown-purple wings spread wide and (backlit by moonlight, veins visible through the glowing membrane:1.2), a fanged snout open in a shriek, oversized pointed ears, glowing yellow eyes, patchy matted fur, silver moonlit clouds and a bone-littered ridge below",
     "Rotting Ghoul": "a feral humanoid ghoul, grey-green decaying flesh with visible muscle striations, torn dark tattered clothing, elongated blackened claws, glowing dull yellow eyes, a hunched predatory posture",
     "Iron Revenant": "an animated suit of rusted iron armor standing upright on its own, deep orange rust streaks over dark steel plating, faint blue spectral light glowing through the helm's eye slits, empty clenched gauntlets",
-    "Venom Stalker": "a venomous REPTILIAN creature, a low crouching four-legged lizard-like body with a long whip-like tail, mottled dark green and yellow scaled hide, glowing toxic-green eyes, dripping emerald venom from curved fangs",
+    # Concept redesigned 2026-07-06 — the original "reptilian creature"
+    # rendered as a photoreal museum model across three recipe versions
+    # (same curse as the old slimes). Now a venom-lit serpent-hound: canine
+    # body prior renders reliably in-style, and the venom glow gives the
+    # scene its own light source.
+    "Venom Stalker": "(serpent, canine, feral:1.2), a gaunt venom-drenched serpent-hound, a lean black hound body with a scaled serpentine neck and snake head, glowing toxic-green eyes, luminous green venom dripping from its fangs and lighting its jaw and chest from below, glowing acid pools on the dark swamp floor around its paws, moonlit dead trees behind",
     "Frost Wight": "a frozen undead wight, a humanoid figure with pale icy-blue cracked skin, tattered frost-rimed dark robes, a dim subdued icy-blue glow in its eyes (not blindingly bright), jagged ice shard protrusions along its back, visible facial features beneath a frost-crusted hood",
     "Obsidian Behemoth": "(a massive behemoth whose entire hide is dominantly glossy black and deep purple volcanic obsidian, black and purple are the majority colors covering most of its body:1.3), on four powerful legs, rough jagged obsidian surface texture with individual visible cracked plates and shards, glossy black-purple reflective highlights along the broken edges, only thin glowing magma-orange veins as a minor accent threading sparingly between the dark obsidian plates — orange should cover a small minority of the surface, not the whole body, glowing red eyes, jagged obsidian spikes along its spine",
     # --- beginner/intermediate tier (added alongside the floor-gated monster
@@ -654,11 +797,11 @@ ENEMY_PORTRAIT_HINTS = {
     "Mangy Hyena": "a feral hyena, tawny fur covered in dark brown spots and patches, a powerful jaw with bared yellowed teeth, glowing amber eyes, a hunched sloped back with powerful front shoulders, low aggressive stalking stance on all fours, dusty wasteland background",
     "Goblin": "a small wiry goblin humanoid, (sickly green mottled skin, green clearly visible as the skin color:1.3), oversized pointed ears, a hooked nose, sharp yellowed teeth bared in a snarl, ragged dark leather scraps for clothing, gripping a crude rusted blade, standing alert lunging stance mid-attack with weapon raised high, beady yellow eyes, gritty dungeon background",
     "Bandit": "a rough human bandit, weathered tan skin, a worn leather jerkin and a loose hood pushed back enough to show his face, narrowed eyes, scarred forearms, gripping a plain worn dagger, alert lean stance, dim alley background",
-    "Wolf": "an adult wolf standing on all four legs in a snowy forest at night, dense grey and white fur, pointed ears forward, fangs bared in a snarl, glowing pale yellow eyes, a lean athletic build, bushy tail held low",
+    "Wolf": "(wolf, canine, feral, quadruped:1.2), an adult wolf standing on all four legs in a snowy forest at night, dense grey and white fur, pointed ears forward, fangs bared in a snarl, glowing pale yellow eyes, a lean athletic build, bushy tail held low",
     "Orc": "a hulking orc warrior standing in a war-camp at dusk, green-grey skin evenly lit across his face and body, a jutting lower jaw with tusks, small dark eyes under a heavy brow, spiked iron armor plates over leather, gripping a heavy cleaver-like blade",
     "Ogre": "an enormous OGRE giant, twice the height and bulk of a normal man, a massive bloated frame with thick rolls of muscle and fat, warty greenish-brown skin, a disproportionately huge brutish jaw with jutting yellowed tusks, a small head sitting atop a vastly oversized hulking body, small dull eyes, wrapped in crude furs and rusted armor scraps that look small and stretched on its huge frame, gripping a tree-trunk-sized wooden club studded with nails, hunched towering stance dwarfing its surroundings",
     "Troll": "a tall gaunt TROLL, (sickly grey-green warty hide with patches of coarse moss-like growth, clearly visible color and texture, not solid black:1.2), an elongated jaw with crooked yellowed tusks, sunken glowing dull-yellow eyes, long gangly muscular arms ending in clawed hands, hunched predatory stance, well-lit damp cave background",
-    "Harpy": "a HARPY, a winged beast-like creature with a feral feathered upper body, mottled brown and rust-orange feathers with clearly visible individual feather texture along muscular wings and arms, (tan-brown skin on its exposed chest and arms clearly visible, not solid black:1.3), sharp taloned bird-like feet, a sharp-featured beastly face with wild hair and glowing pale eyes, hooked claws extended, captured mid-swoop with wings flared, well-lit cliffside background with the plumage and skin clearly visible",
+    "Harpy": "a fierce harpy warrior, a wild sharp-featured humanoid with large feathered wings in place of arms, mottled brown and rust-orange plumage with detailed individual feathers, taloned bird legs below the knee, tattered cloth wraps, wind-blown wild hair, piercing pale eyes, fierce snarl, wings flared wide mid-swoop, well-lit stormy cliffside background",
     "Shrouded Reaper": "(a tall hooded reaper-like figure shrouded entirely in flowing black robes and a deep hood concealing the face:1.3), bone-pale skeletal clawed hands visible at the sleeves, ornate dark engraved bracers, gripping a curved ornate ceremonial dagger low at the waist, standing motionless and imposing, faint cold blue ambient light, deep atmospheric fog, an aura of dread and supernatural menace, towering and elite",
     # --- floor 1-10 family elites — previously fell back to the thin generic
     # hint with no color/shape anchor, which is exactly why these rendered
@@ -721,9 +864,9 @@ ENEMY_PORTRAIT_HINTS = {
 
     # beast/monster-style entries (MONSTER_STYLE) from the same pass
     "Scarab Swarmlord": "a massive armored beetle-like scarab, glossy dark-purple chitin shell clearly visible with iridescent sheen, oversized mandibles, six clawed legs, glowing violet eyes, surrounded by smaller scarabs skittering at its sides, torchlit crypt floor background",
-    "Wyvern": "a fierce wyvern with slate-grey wings spread wide, barbed tail, sharp reptilian head with bared fangs, amber eyes, stormy mountain pass background",
+    "Wyvern": "(wyvern, dragon, feral:1.2), a slate-grey wyvern rearing on a cliff at sunset, membranous wings spread wide and (backlit amber by the setting sun:1.2), visible wing veins, barbed tail coiled, bared fangs, glowing amber eyes, dramatic orange storm light across its scales, sunset thunderheads behind",
     "Wyvern Stormrider": "a fierce wyvern beast crackling with electricity, leathery storm-grey wings spread wide with faint blue lightning arcing along the membrane, a long barbed tail, bared fangs, glowing white eyes, stormy cliffside background",
-    "Chimera": "a monstrous chimera with a lion's maned body, a goat's head growing from its back, and a serpent-headed tail, tawny fur clearly visible with patchy goat-grey fur on its second head, bared fangs on all three heads, glowing amber eyes, rocky wasteland background",
+    "Chimera": "(chimera, multi-headed, feral:1.2), a monstrous chimera with a lion's maned body, a goat's head growing from its back, and a serpent-headed tail, (tawny golden fur clearly lit and visible:1.2), patchy goat-grey fur on the second head, bared fangs on all three heads, glowing amber eyes, well-lit rocky wasteland background at dusk",
     "Hydra Spawn": "a young multi-headed hydra beast, three serpentine necks rising from a stocky scaled body, deep-green scales clearly visible with darker mottled patterns, each head baring fangs, glowing yellow eyes, swampy lair background",
     "Young Dragon": "a young dragon on all fours, quadruped, scales, horns, wings, fangs, mountain cave background",
     "Adult Dragon": "a massive adult dragon rearing up on powerful hind legs, overlapping dark-crimson and obsidian scales clearly visible with plate-like texture, large swept-back horns, enormous leathery wings spread wide, bared fangs with fire and smoke billowing from its jaws, blazing amber eyes, heavily scarred and battle-worn, rocky mountain peak background wreathed in flame",

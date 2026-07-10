@@ -798,6 +798,24 @@ WHERE NOT EXISTS (SELECT 1 FROM recipes WHERE name = 'Void Ring');
         except sqlite3.OperationalError:
             pass
 
+        # Raid capture / Rebellious Phase (see routers/raid.py):
+        #  is_prisoner   — hero arrived via raid capture, not the gacha
+        #  rebellion     — 0-100 loyalty to their ORIGINAL master; >0 means
+        #                  the Rebellious Phase: cannot be deployed until
+        #                  broken down with time, gifts, and base resources
+        #  original_master — arena username they were taken from
+        #  is_captured   — this hero of OURS was taken in a raid we lost;
+        #                  alive somewhere else, but gone from this roster
+        for _col, _ddl in (("is_prisoner", "INTEGER DEFAULT 0"),
+                           ("rebellion", "INTEGER DEFAULT 0"),
+                           ("original_master", "TEXT"),
+                           ("is_captured", "INTEGER DEFAULT 0")):
+            try:
+                conn.execute(f"ALTER TABLE heroes ADD COLUMN {_col} {_ddl}")
+                print(f"[DB] Migrated: added column '{_col}' to heroes")
+            except sqlite3.OperationalError:
+                pass
+
         # Floor type is rolled once per floor number and cached here so
         # re-entering the same floor (rerun) always gives the same floor type.
         conn.execute("""

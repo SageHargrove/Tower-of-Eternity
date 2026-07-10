@@ -5,26 +5,37 @@ import HeroesPage from './pages/HeroesPage'
 import TowerPage from './pages/TowerPage'
 import BasePage from './pages/BasePage'
 import LogPage from './pages/LogPage'
+import MoreHub from './components/MoreHub'
 import InventoryPage from './pages/InventoryPage'
 import ArenaPage from './pages/ArenaPage'
 import AchievementsPage from './pages/AchievementsPage'
 import ProfileSelect from './components/ProfileSelect'
-import HeroChat from './components/HeroChat'
+import HeraldWire from './components/HeraldWire'
 import ToastContainer from './components/ToastContainer'
+import ErrorBoundary from './components/ErrorBoundary'
 import TutorialOverlay from './components/TutorialOverlay'
 import TabTourOverlay from './components/TabTourOverlay'
-import { getBase, grantResources, clearDevInventory, setDevLevel, grantInventoryItem, listHeroes, getAchievements } from './api/client'
+import TopBar, { GlobalNav } from './components/ilm/TopBar'
+import Ornaments from './components/ilm/Ornaments'
+import Mailbox from './components/Mailbox'
+import HearthDrawer from './components/HearthDrawer'
+import GuildHall from './components/GuildHall'
+import Social from './components/Social'
+import ProfileCard from './components/ProfileCard'
+import { emitToast } from './toastBus'
+import { getBase, grantResources, clearDevInventory, setDevLevel, grantInventoryItem, listHeroes, getAchievements, getMailList, getChatLogs } from './api/client'
 import { confirmDialog, alertDialog } from './components/DialogHost'
 import { initAudio, setSoundEnabled, isSoundEnabled, playClick, setBgmVolume, setSfxVolume } from './audio'
 
 const TABS = [
   { id: 'summon', label: 'Summon' },
   { id: 'heroes', label: 'Heroes' },
-  { id: 'inventory', label: 'Items' },
+  { id: 'inventory', label: 'Vault' },
   { id: 'tower',  label: 'Tower' },
   { id: 'arena',  label: 'World' },
   { id: 'achievements', label: 'Achievements' },
   { id: 'base',   label: 'Base' },
+  { id: 'more',   label: 'Archive' },
 ]
 
 // Runs once per browser after the intro TutorialOverlay finishes (or, for
@@ -77,6 +88,40 @@ export default function App() {
   // "you can afford an upgrade" — gold fluctuates constantly and that dot
   // would never turn off, which trains players to ignore it.
   const [claimableAchievements, setClaimableAchievements] = useState(0)
+  // Top-bar icon cluster overlays.
+  const [showMail, setShowMail] = useState(false)
+  const [showChat, setShowChat] = useState(false)
+  const [showGuild, setShowGuild] = useState(false)
+  const [showSocial, setShowSocial] = useState(false)
+  const [showProfileCard, setShowProfileCard] = useState(false)
+  const [mailDot, setMailDot] = useState(false)
+  // The Hearth (global hero chatter drawer) — toggleable from any screen.
+  const [showHearth, setShowHearth] = useState(false)
+  const [hearthDot, setHearthDot] = useState(false)
+  // Global UI scale. The UI is authored around a ~1600px-wide design; this
+  // zooms the whole page (via <html> zoom, Chromium webview) so it fills the
+  // window on 1080p / 1440p / 4K rather than sitting tiny in the middle.
+  // uiScale is the player's manual multiplier on top of the auto fit.
+  const [uiScale, setUiScale] = useState(() => {
+    const v = parseFloat(localStorage.getItem('uiScale') || '1')
+    return Number.isFinite(v) && v > 0 ? v : 1
+  })
+
+  useEffect(() => {
+    function applyScale() {
+      const auto = Math.min(1.9, Math.max(0.8, window.innerWidth / 1600))
+      document.documentElement.style.zoom = String((auto * uiScale).toFixed(3))
+    }
+    applyScale()
+    window.addEventListener('resize', applyScale)
+    return () => window.removeEventListener('resize', applyScale)
+  }, [uiScale])
+
+  function changeUiScale(v) {
+    const clamped = Math.min(1.5, Math.max(0.7, v))
+    localStorage.setItem('uiScale', String(clamped))
+    setUiScale(clamped)
+  }
 
   useEffect(() => {
     // Global click listener for buttons to play sound
@@ -103,6 +148,12 @@ export default function App() {
     } catch {}
     getAchievements()
       .then(r => setClaimableAchievements((r.achievements || []).filter(a => a.complete && !a.claimed).length))
+      .catch(() => {})
+    getMailList()
+      .then(rows => {
+        const list = Array.isArray(rows) ? rows : (rows.mail || [])
+        setMailDot(list.some(m => !m.is_read))
+      })
       .catch(() => {})
   }
 
@@ -154,6 +205,23 @@ export default function App() {
       listHeroes(true).then(setDevHeroes).catch(() => {})
     }
   }, [activeProfile])
+
+  // Hearth notification dot: lights up when a chat log newer than the last
+  // one seen in the drawer exists. Opening the drawer marks everything seen
+  // (HearthDrawer writes hearthSeenAt on every load).
+  useEffect(() => {
+    if (!activeProfile) return
+    const check = () => {
+      getChatLogs(1).then(logs => {
+        const newest = logs?.[0]?.created_at
+        if (!newest) return setHearthDot(false)
+        setHearthDot(!showHearth && newest !== localStorage.getItem('hearthSeenAt'))
+      }).catch(() => {})
+    }
+    check()
+    const iv = setInterval(check, 30000)
+    return () => clearInterval(iv)
+  }, [activeProfile, showHearth])
 
   async function handleDevClearInventory() {
     if (!(await confirmDialog('Wipe all equipment, materials, potions, and scrolls on this profile?'))) return
@@ -207,85 +275,47 @@ export default function App() {
 
   const pages = {
     summon: <SummonPage onGoldChange={refreshResources} />,
-    heroes: <HeroesPage />,
+    heroes: <HeroesPage onNavigate={setTab} />,
     inventory: <InventoryPage />,
-    tower:  <TowerPage onGoldChange={refreshResources} />,
+    tower:  <TowerPage onGoldChange={refreshResources} onNavigate={setTab} />,
     arena:  <ArenaPage />,
     achievements: <AchievementsPage onGoldChange={refreshResources} />,
     base:   <BasePage onGoldChange={refreshResources} onSubTabChange={setBaseSubTab}
                tourTargetSubTab={tourActive && TAB_TOUR_STEPS[tourStepIndex]?.tab === 'base' ? TAB_TOUR_STEPS[tourStepIndex].subTab : null} />,
+    more:   <MoreHub />,
     log:    <LogPage />,
   }
 
   return (
     <div className="app">
-      <header className="app-header" style={{ display: 'flex', justifyContent: 'space-between', width: '100%', padding: '1rem 2rem' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '1.5rem' }}>
-          <h1 style={{ fontSize: '2.2rem', margin: 0, display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-            <span style={{ color: 'var(--gold)', fontSize: '1.7rem', textShadow: '0 0 8px rgba(201,168,76,0.5)' }}>⬡</span>
-            Tower of Eternity
-          </h1>
-          <div className="text-dim" style={{ borderLeft: '1px solid var(--border)', paddingLeft: '1.5rem', fontSize: '0.85rem', textTransform: 'uppercase', letterSpacing: '0.1em' }}>
-            Profile<br />
-            <span className="text-gold" style={{ fontSize: '1.25rem', fontFamily: 'Cinzel, serif', letterSpacing: '0.03em', textTransform: 'none' }}>{activeProfile}</span>
-          </div>
-        </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '1.5rem' }}>
-          {gold !== null && (
-            <div style={{ display: 'flex', gap: '0.8rem' }}>
-              <span className="resource-pill" style={{ color: 'var(--gold)' }}>
-                <GameIcon name="gold_coin" size={18} /> {gold.toLocaleString()} <span className="pill-label">GOLD</span>
-              </span>
-              {gems !== null && (
-                <span className="resource-pill" style={{ color: '#00ffff', textShadow: '0 0 5px rgba(0,255,255,0.4)' }}>
-                  <GameIcon name="gem" size={18} /> {gems.toLocaleString()} <span className="pill-label">GEMS</span>
-                </span>
-              )}
+      <Ornaments seed={tab} />
+      <TopBar
+        profileName={activeProfile}
+        gold={gold} gems={gems} aether={aether}
+        mailDot={mailDot}
+        hearthDot={hearthDot}
+        active={showHearth ? 'hearth' : (showMail ? 'mail' : (showChat ? 'chat' : (showSocial ? 'friends' : null)))}
+        onHearth={() => { setShowHearth(v => !v); setHearthDot(false) }}
+        onFriends={() => setShowSocial(true)}
+        onMail={() => setShowMail(true)}
+        onChat={() => setShowChat(v => !v)}
+        onGuild={() => setShowGuild(true)}
+        onMenu={() => setShowSettings(true)}
+      />
 
-              {aether !== null && aether > 0 && (
-                <span className="resource-pill" style={{ color: '#8fb8ff', textShadow: '0 0 5px rgba(120,160,255,0.4)' }}>
-                  <GameIcon name="aether_crystal" size={18} /> {aether.toLocaleString()} <span className="pill-label">AETHER</span>
-                </span>
-              )}
-            </div>
-          )}
-          <button className="btn" style={{ padding: '0.7rem 1.3rem', fontSize: '1rem' }} onClick={() => setShowSettings(true)}>
-            ⚙️ Settings
-          </button>
-        </div>
-      </header>
-
-      <nav className="tabs">
-        {TABS.map(t => {
-          const tourTarget = tourActive ? TAB_TOUR_STEPS[tourStepIndex]?.tab : null
-          const locked = tourActive && t.id !== tourTarget
-          return (
-            <button
-              key={t.id}
-              className={`tab-btn ${tab === t.id ? 'active' : ''}`}
-              disabled={locked}
-              onClick={() => { if (locked) return; setTab(t.id); if (t.id === 'base' || t.id === 'summon' || t.id === 'tower' || t.id === 'achievements') refreshResources() }}
-              style={{ position: 'relative', ...(locked ? { opacity: 0.35, cursor: 'not-allowed' } : (t.id === tourTarget ? { boxShadow: '0 0 10px var(--gold)' } : {})) }}
-            >
-              {t.label}
-              {t.id === 'achievements' && claimableAchievements > 0 && (
-                <span
-                  title={`${claimableAchievements} reward${claimableAchievements === 1 ? '' : 's'} ready to claim`}
-                  style={{
-                    position: 'absolute', top: 8, right: 6,
-                    width: 8, height: 8, borderRadius: '50%',
-                    background: 'var(--gold)', boxShadow: '0 0 6px var(--gold)',
-                    animation: 'pulse-live 2s ease-in-out infinite',
-                  }}
-                />
-              )}
-            </button>
-          )
-        })}
-      </nav>
+      <GlobalNav
+        tabs={TABS}
+        active={tab}
+        badges={{ achievements: claimableAchievements }}
+        locked={id => tourActive && id !== TAB_TOUR_STEPS[tourStepIndex]?.tab}
+        glow={id => tourActive && id === TAB_TOUR_STEPS[tourStepIndex]?.tab}
+        onSelect={id => { setTab(id); if (id === 'base' || id === 'summon' || id === 'tower' || id === 'achievements') refreshResources() }}
+      />
 
       <main className="main-content">
-        {pages[tab]}
+        <ErrorBoundary resetKey={tab}>
+          {pages[tab]}
+        </ErrorBoundary>
       </main>
 
       {activeProfile && activeProfile.toLowerCase().startsWith('test') && (
@@ -349,57 +379,108 @@ export default function App() {
           display: 'flex', alignItems: 'center', justifyContent: 'center',
           backdropFilter: 'blur(5px)'
         }} onClick={() => setShowSettings(false)}>
-          <div className="card" style={{ width: '300px', textAlign: 'center' }} onClick={e => e.stopPropagation()}>
-            <h2 style={{ fontFamily: 'Cinzel, serif', color: 'var(--gold)', marginBottom: '1.5rem' }}>Settings</h2>
-            
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-              <button className="btn" onClick={toggleSound}>
-                {soundOn ? '🔊 Sound Master: ON' : '🔇 Sound Master: OFF'}
-              </button>
-              
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', alignItems: 'flex-start' }}>
-                <label className="text-dim text-sm">Music Volume</label>
-                <input type="range" min="0" max="100" value={bgmVol} onChange={(e) => {
-                  const val = parseInt(e.target.value)
-                  setBgmVol(val)
-                  setBgmVolume(val / 100)
-                }} style={{ width: '100%' }} />
-              </div>
+          <div className="ilm-settings-panel" onClick={e => e.stopPropagation()}>
+            <div className="ilm-corner" />
+            <div className="ilm-corner ilm-corner-r" />
 
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', alignItems: 'flex-start' }}>
-                <label className="text-dim text-sm">SFX Volume</label>
-                <input type="range" min="0" max="100" value={sfxVol} onChange={(e) => {
-                  const val = parseInt(e.target.value)
-                  setSfxVol(val)
-                  setSfxVolume(val / 100)
-                }} style={{ width: '100%' }} />
-              </div>
-              
-              <button className="btn" onClick={() => {
-                setShowSettings(false)
-                setActiveProfile(null)
-              }}>
-                <GameIcon name="compass" size={16} /> Save & Return to Menu
-              </button>
-
-              <button className="btn" style={{ background: 'rgba(150,0,0,0.15)', border: '1px solid rgba(255,60,60,0.2)', color: '#f88' }} onClick={async () => {
-                try { await fetch('/api/quit', {method: 'POST'}) } catch(e) {}
-                window.close()
-              }}>
-                Save & Quit to Desktop
-              </button>
-              
-              <button className="btn" style={{ marginTop: '1rem', background: 'var(--border)' }} onClick={() => setShowSettings(false)}>
-                Close Settings
-              </button>
+            {/* header */}
+            <div className="ilm-settings-head">
+              <span style={{ fontFamily: "'Cinzel',serif", fontWeight: 900, fontSize: '1.3rem', color: 'var(--text-hi)', letterSpacing: '.06em' }}>SETTINGS</span>
+              <button className="ilm-close" onClick={() => setShowSettings(false)}>✕</button>
             </div>
-            
-            <div className="text-dim" style={{ fontSize: '0.65rem', marginTop: '1.5rem' }}>
-              Tower of Eternity Pre-Alpha
+
+            <div style={{ padding: '1.1rem 1.4rem 1.3rem' }}>
+              {/* sound master toggle */}
+              <div className="ilm-settings-row">
+                <span className="ilm-settings-k">SOUND</span>
+                <button className="ilm-toggle" onClick={toggleSound} aria-pressed={soundOn}>
+                  <span className="ilm-toggle-label" style={{ color: soundOn ? 'var(--green-hi)' : 'var(--muted)' }}>{soundOn ? 'ON' : 'OFF'}</span>
+                  <span className={`ilm-toggle-track ${soundOn ? 'on' : ''}`}><span className="ilm-toggle-knob" /></span>
+                </button>
+              </div>
+
+              {/* music */}
+              <div className="ilm-slider" style={{ marginTop: '1.1rem' }}>
+                <div className="ilm-slider-head"><span className="ilm-settings-k">MUSIC</span><span className="ilm-slider-val">{bgmVol}</span></div>
+                <div className="ilm-slider-track">
+                  <div className="ilm-slider-fill" style={{ width: `${bgmVol}%` }} />
+                  <span className="ilm-slider-knob" style={{ left: `${bgmVol}%` }} />
+                  <input type="range" min="0" max="100" value={bgmVol} onChange={(e) => { const v = parseInt(e.target.value); setBgmVol(v); setBgmVolume(v / 100) }} />
+                </div>
+              </div>
+
+              {/* effects */}
+              <div className="ilm-slider" style={{ marginTop: '1.1rem' }}>
+                <div className="ilm-slider-head"><span className="ilm-settings-k">EFFECTS</span><span className="ilm-slider-val">{sfxVol}</span></div>
+                <div className="ilm-slider-track">
+                  <div className="ilm-slider-fill" style={{ width: `${sfxVol}%` }} />
+                  <span className="ilm-slider-knob" style={{ left: `${sfxVol}%` }} />
+                  <input type="range" min="0" max="100" value={sfxVol} onChange={(e) => { const v = parseInt(e.target.value); setSfxVol(v); setSfxVolume(v / 100) }} />
+                </div>
+              </div>
+
+              {/* ui scale */}
+              <div className="ilm-slider" style={{ marginTop: '1.1rem' }}>
+                <div className="ilm-slider-head"><span className="ilm-settings-k">UI SCALE</span><span className="ilm-slider-val">{Math.round(uiScale * 100)}%</span></div>
+                <div className="ilm-slider-track">
+                  <div className="ilm-slider-fill" style={{ width: `${(uiScale * 100 - 70) / 0.8}%` }} />
+                  <span className="ilm-slider-knob" style={{ left: `${(uiScale * 100 - 70) / 0.8}%` }} />
+                  <input type="range" min="70" max="150" step="5" value={Math.round(uiScale * 100)} onChange={(e) => changeUiScale(parseInt(e.target.value) / 100)} />
+                </div>
+                <div className="text-dim" style={{ fontSize: '0.7rem', fontStyle: 'italic', marginTop: 4 }}>On top of the automatic fit — higher = larger UI on big screens.</div>
+              </div>
+
+              {/* profile row — links to the Profile Card, per the mockup */}
+              <button onClick={() => { setShowSettings(false); setShowProfileCard(true) }} style={{
+                display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%',
+                marginTop: '1.4rem', padding: '11px 14px', cursor: 'pointer',
+                border: '1px solid rgba(184,151,98,.3)', background: 'rgba(12,7,24,.5)', color: 'inherit',
+              }}>
+                <span style={{ fontFamily: "'Cinzel',serif", letterSpacing: '.2em', fontSize: '0.62rem', color: 'var(--muted)' }}>PROFILE</span>
+                <span style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                  <span style={{ fontFamily: "'Cinzel',serif", fontSize: '0.8rem', letterSpacing: '.08em', color: 'var(--text-hi)', textTransform: 'uppercase' }}>{activeProfile}</span>
+                  <span style={{ fontFamily: "'Cinzel',serif", fontSize: '0.56rem', letterSpacing: '.16em', color: 'var(--gold-hi)' }}>VIEW CARD ›</span>
+                </span>
+              </button>
+
+              {/* actions */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem', marginTop: '1.2rem' }}>
+                <button className="ilm-btn ilm-btn-violet ilm-btn-block" onClick={() => { setShowSettings(false); setActiveProfile(null) }}>
+                  SAVE &amp; RETURN TO TITLE
+                </button>
+                <button className="ilm-btn ilm-btn-block" style={{
+                  color: '#d98a8a', border: '1px solid rgba(192,64,64,.5)', background: 'transparent',
+                  clipPath: 'polygon(10px 0,100% 0,calc(100% - 10px) 100%,0 100%)',
+                }} onClick={async () => {
+                  try { await fetch('/api/quit', { method: 'POST' }) } catch (e) {}
+                  window.close()
+                }}>
+                  SAVE &amp; QUIT TO DESKTOP
+                </button>
+                <button className="ilm-settings-close-txt" onClick={() => setShowSettings(false)}>CLOSE</button>
+              </div>
+
+              <div style={{ textAlign: 'center', fontFamily: "'Cinzel',serif", fontSize: '0.55rem', letterSpacing: '.2em', color: '#4f4766', marginTop: '0.9rem' }}>
+                TOWER OF ETERNITY · PRE-ALPHA
+              </div>
             </div>
           </div>
         </div>
       )}
+      {showMail && (
+        <Mailbox onClose={() => setShowMail(false)} onChange={refreshResources} />
+      )}
+      {showGuild && (
+        <GuildHall onClose={() => setShowGuild(false)} />
+      )}
+      {showSocial && (
+        <Social onClose={() => setShowSocial(false)} />
+      )}
+      {showProfileCard && (
+        <ProfileCard onClose={() => setShowProfileCard(false)} />
+      )}
+      {showChat && <HeraldWire onClose={() => setShowChat(false)} onOpenGuild={() => { setShowChat(false); setShowGuild(true) }} />}
+      {showHearth && <HearthDrawer onClose={() => setShowHearth(false)} />}
       <ToastContainer />
       {!tutorialComplete && (
         <TutorialOverlay fairyGender={fairyGender} onComplete={handleTutorialComplete} />

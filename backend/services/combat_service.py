@@ -64,6 +64,7 @@ class CombatUnit:
     mana_regen_per_turn: int = 0  # flat passive tick, applied every round regardless of whether this unit acts
     skill_cooldowns: dict = field(default_factory=dict)  # {skill_id: rounds_remaining}
     is_npc: bool = False  # escort-floor protect target — never acts, excluded from win/reward bookkeeping
+    is_runner: bool = False  # retrieval-floor objective worker — spends every turn channeling, never attacks
     poison_on_hit: dict = None  # {"pct": float, "duration": int} — derived from a passive skill like Poison Blade
     triggers: list = field(default_factory=list)  # passive conditional triggers, see skill_engine (on_hit_taken/on_dodge/on_kill/on_ally_death/on_low_hp)
     low_hp_fired: bool = False  # one-shot latch for an on_low_hp trigger
@@ -452,6 +453,14 @@ SWARM_SURVIVAL_CHANCE = 0.35
 ESCORT_TURN_LIMIT = 15
 ESCORT_NPC_AGGRO_CHANCE = 0.4  # without a taunt up, the NPC is at elevated but not certain risk
 ESCORT_RESCUE_MORALE_BONUS = 8  # small, deliberate — "nothing crazy" per explicit direction
+
+# Retrieval Mission — the goal is NOT to clear the room: a player-designated
+# Runner spends every turn working the objective (they never attack), and the
+# rest of the team keeps them alive until the channel completes. Win = Runner
+# alive when the channel finishes (or the room is wiped early); the Runner
+# dying fails the floor outright, even with the rest of the team standing.
+RETRIEVAL_TURN_LIMIT = 6  # rounds of channeling the objective needs
+RETRIEVAL_RUNNER_AGGRO_CHANCE = 0.35  # enemies notice the channeler — tanky-vs-evasive Runner picks both matter
 
 # Blitz/Time Attack: the room itself empowers enemies every round they're
 # still standing — a flat stacking multiplier, applied once per round
@@ -1110,6 +1119,38 @@ def apply_status_effect(unit: CombatUnit, eff_type: str, rounds: int, magnitude:
 def has_status(unit: CombatUnit, eff_type: str) -> bool:
     return any(e["type"] == eff_type and e["rounds"] > 0 for e in unit.status_effects)
 
+# Display-facing status chips the combat UI renders on each unit. Internal-only
+# effect types (source bookkeeping, etc.) simply aren't mapped and are skipped.
+_STATUS_DISPLAY = {
+    # canonical Sigil-Library set (custom icons exist for these)
+    "bleed": "BLEED", "poison": "POISON", "burn": "BURN", "freeze": "FREEZE",
+    "frozen": "FREEZE", "stun": "STUN", "fear": "FEAR", "armor_break": "ARMOR BREAK",
+    "taunting": "TAUNT", "shield": "SHIELD", "enraged": "ENRAGED", "haste": "HASTE",
+    # beyond the sheet — render as text chips
+    "blind": "BLIND", "silence": "SILENCE", "regen": "REGEN", "dodge": "EVASION",
+    "weaken": "WEAK",
+}
+def _status_snapshot(all_units):
+    """Per-turn map of unit_id -> [status chip labels] for the combat UI, taken
+    at the moment a turn is emitted so chips appear/expire as the fight plays."""
+    snap = {}
+    for u in all_units:
+        seen = []
+        for e in getattr(u, "status_effects", []):
+            if e.get("rounds", 0) <= 0:
+                continue
+            t = e.get("type")
+            label = None
+            if t == "stat_mod":
+                label = "BUFF" if e.get("delta", 0) >= 0 else "WEAK"
+            else:
+                label = _STATUS_DISPLAY.get(t)
+            if label and label not in seen:
+                seen.append(label)
+        if seen:
+            snap[u.id] = seen
+    return snap
+
 def tick_status_effects(unit: CombatUnit, log: list) -> int:
     """Applies this round's DOT damage for every active effect, decrements
     duration, prunes expired entries. Returns total damage dealt this tick
@@ -1369,7 +1410,7 @@ def _execute_active_skill_legacy(attacker: CombatUnit, skill: dict, targets: lis
             crit_text = " CRIT!" if is_crit else ""
             log_msg = f"  ✦ {attacker.log_name} uses {skill['name']} on {target.log_name} for {damage}{crit_text} [{max(0, target.health)}/{target.max_health}]"
             log.append(log_msg)
-            turns.append({"round": round_num, "attacker_id": attacker.id, "target_id": target.id, "damage": damage, "is_crit": is_crit, "target_hp": max(0, target.health), "log": log_msg, "attacker_mana": attacker.mana, "target_mana": target.mana, "skill_name": skill["name"]})
+            turns.append({"round": round_num, "attacker_id": attacker.id, "target_id": target.id, "damage": damage, "is_crit": is_crit, "target_hp": max(0, target.health), "log": log_msg, "attacker_mana": attacker.mana, "target_mana": target.mana, "skill_name": skill["name"], "statuses": _status_snapshot(all_units)})
             if target.health <= 0:
                 target.alive = False
                 attacker.kills += 1
@@ -1427,6 +1468,14 @@ def resolve_hero_stats(heroes: list[dict]) -> list[dict]:
             empower = get_global_empowerment(_conn)
     except Exception:
         empower = {}
+
+    # Athenaeum research (completed discipline/confluence nodes) — same
+    # roster-wide % shape as empowerment, fetched once per pipeline run.
+    try:
+        from services.athenaeum_service import get_research_bonuses
+        research = get_research_bonuses()
+    except Exception:
+        research = {}
 
     # Pre-pass for support class buffs (Tactician, Scout, etc)
     team_atk_mult = 1.0
@@ -1512,6 +1561,26 @@ def resolve_hero_stats(heroes: list[dict]) -> list[dict]:
         except Exception:
             pass
 
+        # Apply support-class boons (star-scaled facility output — see
+        # services/support_service.py): the Chef's feast buffs the six stats
+        # of EVERY deployed hero; the Medic's field dressing pads max HP.
+        # This is the core of the "supports enable progression" rebalance.
+        try:
+            from services.support_service import get_support_effects
+            fx = get_support_effects()
+            feast = fx.get("feast_stat_pct", 0)
+            if feast:
+                f_mult = 1.0 + feast / 100.0
+                for k in ("strength", "intelligence", "agility", "endurance", "willpower", "luck"):
+                    modified[k] = int(modified[k] * f_mult)
+            shield = fx.get("medic_shield_pct", 0)
+            if shield and modified.get("max_health"):
+                bonus_hp = int(modified["max_health"] * shield / 100.0)
+                modified["max_health"] += bonus_hp
+                modified["health"] = min(modified["health"] + bonus_hp, modified["max_health"])
+        except Exception:
+            pass
+
         # Apply endgame empowerment: mounted Reliquary trophies (per-stat %)
         # + Transcendence Core infusions (+1% ALL stats per infusion).
         if empower:
@@ -1530,6 +1599,26 @@ def resolve_hero_stats(heroes: list[dict]) -> list[dict]:
             hp_mult = all_mult * (1.0 + empower.get("hp_pct", 0) / 100.0)
             if hp_mult != 1.0 and "max_health" in modified:
                 modified["max_health"] = int(modified["max_health"] * hp_mult)
+                modified["health"] = min(modified["health"], modified["max_health"])
+
+        # Apply Athenaeum research — mirrors the empowerment block above
+        # (def_pct covers endurance + willpower, all_pct covers everything).
+        if research:
+            r_all = 1.0 + research.get("all_pct", 0) / 100.0
+            def _res(stat_key, buff_key):
+                if stat_key in modified:
+                    mult = r_all * (1.0 + research.get(buff_key, 0) / 100.0)
+                    if mult != 1.0:
+                        modified[stat_key] = int(modified[stat_key] * mult)
+            _res("strength", "atk_pct")
+            _res("intelligence", "int_pct")
+            _res("agility", "agi_pct")
+            _res("endurance", "def_pct")
+            _res("willpower", "def_pct")
+            _res("luck", "luck_pct")
+            r_hp = r_all * (1.0 + research.get("hp_pct", 0) / 100.0)
+            if r_hp != 1.0 and "max_health" in modified:
+                modified["max_health"] = int(modified["max_health"] * r_hp)
                 modified["health"] = min(modified["health"], modified["max_health"])
 
         # Apply bond stats
@@ -1590,7 +1679,7 @@ def resolve_hero_stats(heroes: list[dict]) -> list[dict]:
     return processed
 
 
-def run_combat(heroes: list[dict], floor_number: int, is_boss: bool = False, is_miniboss: bool = False, zone_theme: str = "", boss_data_override=_UNSET, enemy_count_override: int = None, difficulty_mult: float = 1.0, preset_enemies: list = None, outer_conn=None, skip_stat_pipeline: bool = False, family_override: dict = None, is_survival_swarm: bool = False, turn_limit: int = None, available_consumables: list = None, is_escort: bool = False, is_ambush: bool = False, is_blitz: bool = False, cursed_debuff: dict = None, miniboss_variant: str = None) -> dict:
+def run_combat(heroes: list[dict], floor_number: int, is_boss: bool = False, is_miniboss: bool = False, zone_theme: str = "", boss_data_override=_UNSET, enemy_count_override: int = None, difficulty_mult: float = 1.0, preset_enemies: list = None, outer_conn=None, skip_stat_pipeline: bool = False, family_override: dict = None, is_survival_swarm: bool = False, turn_limit: int = None, available_consumables: list = None, is_escort: bool = False, is_ambush: bool = False, is_blitz: bool = False, cursed_debuff: dict = None, miniboss_variant: str = None, is_retrieval: bool = False, runner_id: int = None) -> dict:
     log = []
     turns = []
     morale_changes = {h["id"]: 0 for h in heroes}
@@ -1612,7 +1701,7 @@ def run_combat(heroes: list[dict], floor_number: int, is_boss: bool = False, is_
                                                  morale_changes, kill_counts, stress_changes,
                                                  family_override, is_survival_swarm, turn_limit, available_consumables,
                                                  is_escort, is_ambush, is_blitz, cursed_debuff,
-                                                 miniboss_variant)
+                                                 miniboss_variant, is_retrieval, runner_id)
         result.pop("_avg_luck", None)
         return result
 
@@ -1624,7 +1713,7 @@ def run_combat(heroes: list[dict], floor_number: int, is_boss: bool = False, is_
                                              morale_changes, kill_counts, stress_changes,
                                              family_override, is_survival_swarm, turn_limit, available_consumables,
                                              is_escort, is_ambush, is_blitz, cursed_debuff,
-                                             miniboss_variant)
+                                             miniboss_variant, is_retrieval, runner_id)
     _apply_combat_drops(result, floor_number, is_boss, is_miniboss, outer_conn)
     return result
 
@@ -1636,7 +1725,7 @@ def _resolve_combat_from_processed(processed, floor_number, is_boss, is_miniboss
                                     family_override=None, is_survival_swarm=False, turn_limit=None,
                                     available_consumables=None, is_escort=False, is_ambush=False,
                                     is_blitz=False, cursed_debuff=None,
-                                    miniboss_variant=None):
+                                    miniboss_variant=None, is_retrieval=False, runner_id=None):
     """The CombatUnit-construction-and-turn-loop core of run_combat, split out
     of the stat-resolution pipeline above it so a caller that already has
     fully-resolved hero dicts (no local DB to re-derive equipment/relic/bond/
@@ -1712,6 +1801,21 @@ def _resolve_combat_from_processed(processed, floor_number, is_boss, is_miniboss
             construct_id -= 1
             log.append(f"  {hero_unit.name} deploys a massive Construct to the frontline!")
 
+    # Retrieval Mission — mark the player-designated Runner. They're a real
+    # deployed hero (unlike the escort NPC) who counts for rewards/morale,
+    # but they spend every combat turn channeling the objective instead of
+    # attacking, and their death fails the floor outright.
+    runner_unit = None
+    if is_retrieval:
+        runner_unit = next((h for h in combatants_heroes
+                            if h.id == runner_id and h.hero_class != "Construct"), None)
+        if runner_unit is None:
+            # The router validates the designation upfront; this fallback only
+            # guards direct callers — grab the most evasive hero rather than crash.
+            runner_unit = max((h for h in combatants_heroes if h.hero_class != "Construct"),
+                              key=lambda u: u.agility + u.dodge_chance * 100)
+        runner_unit.is_runner = True
+
     # Generate enemies — difficulty is purely floor-based, not adaptive to team strength.
     if is_survival_swarm:
         if preset_enemies:
@@ -1750,6 +1854,11 @@ def _resolve_combat_from_processed(processed, floor_number, is_boss, is_miniboss
         else:
             enemies = make_enemies(floor_number, count=enemy_count_override, difficulty_mult=difficulty_mult)
 
+    if is_retrieval:
+        log.append(f"🎯 RETRIEVAL MISSION — floor {floor_number}")
+        log.append(f"  {runner_unit.name} is the designated Runner: they will work the objective, not fight.")
+        log.append(f"  Hold the line for {turn_limit or RETRIEVAL_TURN_LIMIT} rounds while the Runner finishes the job.")
+
     if cursed_debuff:
         for h in combatants_heroes:
             if h.hero_class == "Construct":
@@ -1765,7 +1874,10 @@ def _resolve_combat_from_processed(processed, floor_number, is_boss, is_miniboss
         "is_boss": is_boss,
         "is_miniboss": is_miniboss,
         "is_survival_swarm": is_survival_swarm,
-        "turn_limit": (turn_limit or SURVIVAL_TURN_LIMIT) if is_survival_swarm else None,
+        "is_retrieval": is_retrieval,
+        "runner_id": runner_unit.id if runner_unit else None,
+        "turn_limit": ((turn_limit or SURVIVAL_TURN_LIMIT) if is_survival_swarm
+                       else (turn_limit or RETRIEVAL_TURN_LIMIT) if is_retrieval else None),
         "heroes": [
             {"id": h.id, "name": h.name, "hero_class": h.hero_class, "max_health": h.max_health, "health": h.health,
              "portrait_path": h.portrait_path, "hero_star": h.hero_star, "level": h.level,
@@ -1807,6 +1919,8 @@ def _resolve_combat_from_processed(processed, floor_number, is_boss, is_miniboss
         max_rounds = ESCORT_TURN_LIMIT
     elif is_survival_swarm:
         max_rounds = turn_limit or SURVIVAL_TURN_LIMIT
+    elif is_retrieval:
+        max_rounds = turn_limit or RETRIEVAL_TURN_LIMIT
     else:
         max_rounds = 30
 
@@ -1979,6 +2093,12 @@ def _resolve_combat_from_processed(processed, floor_number, is_boss, is_miniboss
                 log.append(f"  {attacker.name} stays braced, watching for an opening.")
                 continue
 
+            # The Runner's whole turn goes to the objective — no attack, no
+            # skill cast. Getting them safely through the round IS the floor.
+            if attacker.is_hero and attacker.is_runner:
+                log.append(f"  🎯 {attacker.name} works the objective ({min(round_num, max_rounds)}/{max_rounds})…")
+                continue
+
             if attacker.is_hero:
                 targets = [u for u in alive_enemies if u.alive]
                 if not targets:
@@ -2004,7 +2124,7 @@ def _resolve_combat_from_processed(processed, floor_number, is_boss, is_miniboss
                         crit_text = " CRIT!" if is_crit else ""
                         log_msg = f"    → {target.log_name} takes {damage}{crit_text} [{max(0,target.health)}/{target.max_health}]"
                         log.append(log_msg)
-                        turns.append({"round": round_num, "attacker_id": attacker.id, "target_id": target.id, "damage": damage, "is_crit": is_crit, "target_hp": max(0, target.health), "log": log_msg, "attacker_mana": attacker.mana, "target_mana": target.mana})
+                        turns.append({"round": round_num, "attacker_id": attacker.id, "target_id": target.id, "damage": damage, "is_crit": is_crit, "target_hp": max(0, target.health), "log": log_msg, "attacker_mana": attacker.mana, "target_mana": target.mana, "statuses": _status_snapshot(all_units)})
                         if target.health <= 0:
                             target.alive = False
                             attacker.kills += 1
@@ -2065,7 +2185,7 @@ def _resolve_combat_from_processed(processed, floor_number, is_boss, is_miniboss
                     crit_text = " CRIT!" if is_crit else ""
                     log_msg = f"  {attacker.log_name} hits {target.log_name} for {damage}{crit_text} [{max(0,target.health)}/{target.max_health}]"
                     log.append(log_msg)
-                    turns.append({"round": round_num, "attacker_id": attacker.id, "target_id": target.id, "damage": damage, "is_crit": is_crit, "target_hp": max(0, target.health), "log": log_msg, "attacker_mana": attacker.mana, "target_mana": target.mana})
+                    turns.append({"round": round_num, "attacker_id": attacker.id, "target_id": target.id, "damage": damage, "is_crit": is_crit, "target_hp": max(0, target.health), "log": log_msg, "attacker_mana": attacker.mana, "target_mana": target.mana, "statuses": _status_snapshot(all_units)})
 
                     if target.health <= 0:
                         target.alive = False
@@ -2096,6 +2216,7 @@ def _resolve_combat_from_processed(processed, floor_number, is_boss, is_miniboss
                 # taunting matter there.
                 taunting_heroes = [h for h in (alive_frontline + alive_backline) if has_status(h, "taunting")]
                 npc_targets = [h for h in (alive_frontline + alive_backline) if h.is_npc]
+                runner_targets = [h for h in (alive_frontline + alive_backline) if h.is_runner]
                 forced_target = False
 
                 if taunting_heroes:
@@ -2103,6 +2224,12 @@ def _resolve_combat_from_processed(processed, floor_number, is_boss, is_miniboss
                     forced_target = True
                 elif npc_targets and random.random() < ESCORT_NPC_AGGRO_CHANCE:
                     target = random.choice(npc_targets)
+                    forced_target = True
+                elif runner_targets and random.random() < RETRIEVAL_RUNNER_AGGRO_CHANCE:
+                    # The Runner is visibly busy with the objective — enemies
+                    # go for them at elevated (but not certain) rates, same
+                    # tension as the escort NPC but on a real, buildable hero.
+                    target = random.choice(runner_targets)
                     forced_target = True
                 elif alive_frontline:
                     idx = enemies.index(attacker) % len(alive_frontline)
@@ -2149,7 +2276,7 @@ def _resolve_combat_from_processed(processed, floor_number, is_boss, is_miniboss
                 unimber_tag = f"[Unimber ×{stacks}] " if stacks > 0 else ""
                 log_msg = f"  {unimber_tag}{attacker.log_name} hits {target.log_name} for {damage}{crit_text} [{max(0,target.health)}/{target.max_health}]"
                 log.append(log_msg)
-                turns.append({"round": round_num, "attacker_id": attacker.id, "target_id": target.id, "damage": damage, "is_crit": is_crit, "target_hp": max(0, target.health), "log": log_msg, "attacker_mana": attacker.mana, "target_mana": target.mana, "unimber_stacks": stacks})
+                turns.append({"round": round_num, "attacker_id": attacker.id, "target_id": target.id, "damage": damage, "is_crit": is_crit, "target_hp": max(0, target.health), "log": log_msg, "attacker_mana": attacker.mana, "target_mana": target.mana, "unimber_stacks": stacks, "statuses": _status_snapshot(all_units)})
 
                 if target.health <= 0:
                     # Death save check
@@ -2184,9 +2311,14 @@ def _resolve_combat_from_processed(processed, floor_number, is_boss, is_miniboss
             if npc_unit is not None and not npc_unit.alive:
                 break  # mid-round abort — protecting the NPC is the whole point of the floor
 
+            if runner_unit is not None and not runner_unit.alive:
+                break  # mid-round abort — the objective dies with the Runner
+
         alive_heroes  = [u for u in combatants_heroes if u.alive and u is not npc_unit]
         alive_enemies = [u for u in enemies if u.alive]
-        if not alive_heroes or not alive_enemies or (npc_unit is not None and not npc_unit.alive):
+        if (not alive_heroes or not alive_enemies
+                or (npc_unit is not None and not npc_unit.alive)
+                or (runner_unit is not None and not runner_unit.alive)):
             break
 
     alive_heroes  = [u for u in combatants_heroes if u.alive and u is not npc_unit]
@@ -2202,6 +2334,13 @@ def _resolve_combat_from_processed(processed, floor_number, is_boss, is_miniboss
         npc_alive = npc_unit.alive if npc_unit else False
         enemies_wiped = len([u for u in enemies if u.alive]) == 0
         heroes_won = npc_alive and (enemies_wiped or round_num >= max_rounds)
+    elif is_retrieval:
+        # Retrieval wins by the Runner completing the channel (surviving to
+        # the turn limit) or the room being wiped early — but the Runner
+        # dying fails the floor even with the rest of the team standing.
+        runner_alive = runner_unit.alive if runner_unit else False
+        enemies_wiped = len([u for u in enemies if u.alive]) == 0
+        heroes_won = runner_alive and (enemies_wiped or round_num >= max_rounds)
     elif is_survival_swarm:
         heroes_won = len(alive_heroes) > 0
     else:
@@ -2210,6 +2349,8 @@ def _resolve_combat_from_processed(processed, floor_number, is_boss, is_miniboss
     if heroes_won:
         if is_survival_swarm:
             log.append(f"✓ Survived! {len(alive_heroes)} hero(es) held the line for {round_num} round(s).")
+        elif is_retrieval:
+            log.append(f"✓ Objective secured! {runner_unit.name} finished the job with {len(alive_heroes)} hero(es) still standing.")
         else:
             log.append(f"✓ Victory. {len(alive_heroes)} hero(es) survived.")
         if is_boss:
@@ -2227,6 +2368,8 @@ def _resolve_combat_from_processed(processed, floor_number, is_boss, is_miniboss
             log.append(f"  ✚ The rescued captive's gratitude lifts the team's spirits (+{ESCORT_RESCUE_MORALE_BONUS} morale).")
         for h in alive_heroes:
             morale_changes[h.id] = morale_changes.get(h.id, 0) - random.randint(3, 10)
+    elif is_retrieval and runner_unit is not None and not runner_unit.alive:
+        log.append(f"✗ Mission failed. {runner_unit.name} fell before the objective was secured — the team withdraws.")
     else:
         log.append(f"✗ Defeat. All heroes fell on floor {floor_number}.")
 
@@ -2277,8 +2420,11 @@ def _resolve_combat_from_processed(processed, floor_number, is_boss, is_miniboss
         "winner": "heroes" if heroes_won else "enemies",
         "is_boss": is_boss,
         "is_survival_swarm": is_survival_swarm,
-        "rounds_survived": round_num if is_survival_swarm else None,
-        "turn_limit": max_rounds if is_survival_swarm else None,
+        "is_retrieval": is_retrieval,
+        "runner_id": runner_unit.id if runner_unit else None,
+        "runner_survived": (runner_unit.alive if runner_unit else None) if is_retrieval else None,
+        "rounds_survived": round_num if (is_survival_swarm or is_retrieval) else None,
+        "turn_limit": max_rounds if (is_survival_swarm or is_retrieval) else None,
         "consumables_used": consumables_used,
         "initial_state": initial_state,
         "surviving_heroes": [
@@ -2339,7 +2485,14 @@ def _apply_combat_drops(result: dict, floor_number: int, is_boss: bool, is_minib
         # Luck is averaged across the deployed team, not taken from a
         # single hero — a team-comp consideration, not "stack one lucky
         # hero and ignore the rest."
-        drop_bonus = buffs.get("drop_boost", 0) * 0.05 + avg_luck / 100
+        # Athenaeum research: drop_pct widens the drop gate here, gold_pct
+        # multiplies the guaranteed gold grants further down.
+        try:
+            from services.athenaeum_service import get_research_bonuses
+            _research = get_research_bonuses(outer_conn)
+        except Exception:
+            _research = {}
+        drop_bonus = buffs.get("drop_boost", 0) * 0.05 + avg_luck / 100 + _research.get("drop_pct", 0) / 100.0
         # rare_drop_mult shifts the rarity SCORE (Easy skews down ~half a
         # tier, Hard skews up ~half a tier), not drop_bonus — drop_bonus
         # only gates whether anything drops at all, not how good it is.
@@ -2405,10 +2558,16 @@ def _apply_combat_drops(result: dict, floor_number: int, is_boss: bool, is_minib
                 result["gold_gained"] = int(result["gold_gained"] * (1 + gold_pct / 100.0))
         except Exception:
             pass
+
+        # Athenaeum research gold_pct (Deeper Pockets et al.) stacks the
+        # same way, on top of difficulty and trophy multipliers.
+        r_gold = _research.get("gold_pct", 0)
+        if r_gold:
+            result["gold_gained"] = int(result["gold_gained"] * (1 + r_gold / 100.0))
     except Exception as e:
         print(f"Error generating drop: {e}")
 
-def run_multi_combat(hero_teams: list[list[dict]], floor_number: int, is_boss: bool = False, is_miniboss: bool = False, zone_theme: str = "", boss_data_override=_UNSET, difficulty_mult: float = 1.0, conn=None, family_override: dict = None, is_survival_swarm: bool = False, turn_limit: int = None, available_consumables: list = None, is_escort: bool = False, enemy_count_override: int = None, is_ambush: bool = False, is_blitz: bool = False, cursed_debuff: dict = None, miniboss_variant: str = None) -> dict:
+def run_multi_combat(hero_teams: list[list[dict]], floor_number: int, is_boss: bool = False, is_miniboss: bool = False, zone_theme: str = "", boss_data_override=_UNSET, difficulty_mult: float = 1.0, conn=None, family_override: dict = None, is_survival_swarm: bool = False, turn_limit: int = None, available_consumables: list = None, is_escort: bool = False, enemy_count_override: int = None, is_ambush: bool = False, is_blitz: bool = False, cursed_debuff: dict = None, miniboss_variant: str = None, is_retrieval: bool = False, runner_id: int = None) -> dict:
     # Raid Boss — reduced to exactly Floor 50 and Floor 100 (was every 20th
     # floor), so the multi-team merge fight stays a genuine milestone
     # instead of a recurring pattern. Floor 100 still gets its own random
@@ -2419,6 +2578,17 @@ def run_multi_combat(hero_teams: list[list[dict]], floor_number: int, is_boss: b
         for team in hero_teams:
             combined_heroes.extend(team)
         return run_combat(combined_heroes, floor_number, is_boss=True, is_miniboss=False, zone_theme=zone_theme, boss_data_override=boss_data_override, difficulty_mult=difficulty_mult * len(hero_teams), outer_conn=conn, available_consumables=available_consumables, family_override=family_override)
+
+    # Retrieval Missions don't relay — there is exactly one objective and one
+    # designated Runner, so multiple deployed teams fight as one combined
+    # squad protecting them (same merge the Raid Boss branch above uses).
+    if is_retrieval and len([t for t in hero_teams if t]) > 1:
+        combined_heroes = [h for team in hero_teams for h in team]
+        return run_combat(combined_heroes, floor_number, zone_theme=zone_theme,
+                          difficulty_mult=difficulty_mult * len(hero_teams), outer_conn=conn,
+                          enemy_count_override=enemy_count_override,
+                          available_consumables=available_consumables,
+                          is_retrieval=True, runner_id=runner_id, turn_limit=turn_limit)
 
     # Shared Encounter relay — one enemy roster scaled for the combined
     # threat of every deployed team (same scaling the boss-merge branch above
@@ -2488,7 +2658,7 @@ def run_multi_combat(hero_teams: list[list[dict]], floor_number: int, is_boss: b
         # same list object is passed (and mutated in place) into every team's
         # fight in this loop, so a multi-team floor can't double-dip the same
         # finite stock once one team's fight already spent it.
-        res = run_combat(team, floor_number, is_boss=is_boss, is_miniboss=is_miniboss, zone_theme=zone_theme, difficulty_mult=difficulty_mult, preset_enemies=current_enemies, outer_conn=conn, is_survival_swarm=is_survival_swarm, turn_limit=turn_limit, available_consumables=available_consumables, is_escort=is_escort, is_ambush=is_ambush, is_blitz=is_blitz, cursed_debuff=cursed_debuff, miniboss_variant=miniboss_variant)
+        res = run_combat(team, floor_number, is_boss=is_boss, is_miniboss=is_miniboss, zone_theme=zone_theme, difficulty_mult=difficulty_mult, preset_enemies=current_enemies, outer_conn=conn, is_survival_swarm=is_survival_swarm, turn_limit=turn_limit, available_consumables=available_consumables, is_escort=is_escort, is_ambush=is_ambush, is_blitz=is_blitz, cursed_debuff=cursed_debuff, miniboss_variant=miniboss_variant, is_retrieval=is_retrieval, runner_id=runner_id)
         logs.extend(res.get("log", []))
         final_result["team_results"].append(res)
 
@@ -2514,12 +2684,15 @@ def run_multi_combat(hero_teams: list[list[dict]], floor_number: int, is_boss: b
 
         current_enemies = res.get("surviving_enemies", [])
 
-    if is_survival_swarm:
+    if is_survival_swarm or is_retrieval:
         # Survival Floors are single-team only (they only ever fire on a
         # %5 miniboss floor, which never requires 2+ teams) — winning means
         # outlasting the clock, not clearing the roster, so the "did the
         # enemy count hit zero" inference below doesn't apply here.
-        only = final_result["team_results"][0] if final_result["team_results"] else None
+        # Retrieval works the same way: the win is the Runner finishing the
+        # channel, not the enemy roster hitting zero, so the first (and only
+        # meaningful) team's own verdict is the encounter verdict.
+        only = next((r for r in final_result["team_results"] if r), None)
         final_result["winner"] = only["winner"] if only else "enemies"
     else:
         # The shared encounter counts as cleared once the relay runs the
@@ -2536,6 +2709,9 @@ def run_multi_combat(hero_teams: list[list[dict]], floor_number: int, is_boss: b
         final_result["turns"] = only.get("turns")
         final_result["rounds"] = only.get("rounds")
         final_result["is_survival_swarm"] = only.get("is_survival_swarm", False)
+        final_result["is_retrieval"] = only.get("is_retrieval", False)
+        final_result["runner_id"] = only.get("runner_id")
+        final_result["runner_survived"] = only.get("runner_survived")
         final_result["rounds_survived"] = only.get("rounds_survived")
         final_result["turn_limit"] = only.get("turn_limit")
 

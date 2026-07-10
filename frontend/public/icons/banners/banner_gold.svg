@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="120" height="216" viewBox="0 0 120 216">
+  <defs><linearGradient id="cloth_gold" x1="0" y1="0" x2="1" y2="0">
+    <stop offset="0%" stop-color="#b89762"></stop><stop offset="18%" stop-color="#ffd88a"></stop>
+    <stop offset="82%" stop-color="#ffd88a"></stop><stop offset="100%" stop-color="#b89762"></stop>
+  </linearGradient></defs>
+  <rect x="0" y="2" width="120" height="6" rx="1" fill="#b89762"></rect>
+  <circle cx="6" cy="5" r="4" fill="#b89762"></circle><circle cx="114" cy="5" r="4" fill="#b89762"></circle>
+  <path d="M2 8 L118 8 L118 168 L60 208 L2 168 Z" fill="url(#cloth_gold)" stroke="#b89762" stroke-width="2" stroke-linejoin="round"></path>
+  <path d="M14 22 L106 22 L106 157 L60 194 L14 157 Z" fill="none" stroke="#b89762" stroke-opacity="0.5" stroke-width="1.2" stroke-linejoin="round"></path>
+</svg>

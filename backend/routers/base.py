@@ -3,6 +3,7 @@ from database import db
 from pydantic import BaseModel
 import json
 import random
+import re
 
 router = APIRouter()
 
@@ -10,6 +11,7 @@ router = APIRouter()
 def get_base():
     from services.time_service import process_fatigue_decay, process_passive_generation
     from services.research_service import process_mage_research
+    from services.athenaeum_service import process_athenaeum
     from services.alchemist_service import process_alchemist_lab
     from services.restaurant_service import process_restaurant
     from services.infirmary_service import process_infirmary
@@ -21,6 +23,7 @@ def get_base():
         process_fatigue_decay(conn)
         process_passive_generation(conn)
         process_mage_research(conn)
+        process_athenaeum(conn)
         process_alchemist_lab(conn)
         process_restaurant(conn)
         process_infirmary(conn)
@@ -261,15 +264,33 @@ def get_banner():
             "template_tier": banner.get("template_tier", 1),
             "emblem": banner.get("emblem"),
             "paint": banner.get("paint"),
+            # Illuminated studio fields (additive — legacy banners just lack them)
+            "cloth": banner.get("cloth"),
+            "cut": banner.get("cut"),
+            "frame_tier": banner.get("frame_tier"),
+            "sigil": banner.get("sigil"),
             "unlocked_tier": _banner_unlocked_tier(conn),
             "emblems": BANNER_EMBLEMS,
         }
+
+
+# Studio vocabulary — mirrors the Banner Studio mockup: tail cuts and cloth
+# color are free self-expression, the FRAME tier is the earned flex (gated
+# by the same Wall progression the old cloth tiers used), sigils are the
+# built-in glyph row.
+BANNER_CUTS = {"swallow", "point", "square"}
+BANNER_SIGILS = {"star", "crown", "diamond", "spark", "moon"}
+_HEX_COLOR = re.compile(r"^#[0-9a-fA-F]{6}$")
 
 
 class BannerRequest(BaseModel):
     template_tier: int = 1
     emblem: str | None = None
     paint: str | None = None  # dataURL of the player's painted layer
+    cloth: str | None = None       # hex cloth color, e.g. "#7a3df0"
+    cut: str | None = None         # swallow | point | square
+    frame_tier: int | None = None  # 1 bronze .. 4 radiant (renown-gated)
+    sigil: str | None = None       # built-in glyph name
 
 
 @router.post("/banner")
@@ -287,7 +308,21 @@ def save_banner(req: BannerRequest):
                 raise HTTPException(status_code=400, detail="Paint layer must be an image data URL.")
             if len(req.paint) > MAX_BANNER_PAINT_BYTES:
                 raise HTTPException(status_code=400, detail="Painted layer is too large — try a simpler design.")
-        banner = {"template_tier": tier, "emblem": req.emblem, "paint": req.paint}
+        if req.cloth is not None and not _HEX_COLOR.match(req.cloth):
+            raise HTTPException(status_code=400, detail="Cloth must be a #rrggbb color.")
+        if req.cut is not None and req.cut not in BANNER_CUTS:
+            raise HTTPException(status_code=400, detail="Unknown tail cut.")
+        if req.sigil is not None and req.sigil not in BANNER_SIGILS:
+            raise HTTPException(status_code=400, detail="Unknown sigil.")
+        frame = None
+        if req.frame_tier is not None:
+            frame = max(1, min(4, req.frame_tier))
+            if frame > unlocked:
+                raise HTTPException(status_code=400, detail=f"That frame is earned, not bought — your renown is tier {unlocked} for now.")
+        banner = {
+            "template_tier": tier, "emblem": req.emblem, "paint": req.paint,
+            "cloth": req.cloth, "cut": req.cut, "frame_tier": frame, "sigil": req.sigil,
+        }
         conn.execute("UPDATE base SET banner_json = ? WHERE id = 1", (json.dumps(banner),))
     return {"ok": True, **banner}
 
@@ -511,20 +546,205 @@ def rename_ship_endpoint(req: RenameShipRequest):
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
+class RefitAllocateRequest(BaseModel):
+    stat: str    # 'speed' | 'fire' | 'armor'
+    delta: int   # +1 / -1
+
+@router.post("/ship/refit")
+def refit_ship(req: RefitAllocateRequest):
+    from services.ship_service import allocate_refit
+    try:
+        return allocate_refit(req.stat, req.delta)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+@router.post("/ship/refit/buy_point")
+def refit_buy_point():
+    from services.ship_service import buy_refit_point
+    try:
+        return buy_refit_point()
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+# ─── Guild boons (synced from the world server) ──────────────────────
+# Support-class revamp: the resolved star-scaled boons every wired system
+# reads (Chef feast, Medic shield, Merchant/Farmer income, Blacksmith
+# discount, Alchemist brew, Scout recon) — for the frontend to display.
+@router.get("/support")
+def get_support():
+    from services.support_service import get_support_effects
+    return get_support_effects()
+
+
+# The arena server can't touch this save, so the client relays the boon
+# multipliers from /guild/mine here. Clamped hard — a tampered client can
+# at most give itself the max legitimate boon.
+
+class GuildBoonsRequest(BaseModel):
+    hero_exp_pct: int = 0
+    refit_discount_pct: int = 0
+
+@router.post("/guild_boons")
+def set_guild_boons(req: GuildBoonsRequest):
+    with db() as conn:
+        for col in ("guild_hero_exp_pct", "guild_refit_discount_pct"):
+            try:
+                conn.execute(f"ALTER TABLE base ADD COLUMN {col} INTEGER DEFAULT 0")
+            except Exception:
+                pass
+        conn.execute(
+            "UPDATE base SET guild_hero_exp_pct = ?, guild_refit_discount_pct = ? WHERE id = 1",
+            (max(0, min(15, req.hero_exp_pct)), max(0, min(20, req.refit_discount_pct))))
+    return {"ok": True}
+
+# ─── Local fee payments for world-server features ────────────────────
+# Same client-side economy split as raid scouting: the world server hosts
+# the feature, the local save pays the price first (guild founding, etc.).
+
+class PayFeeRequest(BaseModel):
+    amount: int
+    reason: str = ""
+
+@router.post("/pay_fee")
+def pay_fee(req: PayFeeRequest):
+    if req.amount <= 0 or req.amount > 1_000_000:
+        raise HTTPException(status_code=400, detail="Invalid fee.")
+    with db() as conn:
+        base = conn.execute("SELECT gold FROM base WHERE id = 1").fetchone()
+        if base["gold"] < req.amount:
+            raise HTTPException(status_code=400, detail=f"Not enough gold ({req.amount:,}g needed).")
+        conn.execute("UPDATE base SET gold = gold - ? WHERE id = 1", (req.amount,))
+    return {"ok": True, "paid": req.amount, "reason": req.reason}
+
+# ─── The Tavern: patrons & rounds ───────────────────────────────────
+
+class RoundRequest(BaseModel):
+    hero_id: int | None = None
+
+@router.get("/tavern")
+def get_tavern():
+    from services.sanctum_service import process_tavern, tavern_status
+    with db() as conn:
+        process_tavern(conn)
+        return tavern_status(conn)
+
+@router.post("/tavern/round")
+def tavern_round(req: RoundRequest):
+    from services.sanctum_service import buy_round
+    with db() as conn:
+        return buy_round(conn, req.hero_id)
+
+# ─── The Sky Charts: expeditions ────────────────────────────────────
+
+class DispatchRequest(BaseModel):
+    lane: str
+    hero_ids: list[int]
+
+class LaneRequest(BaseModel):
+    lane: str
+
+@router.get("/expeditions")
+def get_expeditions():
+    from services.expedition_service import expeditions_status
+    return expeditions_status()
+
+@router.post("/expeditions/dispatch")
+def dispatch_expedition(req: DispatchRequest):
+    from services.expedition_service import dispatch
+    return dispatch(req.lane, req.hero_ids)
+
+@router.post("/expeditions/collect")
+def collect_expedition(req: LaneRequest):
+    from services.expedition_service import collect
+    return collect(req.lane)
+
+@router.post("/expeditions/recall")
+def recall_expedition(req: LaneRequest):
+    from services.expedition_service import recall
+    return recall(req.lane)
+
 # ─── Daily Dungeon endpoints ────────────────────────────────────────
 
+DAILY_GATE_KEYS = 3  # keys per gate per day, reset at UTC midnight
+# The three daily gates: gold, materials, and AETHER (raid fuel — the
+# Skydock trickles it and the Lab refines it for gold, so the gate is the
+# only free burst). "ingredients" stays accepted as a legacy type (the Farm
+# covers that need passively) but no longer has a gate in the UI.
+DAILY_GATE_TYPES = ["gold", "materials", "aether"]
+
+
+def _ensure_daily_dungeon_column(conn):
+    try:
+        conn.execute("ALTER TABLE base ADD COLUMN daily_dungeon_json TEXT")
+    except Exception:
+        pass
+
+
+def _daily_dungeon_state(conn) -> dict:
+    """{date: 'YYYY-MM-DD', used: {gate: n}} — auto-resets when the date rolls."""
+    from datetime import datetime, timezone
+    _ensure_daily_dungeon_column(conn)
+    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    row = conn.execute("SELECT daily_dungeon_json FROM base WHERE id = 1").fetchone()
+    try:
+        state = json.loads(row["daily_dungeon_json"]) if row and row["daily_dungeon_json"] else {}
+    except Exception:
+        state = {}
+    if state.get("date") != today:
+        state = {"date": today, "used": {}}
+    return state
+
+
+def _save_daily_dungeon_state(conn, state: dict):
+    conn.execute("UPDATE base SET daily_dungeon_json = ? WHERE id = 1", (json.dumps(state),))
+
+
+# Gate tiers (Daily Gates spec): tier I is open from the start, tier II
+# past floor 30, tier III past floor 60. A key opens one run at any
+# unlocked tier; deeper tiers pay ×2.2 / ×4.
+GATE_TIER_MULT = {1: 1.0, 2: 2.2, 3: 4.0}
+GATE_TIER_FLOOR = {1: 0, 2: 30, 3: 60}
+
+
+def _gate_tiers_unlocked(highest: int) -> list:
+    return [t for t, floor in GATE_TIER_FLOOR.items() if highest >= floor]
+
+
+@router.get("/daily_dungeon/status")
+def daily_dungeon_status():
+    """Keys left per gate + when they return (UTC midnight)."""
+    from datetime import datetime, timezone, timedelta
+    with db() as conn:
+        state = _daily_dungeon_state(conn)
+        run = conn.execute("SELECT MAX(highest_floor) as max_floor FROM runs").fetchone()
+        highest = run["max_floor"] if run and run["max_floor"] else 0
+    now = datetime.now(timezone.utc)
+    reset_at = (now + timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
+    return {
+        "keys": {g: DAILY_GATE_KEYS - state["used"].get(g, 0) for g in DAILY_GATE_TYPES},
+        "max_keys": DAILY_GATE_KEYS,
+        "resets_in_seconds": int((reset_at - now).total_seconds()),
+        "scale_floor": highest,
+        "tiers_unlocked": _gate_tiers_unlocked(highest),
+        "tier_floors": GATE_TIER_FLOOR,
+    }
+
+
 @router.post("/daily_dungeon/{dungeon_type}")
-def run_daily_dungeon(dungeon_type: str):
+def run_daily_dungeon(dungeon_type: str, tier: int = 1):
     """
     Run a daily dungeon for Gold or Materials.
-    Rewards scale with the highest floor reached in the tower.
+    Rewards scale with the highest floor reached in the tower, then by the
+    chosen gate tier (I/II/III — deeper tiers unlock past floors 30/60).
     """
     # "ingredients" replaced the old supplies dungeon; the legacy name is
     # still accepted so a stale client doesn't 400.
     if dungeon_type == "supplies":
         dungeon_type = "ingredients"
-    if dungeon_type not in ["gold", "materials", "ingredients"]:
-        raise HTTPException(status_code=400, detail="Invalid dungeon type. Must be 'gold', 'materials', or 'ingredients'.")
+    if dungeon_type not in ["gold", "materials", "ingredients", "aether"]:
+        raise HTTPException(status_code=400, detail="Invalid dungeon type. Must be 'gold', 'materials', 'ingredients', or 'aether'.")
+    if tier not in GATE_TIER_MULT:
+        raise HTTPException(status_code=400, detail="Gates open at tiers I, II, or III.")
 
     with db() as conn:
         # Check team
@@ -532,38 +752,61 @@ def run_daily_dungeon(dungeon_type: str):
         if not team:
             raise HTTPException(status_code=400, detail="No team assigned. Set a team first.")
 
-        # Get highest floor
+        # Get highest floor (also gates the tier)
         run = conn.execute("SELECT MAX(highest_floor) as max_floor FROM runs").fetchone()
         highest = run["max_floor"] if run and run["max_floor"] else 0
+        if tier not in _gate_tiers_unlocked(highest):
+            raise HTTPException(status_code=400, detail=f"Tier {tier} waits past floor {GATE_TIER_FLOOR[tier]} — climb higher.")
+
+        # Daily gate keys — 3 per gate, back at dawn (UTC midnight)
+        state = _daily_dungeon_state(conn)
+        used = state["used"].get(dungeon_type, 0)
+        if used >= DAILY_GATE_KEYS:
+            raise HTTPException(status_code=400, detail="That gate has sealed for today — keys return at dawn.")
+        state["used"][dungeon_type] = used + 1
+        _save_daily_dungeon_state(conn, state)
+
+        from services.quests_service import bump as bump_rite
+        bump_rite("gate_run")
+
         scale = 1 + (highest // 10)
+        mult = GATE_TIER_MULT[tier]
 
         # Base info
         base_row = conn.execute("SELECT gold, materials, ingredients FROM base WHERE id = 1").fetchone()
-        
+
         if dungeon_type == "gold":
-            gold_reward = 1000 + (scale * 800)
+            gold_reward = int((1000 + (scale * 800)) * mult)
             conn.execute("UPDATE base SET gold = gold + ? WHERE id = 1", (gold_reward,))
-            return {"ok": True, "type": "gold", "reward": gold_reward, "message": f"Dungeon cleared! Gained {gold_reward} Gold."}
-            
+            return {"ok": True, "type": "gold", "tier": tier, "reward": gold_reward, "message": f"Dungeon cleared! Gained {gold_reward} Gold."}
+
         elif dungeon_type == "materials":
             mats = ["iron_shard", "dark_crystal", "worn_leather", "spirit_dust", "ancient_bone", "elemental_stone"]
             import random
             drops = {}
-            for _ in range(random.randint(2, 4 + (scale // 2))):
+            for _ in range(int(random.randint(2, 4 + (scale // 2)) * mult)):
                 mat = random.choice(mats)
                 drops[mat] = drops.get(mat, 0) + random.randint(1, 3 + (scale // 3))
-            
+
             current_mats = json.loads(base_row["materials"]) if base_row["materials"] else {}
             for mat, qty in drops.items():
                 current_mats[mat] = current_mats.get(mat, 0) + qty
-            
+
             conn.execute("UPDATE base SET materials = ? WHERE id = 1", (json.dumps(current_mats),))
-            return {"ok": True, "type": "materials", "reward": drops, "message": "Dungeon cleared! Gathered materials."}
+            return {"ok": True, "type": "materials", "tier": tier, "reward": drops, "message": "Dungeon cleared! Gathered materials."}
 
         elif dungeon_type == "ingredients":
-            ingredients_earned = 20 + max(0, highest * 5)
+            ingredients_earned = int((20 + max(0, highest * 5)) * mult)
             conn.execute("UPDATE base SET ingredients = ingredients + ? WHERE id = 1", (ingredients_earned,))
-            return {"ok": True, "type": "ingredients", "reward": ingredients_earned, "message": f"Dungeon cleared! Foraged {ingredients_earned} Ingredients 🌿."}
+            return {"ok": True, "type": "ingredients", "tier": tier, "reward": ingredients_earned, "message": f"Dungeon cleared! Foraged {ingredients_earned} Ingredients 🌿."}
+
+        elif dungeon_type == "aether":
+            # Raid fuel. Deliberately the smallest number of the three —
+            # the Skydock trickles it and the Lab refines it for gold, so
+            # the gate should feel like a prize, not a faucet.
+            aether_earned = int((15 + (scale * 10)) * mult)
+            conn.execute("UPDATE base SET aether = aether + ? WHERE id = 1", (aether_earned,))
+            return {"ok": True, "type": "aether", "tier": tier, "reward": aether_earned, "message": f"Dungeon cleared! Condensed {aether_earned} Aether ✨."}
 # ─── Inventory endpoints ────────────────────────────────────────────
 
 @router.get("/inventory")
@@ -1083,9 +1326,12 @@ def spar_heroes(req: SparReq):
     from services.sparring_service import spar
     with db() as conn:
         try:
-            return spar(conn, req.hero_a_id, req.hero_b_id)
+            result = spar(conn, req.hero_a_id, req.hero_b_id)
         except ValueError as e:
             raise HTTPException(status_code=400, detail=str(e))
+    from services.quests_service import bump as bump_rite
+    bump_rite("training_drill")
+    return result
 
 @router.get("/facilities/training")
 def training_status():
@@ -1126,9 +1372,13 @@ def set_training_regimen(req: RegimenReq):
             # Settle current regimen's gains first so switching mid-tick
             # doesn't credit the new regimen for old elapsed time.
             process_training(conn)
-            return set_regimen(conn, req.hero_id, req.regimen, req.focus, req.intensity)
+            result = set_regimen(conn, req.hero_id, req.regimen, req.focus, req.intensity)
         except ValueError as e:
             raise HTTPException(status_code=400, detail=str(e))
+    if req.regimen:  # setting (not clearing) a drill counts toward the rites
+        from services.quests_service import bump as bump_rite
+        bump_rite("training_drill")
+    return result
 
 RESEARCH_UPGRADES = {
     "gold_boost": {"name": "Alchemical Transmutation", "desc": "+5% Gold from Tower", "max_level": 5, "base_cost": 100},
@@ -1177,10 +1427,28 @@ def buy_research_upgrade(req: BuyResearchReq):
             raise HTTPException(status_code=400, detail=f"Requires {cost} Research Points.")
             
         buffs[req.upgrade_id] = lvl + 1
-        conn.execute("UPDATE base SET research_points = research_points - ?, global_buffs = ? WHERE id = 1", 
+        conn.execute("UPDATE base SET research_points = research_points - ?, global_buffs = ? WHERE id = 1",
                      (cost, json.dumps(buffs)))
-                     
+
     return {"ok": True}
+
+# ─── The Athenaeum (research map) ─────────────────────────────────
+
+@router.get("/facilities/athenaeum/state")
+def athenaeum_state():
+    from services.athenaeum_service import get_state
+    return get_state()
+
+class AthenaeumStudyReq(BaseModel):
+    node_id: str
+
+@router.post("/facilities/athenaeum/study")
+def athenaeum_study(req: AthenaeumStudyReq):
+    from services.athenaeum_service import begin_study
+    try:
+        return begin_study(req.node_id)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 # ─── Mail System ──────────────────────────────────────────────────
 
@@ -1214,6 +1482,25 @@ def claim_mail(req: ClaimMailReq):
         if "ingredients" in rewards or "supplies" in rewards:
             amt = rewards.get("ingredients", 0) + rewards.get("supplies", 0)
             conn.execute("UPDATE base SET ingredients = ingredients + ? WHERE id = 1", (amt,))
+        if "aether" in rewards:
+            conn.execute("UPDATE base SET aether = aether + ? WHERE id = 1", (rewards["aether"],))
+        # Guild-shop style ticket grants: {"summon_ticket": "5-Star Summon Ticket"}
+        # (same shape achievements use) or {"tickets": {name: qty}}.
+        ticket_grants = {}
+        if rewards.get("summon_ticket"):
+            ticket_grants[rewards["summon_ticket"]] = 1
+        for name, qty in (rewards.get("tickets") or {}).items():
+            ticket_grants[name] = ticket_grants.get(name, 0) + int(qty)
+        for name, qty in ticket_grants.items():
+            row2 = conn.execute(
+                "SELECT id FROM inventory WHERE item_name = ? AND item_type = 'summon_ticket'", (name,)
+            ).fetchone()
+            if row2:
+                conn.execute("UPDATE inventory SET quantity = quantity + ? WHERE id = ?", (qty, row2["id"]))
+            else:
+                conn.execute(
+                    "INSERT INTO inventory (item_name, item_type, quantity, description) VALUES (?, 'summon_ticket', ?, ?)",
+                    (name, qty, "A guaranteed-star summon, redeemable at the Soul Gate."))
 
         conn.execute("UPDATE mail SET is_claimed = 1, is_read = 1 WHERE id = ?", (req.mail_id,))
     return {"ok": True, "rewards": rewards}

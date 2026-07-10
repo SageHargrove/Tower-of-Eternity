@@ -345,6 +345,21 @@ def set_team(data: TeamUpdate):
         max_team_size = BASE_TEAM_SIZE
         if len(data.hero_ids) > max_team_size:
             raise HTTPException(status_code=400, detail=f"Max {max_team_size} heroes per team.")
+        # Raid captives in the Rebellious Phase can't be deployed until won
+        # over, and heroes captured FROM us aren't here to deploy at all.
+        if data.hero_ids:
+            placeholders = ",".join("?" * len(data.hero_ids))
+            blocked = conn.execute(
+                f"""SELECT name, COALESCE(rebellion, 0) AS rebellion, COALESCE(is_captured, 0) AS is_captured
+                    FROM heroes WHERE id IN ({placeholders})
+                    AND (COALESCE(rebellion, 0) > 0 OR COALESCE(is_captured, 0) = 1)""",
+                data.hero_ids,
+            ).fetchall()
+            if blocked:
+                b = blocked[0]
+                reason = ("is a prisoner in their Rebellious Phase — win them over first"
+                          if b["rebellion"] > 0 else "was captured in a raid and is no longer at your base")
+                raise HTTPException(status_code=400, detail=f"{b['name']} {reason}.")
         # Clear this specific team
         conn.execute("UPDATE heroes SET is_on_team = 0, team_position = 0, is_team_leader = 0 WHERE is_on_team = ?", (data.team_id,))
         # Set new team

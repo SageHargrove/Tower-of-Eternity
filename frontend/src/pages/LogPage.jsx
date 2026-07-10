@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react'
+import PageTitle from '../components/PageTitle'
 import { getEventLog, listRuns } from '../api/client'
 
 export default function LogPage() {
@@ -25,7 +26,7 @@ export default function LogPage() {
 
   return (
     <div className="page">
-      <div className="section-header">Event Log</div>
+      <PageTitle eyebrow="Chronicle" title="EVENT LOG" ghost="RECORD" compact />
 
       <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1rem', flexWrap: 'wrap' }}>
         <button

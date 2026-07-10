@@ -42,6 +42,10 @@ class EnterFloorRequest(BaseModel):
     # (the team executes the fight itself either way; this is the one lever
     # the manager actually gets to pull before the team engages).
     stance: str = "balanced"
+    # Retrieval Missions only: the deployed hero who works the objective
+    # instead of fighting. Required when the floor is a "retrieval" — the
+    # endpoint 400s with awaiting_runner detail so the frontend can prompt.
+    runner_hero_id: int | None = None
 
 # Combat narration used to block floor-entry for up to 1.5s waiting on an LLM
 # call that has nowhere to render on the frontend anyway. Now fired in the
@@ -88,7 +92,7 @@ def _resolve_real_combat(conn, hero_teams, floor_number, is_boss, is_miniboss, z
                           enemy_count_override=None, flavor_intro=None, difficulty_mult=1.0,
                           family_override=None, is_survival_swarm=False, available_consumables=None,
                           is_escort=False, reward_mult=1.0, is_ambush=False, is_blitz=False,
-                          cursed_debuff=None, miniboss_variant=None):
+                          cursed_debuff=None, miniboss_variant=None, is_retrieval=False, runner_id=None):
     """Run a real fight and apply every resulting effect."""
     from services.llm_service import generate_combat_narration, submit_flavor_text
     from services.combat_service import run_multi_combat
@@ -102,6 +106,7 @@ def _resolve_real_combat(conn, hero_teams, floor_number, is_boss, is_miniboss, z
             available_consumables=available_consumables, is_escort=is_escort,
             enemy_count_override=enemy_count_override, is_ambush=is_ambush, is_blitz=is_blitz,
             cursed_debuff=cursed_debuff, miniboss_variant=miniboss_variant,
+            is_retrieval=is_retrieval, runner_id=runner_id,
         )
     except Exception as e:
         print(f"Combat error: {e}")
@@ -338,12 +343,29 @@ def preview_floor(floor_number: int):
             "SELECT visited FROM floor_cache WHERE floor_number = ?", (floor_number,)
         ).fetchone()
         visited = bool(visited_row and visited_row["visited"])
-    if not visited:
+
+        # Support revamp — the SCOUT's recon: a Scout-line hero assigned to
+        # the Bestiary reveals floor types up to N floors past the deepest
+        # climb (star-scaled), so the next stretch stops reading UNKNOWN.
+        scouted = False
+        if not visited:
+            try:
+                from services.support_service import get_support_effects
+                reveal = get_support_effects(conn).get("scout_reveal_floors", 0)
+                if reveal:
+                    hrow = conn.execute("SELECT highest_floor FROM base WHERE id = 1").fetchone()
+                    highest = (hrow["highest_floor"] if hrow else 0) or 0
+                    scouted = floor_number <= highest + reveal
+            except Exception:
+                pass
+
+    if not visited and not scouted:
         return {"floor_type": None, "blurb": None, "visited": False}
     return {
         "floor_type": floor_type,
         "blurb": FLOOR_FLAVOR_INTRO.get(floor_type, ""),
-        "visited": True,
+        "visited": visited,
+        "scouted": scouted,
     }
 
 @router.post("/floor/enter")
@@ -490,7 +512,7 @@ def enter_floor(req: EnterFloorRequest):
         # They share the exact same resolution path as each other
         # (death/legacy/trauma/rewards/equipment) below.
         COMBAT_FAMILY_TYPES = ("boss", "survival", "defend", "escort", "field_combat",
-                               "conquest", "war", "retrieve", "ambush", "blitz",
+                               "conquest", "war", "retrieve", "retrieval", "ambush", "blitz",
                                "cursed_ground")
         if is_miniboss or floor_type in COMBAT_FAMILY_TYPES:
             enemy_count_override = None
@@ -500,6 +522,8 @@ def enter_floor(req: EnterFloorRequest):
             is_ambush = False
             is_blitz = False
             cursed_debuff = None
+            is_retrieval = False
+            runner_id = None
             if is_survival_swarm:
                 flavor_intro = "Waves without end pour from the dark. There's no winning this one outright — only surviving it."
             elif floor_type == "survival":
@@ -521,6 +545,22 @@ def enter_floor(req: EnterFloorRequest):
                 # guaranteed bonus on whatever loot the fight already drops —
                 # "go in, take the valuable thing, get out."
                 reward_mult = 1.5
+            elif floor_type == "retrieval":
+                # Retrieval Mission — the player must explicitly pick which
+                # deployed hero runs the objective (they won't fight); the
+                # rest of the team survives the turn limit around them. The
+                # runner works a turn short-handed, so the win pays extra.
+                is_retrieval = True
+                deployed_ids = {h["id"] for h in hero_list}
+                if not req.runner_hero_id or req.runner_hero_id not in deployed_ids:
+                    raise HTTPException(status_code=400, detail={
+                        "code": "awaiting_runner",
+                        "message": "This is a Retrieval Mission — designate one deployed hero as the Runner (runner_hero_id) before entering. The Runner works the objective and cannot attack.",
+                        "floor_type": "retrieval",
+                        "deployed_hero_ids": sorted(deployed_ids),
+                    })
+                runner_id = req.runner_hero_id
+                reward_mult = 1.4
             elif floor_type == "ambush":
                 is_ambush = True
             elif floor_type == "blitz":
@@ -552,6 +592,7 @@ def enter_floor(req: EnterFloorRequest):
                 available_consumables=available_consumables, is_escort=(floor_type == "escort"),
                 reward_mult=reward_mult, is_ambush=is_ambush, is_blitz=is_blitz,
                 cursed_debuff=cursed_debuff, miniboss_variant=miniboss_variant,
+                is_retrieval=is_retrieval, runner_id=runner_id,
             )
             result["floor_type"] = floor_type
             if not is_boss and not is_miniboss:
@@ -612,6 +653,10 @@ def enter_floor(req: EnterFloorRequest):
         combat_won = result.get("combat", {}).get("winner") == "heroes"
         is_sole_survivor = combat_won and is_boss and len(survivors) == 1
 
+        if combat_won:
+            from services.quests_service import bump as bump_rite
+            bump_rite("floor_clear")
+
         # Record what this floor actually was for the Lore Journal — only
         # for floors that resolved outright here (event/explore haven't
         # resolved yet at this point, see their own /resolve endpoints).
@@ -623,6 +668,13 @@ def enter_floor(req: EnterFloorRequest):
             record_floor_history(conn, req.floor_number, result.get("floor_type", floor_type), summary)
 
         from services.level_service import kill_xp_reward, floor_clear_xp_reward
+        # Mentorship boon (guild perk, synced from the world server via
+        # /base/guild_boons) lifts every hero's combat XP.
+        try:
+            boon_row = conn.execute("SELECT guild_hero_exp_pct FROM base WHERE id = 1").fetchone()
+            exp_boon = 1 + (boon_row["guild_hero_exp_pct"] or 0) / 100.0
+        except Exception:
+            exp_boon = 1.0
         for s in survivors:
             hid = s["id"]
             surviving_ids.append(hid)
@@ -644,6 +696,7 @@ def enter_floor(req: EnterFloorRequest):
             xp_gained = kills_gained * kill_xp_reward(req.floor_number, is_boss, is_miniboss)
             if combat_won:
                 xp_gained += floor_clear_xp_reward(req.floor_number, is_boss, is_miniboss)
+            xp_gained = int(xp_gained * exp_boon)
 
             conn.execute("""
                 UPDATE heroes SET

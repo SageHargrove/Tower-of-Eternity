@@ -10,6 +10,11 @@ TRAITS_POOL = {
         # Teaching-leaning trait — makes a hero a gifted mentor at the
         # Training Grounds (see sparring_service.teaching_multiplier).
         {"id": "mentors_heart", "name": "Mentor's Heart", "desc": "A gifted teacher — mentoring transfers far more XP and teaches skills more readily"},
+        # Raid Specialist traits — massive buffs that apply ONLY during PvP
+        # base sieges (see arena_server/raids.py SIEGE_TRAIT_BUFFS); inert
+        # on ordinary Tower floors by design.
+        {"id": "siegebreaker", "name": "Siegebreaker", "desc": "+25% to all stats when ATTACKING an enemy base (sieges only)"},
+        {"id": "bulwark", "name": "Bulwark", "desc": "+25% to all stats when DEFENDING the home base (sieges only)"},
     ],
     "neutral": [
         {"id": "stubborn", "name": "Stubborn", "desc": "+10% DEF, -10% SPD"},

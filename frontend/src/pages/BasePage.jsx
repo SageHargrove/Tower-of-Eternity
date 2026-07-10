@@ -1,60 +1,52 @@
 import React, { useState, useEffect } from 'react'
-import { getBase, getFacilities, buildFacility, upgradeFacility, assignFacility, removeFacility, restHeroes, listHeroes, configTraining, getMageTowerUpgrades, buyResearchUpgrade, craftMaterialEquipment, craftBandages, getBaseFloors, assignBaseFloor, getLegacies, getChatLogs, renameBase, upgradeBase, getMarketCatalog, purchaseMarketItem, getBaseUpgrades, buyBaseUpgrade, getMailList, claimMail, getShip, buildShip, renameShip } from '../api/client'
+import { StackedTitle, Panel, Meter, SectionHeader } from '../components/ilm/Ilm'
+import { getBase, getFacilities, buildFacility, upgradeFacility, assignFacility, removeFacility, restHeroes, listHeroes, configTraining, getMageTowerUpgrades, buyResearchUpgrade, craftMaterialEquipment, craftBandages, getBaseFloors, assignBaseFloor, getLegacies, getChatLogs, renameBase, upgradeBase, getMarketCatalog, purchaseMarketItem, getBaseUpgrades, buyBaseUpgrade, getMailList, claimMail, getShip, buildShip, renameShip, refitShip, buyRefitPoint } from '../api/client'
 import MirrorOfFate from '../components/MirrorOfFate'
 import ItemIcon from '../components/ItemIcon'
 import TeamBanner from '../components/TeamBanner'
 import UpgradeTreePanel from '../components/UpgradeTreePanel'
 import RecipeBookPanel from '../components/RecipeBookPanel'
 import TrainingGroundsPanel from '../components/TrainingGroundsPanel'
+import AthenaeumPanel from '../components/AthenaeumPanel'
+import { DiamondPortrait } from '../components/HearthDrawer'
 import BannerStudio from '../components/BannerStudio'
+import Expeditions from '../components/Expeditions'
 import { getBanner } from '../api/client'
 import { CookingPanel, RefineAetherPanel, BestiaryPanel, ReliquaryPanel, ChronospherePanel, TranscendencePanel } from '../components/EndgamePanels'
 import LoreJournal from '../components/LoreJournal'
+import Memorial from '../components/Memorial'
 import GameIcon from '../components/GameIcon'
+import Sigil from '../components/Sigil'
 import { alertDialog } from '../components/DialogHost'
 
-// Facility banner art comes in visual tiers that track the facility's
-// LEVEL (art parity is anchored to the Wall, since nothing can out-level
-// it). Naming convention: {slug}_tier{n}.png in static/facilities/, slug =
-// lowercase with underscores (wall_tier1.png, training_grounds_tier2.png…
-// a plural variant like walls_tier1.png is also accepted). Fallback chain:
-// exact tier → each lower tier → the flat {Type}.png → hidden.
-// Visual progression caps at Tier 4 (the white-marble-and-gold celestial
-// look) — levels 45+ keep using the Tier 4 assets.
-function facilityArtTier(level) {
-  if (level >= 30) return 4
-  if (level >= 15) return 3
-  if (level >= 5) return 2
-  return 1
+// Facility type -> custom Sigil filename (UPPER_SNAKE), e.g. "Mage Tower" -> "MAGE_TOWER".
+// The backend type is "Wall" but the icon set ships THE_WALL.svg; Vault and
+// Transcendence Core have no icon yet, so they use the letter fallback.
+const FAC_NAME_ALIAS = { Wall: 'The Wall' }
+const facSig = (t) => (t ? String(FAC_NAME_ALIAS[t] || t).toUpperCase().replace(/ /g, '_') : '')
+// Facility art is TIERED: /images/facilities/<slug>_t<1-4>.png (slug is the
+// plain lowercase type — "Wall" art is wall_tN, unlike its THE_WALL sigil).
+// Art tier steps up with facility level (max 50, so ~12-level bands), but
+// late-game facilities only shipped their high tiers (a Bestiary was never a
+// shack), so clamp to the nearest tier that actually has a file.
+const FACILITY_ART_TIERS = {
+  alchemist_lab: [1, 2, 3, 4], bastion: [1, 2, 3, 4], bestiary: [3],
+  chronosphere: [3, 4], dining_hall: [1, 2, 3, 4], farm: [1, 2, 3, 4],
+  forge: [1, 2, 3, 4], infirmary: [1, 2, 3, 4], lobby: [1, 2, 3, 4],
+  mage_tower: [1, 2, 3, 4], market: [1, 2, 3, 4], mirror_of_fate: [3, 4],
+  reliquary: [2, 3, 4], shrine: [1, 2, 3, 4], skydock: [1, 2, 3, 4],
+  tavern: [1, 2, 3, 4], training_grounds: [1, 2, 3, 4],
+  transcendence_core: [4], vault: [1, 2, 3, 4], wall: [1, 2, 3, 4],
 }
-
-// Late-game facilities never look "tier 1" — by the floor you can build
-// them, the base around them is already grand, so their art STARTS at a
-// higher tier (no tattered-shack Transcendence Core). Art below these
-// minimums intentionally doesn't exist.
-const MIN_ART_TIER = { 'Bestiary': 2, 'Reliquary': 2, 'Chronosphere': 3, 'Transcendence Core': 4 }
-
-function FacilityBanner({ type, level, style }) {
-  const slug = type.toLowerCase().replace(/ /g, '_')
-  const minTier = MIN_ART_TIER[type] || 1
-  const tier = Math.max(minTier, facilityArtTier(level || 1))
-  const candidates = []
-  for (let t = tier; t >= minTier; t--) {
-    candidates.push(`/static/facilities/${slug}_tier${t}.png`)
-    candidates.push(`/static/facilities/${slug}s_tier${t}.png`)
-  }
-  candidates.push(`/static/facilities/${type}.png`)
-  const [idx, setIdx] = useState(0)
-  useEffect(() => { setIdx(0) }, [type, tier])
-  if (idx >= candidates.length) return null
-  return (
-    <img
-      src={candidates[idx]}
-      alt=""
-      onError={() => setIdx(i => i + 1)}
-      style={style}
-    />
-  )
+const facArtSlug = (t) => (t ? String(t).toLowerCase().replace(/ /g, '_') : '')
+function facArt(type, level = 1) {
+  const slug = facArtSlug(type)
+  const tiers = FACILITY_ART_TIERS[slug]
+  if (!tiers) return null
+  const want = level >= 39 ? 4 : level >= 26 ? 3 : level >= 13 ? 2 : 1
+  // nearest shipped tier at or below the earned one, else the lowest shipped
+  const tier = [...tiers].reverse().find(t => t <= want) ?? tiers[0]
+  return `/images/facilities/${slug}_t${tier}.png`
 }
 
 // SQLite's CURRENT_TIMESTAMP stores UTC with no timezone marker — passing
@@ -67,16 +59,6 @@ function parseUtcTimestamp(ts) {
   return new Date(ts.includes('T') || ts.endsWith('Z') ? ts : ts.replace(' ', 'T') + 'Z')
 }
 
-// Hand-painted banner art for the base-wide upgrade tree — keyed by the
-// upgrade's id (see DEFAULT_UPGRADES in routers/base.py) so a rename there
-// doesn't silently lose its art.
-const UPGRADE_BANNERS = {
-  infirmary: '/static/facilities/Infirmary.png',
-  forge: '/static/facilities/Forge.png',
-}
-
-// We now dynamically load banners for facilities based on their type name.
-// E.g. /static/facilities/Market.png
 
 // Kept accurate to the actual backend effects (time_service, restaurant/
 // infirmary/alchemist/research/sanctum services, get_workshop_discount) —
@@ -96,6 +78,7 @@ const FACILITY_TOOLTIPS = {
   "Bastion": "Your garrison for the coming Raid system (raiding is opt-in). Stationed heroes contribute their strength behind the Wall's cover — and a Magic Engineer's arcane cannons DOUBLE the whole garrison, letting even 1★ heroes hold the line.",
   "Shrine": "Assigned clergy slowly deepen the whole roster's LOYALTY (affinity) — the same track gifts raise, and the one that decides whether a captured hero stays yours. Priests and Acolytes are twice as effective.",
   "Mage Tower": "Conducts magical research for permanent upgrades. Magic Engineers are the most effective researchers, then Mages, then Spellswords.",
+  "Athenaeum": "The company's research hall. Assigned scholars generate INSIGHT that flows into whichever study is active on the research map — five disciplines, plus emergent confluences where two mastered schools weave together. Mages and Magic Engineers study fastest.",
   "Mirror of Fate": "Pay gold to instantly reveal a hero's hidden Talent. The Mirror's level sets the detail: a vague tier at first, a numeric range at Lv.5, the exact number at Lv.10.",
   "Bestiary": "Houses beasts captured in the Tower. Kept beasts add their menace to your base's defense rating; higher levels hold more (and bigger) monsters.",
   "Reliquary": "A museum of your conquests — mount the Trophies major Bosses drop (every 10th floor) to grant permanent, roster-wide passive buffs.",
@@ -110,6 +93,7 @@ const FACILITY_CATEGORY = {
   "Alchemist Lab": "Economy", "Forge": "Economy", "Skydock": "Economy",
   "Training Grounds": "Support", "Infirmary": "Support", "Tavern": "Support",
   "Shrine": "Support", "Mirror of Fate": "Support", "Mage Tower": "Support",
+  "Athenaeum": "Support",
   "Wall": "Military", "Bastion": "Military",
   "Bestiary": "Endgame", "Reliquary": "Endgame", "Chronosphere": "Endgame", "Transcendence Core": "Endgame",
 }
@@ -148,6 +132,12 @@ function DiminishingReturnsCurve({ curve, current }) {
 export default function BasePage({ onGoldChange, onSubTabChange, tourTargetSubTab }) {
   const [activeTab, setActiveTab] = useState('lobby')
   const [facilityFilter, setFacilityFilter] = useState('All')
+  // C: card (big art) vs list (compact rows) view for facilities — persisted.
+  const [facilityView, setFacilityView] = useState(() => localStorage.getItem('toe_fac_view') || 'cards')
+  function setFacView(v) { setFacilityView(v); try { localStorage.setItem('toe_fac_view', v) } catch {} }
+  // Which built facility's detail panel is expanded in the grid (mockup:
+  // compact cards; clicking opens the facility's management panel inline).
+  const [selFacId, setSelFacId] = useState(null)
   const [base, setBase] = useState(null)
   const [facilitiesData, setFacilitiesData] = useState(null)
   const [baseHeroes, setBaseHeroes] = useState([])
@@ -156,6 +146,7 @@ export default function BasePage({ onGoldChange, onSubTabChange, tourTargetSubTa
   const [facilityLoading, setFacilityLoading] = useState(false)
   const [mageUpgrades, setMageUpgrades] = useState(null)
   const [crafting, setCrafting] = useState(false)
+  const [bandageQty, setBandageQty] = useState(1)
   const [marketCatalog, setMarketCatalog] = useState({})
   const [purchasing, setPurchasing] = useState(false)
   const [baseUpgrades, setBaseUpgrades] = useState([])
@@ -164,6 +155,12 @@ export default function BasePage({ onGoldChange, onSubTabChange, tourTargetSubTa
   // Mail
   const [banner, setBanner] = useState(null)
   const [showBannerStudio, setShowBannerStudio] = useState(false)
+  // Expeditions launch from the Skydock hull now — they were never multiplayer,
+  // so they moved off the World page to where the ship actually lives.
+  const [showExpeditions, setShowExpeditions] = useState(false)
+  const [showMemorial, setShowMemorial] = useState(false)
+  const [showLore, setShowLore] = useState(false)
+  const [rehouseMode, setRehouseMode] = useState(false)
   const [mailList, setMailList] = useState([])
   const [claiming, setClaiming] = useState(false)
   
@@ -175,6 +172,7 @@ export default function BasePage({ onGoldChange, onSubTabChange, tourTargetSubTa
   const [floorsData, setFloorsData] = useState(null)
   const [assigning, setAssigning] = useState(false)
   const [chats, setChats] = useState([])
+  const [heroIndex, setHeroIndex] = useState({})
   const [newChatIds, setNewChatIds] = useState(new Set())
   const seenChatIds = React.useRef(new Set())
   const hasLoadedChatsOnce = React.useRef(false)
@@ -228,6 +226,9 @@ export default function BasePage({ onGoldChange, onSubTabChange, tourTargetSubTa
       setBase(b)
       setFacilitiesData(fac)
       setBaseHeroes(heroes.filter(h => h.is_alive === 1 && h.is_on_team === 0))
+      // name -> hero lookup for the chatter feed's diamond portraits (full
+      // roster, since on-team heroes chatter too)
+      setHeroIndex(Object.fromEntries(heroes.filter(h => h.is_alive === 1).map(h => [h.name, h])))
       setLegacies(leg.legacies || [])
       setFloorsData(flrs)
       applyChats(ch)
@@ -371,13 +372,13 @@ const handleRenameBase = async () => {
     }
   }
 
-  async function handleCraftBandages(heroId) {
+  async function handleCraftBandages(heroId, qty = 1) {
     setCrafting(true)
     try {
-      const res = await craftBandages(heroId, 1)
+      const res = await craftBandages(heroId, qty)
       loadAll()
       if (onGoldChange) onGoldChange()
-      alertDialog(`Crafted a Bandage (${res.total} in stock). Auto-used on your most injured heroes before your next floor.`)
+      alertDialog(`The gauze is rolled — ${res.total} bandage${res.total === 1 ? '' : 's'} in stock. Auto-used on your most injured heroes before the next floor.`)
     } catch (e) {
       alertDialog(e.message)
     } finally {
@@ -444,39 +445,20 @@ const handleRenameBase = async () => {
     });
   }
 
+  // Three tabs only, horizontal (mock). Mail lives in the top bar, the Lore
+  // Journal opens as an overlay from the lobby, legacies live in the lobby
+  // panel + Memorial.
   const renderTabs = () => (
-    <div style={{ display: 'flex', gap: '1rem', marginBottom: '1.5rem', borderBottom: '1px solid var(--border)', overflowX: 'auto' }}>
-      {/* Mailbox last — least-visited tab */}
-      {['lobby', 'facilities', 'legacy', 'floors', 'lore', 'mail'].map(tab => {
+    <div className="ilm-subtabs">
+      {[['lobby', 'LOBBY'], ['foundations', 'FOUNDATIONS'], ['facilities', 'FACILITIES'], ['floors', 'HIERARCHY']].map(([tab, label]) => {
         const locked = !!tourTargetSubTab && tab !== tourTargetSubTab
-
-        let label = tab
-        if (tab === 'floors') label = 'Base Hierarchy'
-        else if (tab === 'legacy') label = 'Legacies'
-        else if (tab === 'lobby') label = 'The Lobby'
-        else if (tab === 'mail') label = 'Mailbox'
-        else if (tab === 'lore') label = 'Lore Journal'
-        
-        // Unclaimed mail indicator
-        let badge = null;
-        if (tab === 'mail') {
-          const unclaimed = mailList.filter(m => !m.is_claimed).length
-          if (unclaimed > 0) {
-            badge = <span style={{ marginLeft: '0.4rem', background: 'var(--gold)', color: '#000', borderRadius: '50%', padding: '0.1rem 0.4rem', fontSize: '0.8rem', fontWeight: 'bold' }}>{unclaimed}</span>
-          }
-        }
-
         return (
-          <button key={tab} className={`tab-btn ${activeTab === tab ? 'active' : ''}`} disabled={locked} onClick={() => { if (!locked) setActiveTab(tab) }}
-          style={{
-            background: 'none', border: 'none', padding: '0.5rem 1rem', cursor: locked ? 'not-allowed' : 'pointer', whiteSpace: 'nowrap', display: 'flex', alignItems: 'center',
-            color: activeTab === tab ? 'var(--gold)' : 'var(--text-dim)',
-            borderBottom: activeTab === tab ? '2px solid var(--gold)' : '2px solid transparent',
-            fontFamily: 'Cinzel, serif', fontSize: '1.1rem', textTransform: 'uppercase',
-            opacity: locked ? 0.35 : 1,
-            boxShadow: tab === tourTargetSubTab ? '0 0 8px var(--gold)' : 'none',
-          }}>
-            {label} {badge}
+          <button key={tab}
+            className={`ilm-subtab ${activeTab === tab ? 'active' : ''} ${tab === tourTargetSubTab ? 'glow' : ''}`}
+            disabled={locked}
+            onClick={() => { if (!locked) setActiveTab(tab) }}
+            style={locked ? { opacity: 0.35, cursor: 'not-allowed' } : undefined}>
+            {label}
           </button>
         )
       })}
@@ -493,466 +475,859 @@ const getGenRate = (fac) => {
     return `Generating: +${amt} ${resName} / 5 mins`;
   };
 
-  return (
-    <div className="page">
-      <div className="section-header">Home Base</div>
-
-      {renderTabs()}
-
-      {activeTab === 'lobby' && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
-          
-          {/* Top Row: Base Stats & Recovery */}
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(350px, 1fr))', gap: '1.5rem' }}>
-            
-            {/* Base Expansion */}
-            <div className="card" style={{ padding: '2rem', display: 'flex', flexDirection: 'column' }}>
-              <div style={{ fontFamily: 'Cinzel, serif', fontSize: '1.8rem', color: 'var(--text-hi)', marginBottom: '1rem' }}>Base Expansion</div>
-              <div className="text-dim" style={{ fontSize: '1.1rem', lineHeight: 1.6, marginBottom: 'auto' }}>
-                Upgrading the base expands your facilities and allows you to recruit more heroes to your cause.<br/><br/>
-                Current Max Roster: <span className="text-hi" style={{ fontSize: '1.3rem' }}>{base.max_roster_size || 10}</span><br/>
-                Next Upgrade: <span className="text-green">+10 Roster Slots</span>
-              </div>
-              <button className="btn btn-gold" onClick={handleUpgradeBase} style={{ width: '100%', padding: '1rem', fontSize: '1.1rem', marginTop: '2rem' }}>
-                Upgrade Base ({5000 * base.level}G)
-              </button>
-            </div>
-
-            {/* The Lobby Profile */}
-            <div className="card" style={{ padding: '2rem', display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center' }}>
-              <div 
-                className="hover-brighten"
-                style={{ cursor: 'pointer', transition: 'transform 0.2s', marginBottom: '1rem' }} 
-                onClick={() => setShowBannerStudio(true)} 
-                title="Click to customize your Team Banner"
-              >
-                <TeamBanner banner={banner} size={300} />
-              </div>
-              
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.8rem', marginBottom: '0.4rem' }}>
-                <div style={{ fontFamily: 'Cinzel, serif', fontSize: '2.4rem', color: 'var(--gold)', lineHeight: 1.1 }}>
-                  {base.name}
+  // Management body for a facility — assigned heroes, assignment control, and
+  // every type-specific panel (crafting/market/research/mirror/training/
+  // endgame). Rendered inline under the grid when a facility is selected.
+  function renderFacilityDetail(fac) {
+    return (
+      <>
+        {/* Skydock → the Shipyard (magic battleship) */}
+        {fac.type === 'Skydock' && ship && (
+          <div style={{ marginBottom: '1rem', border: '1px solid rgba(160,80,255,0.4)', overflow: 'hidden' }}>
+            <div style={{ width: '100%', aspectRatio: '21/9', overflow: 'hidden', position: 'relative', background: 'radial-gradient(ellipse at 50% 80%, rgba(60,30,100,0.4), #08060e)' }}>
+              {ship.tier > 0 ? (
+                <img src={`/images/battleships/battleship_t${ship.tier}.png`} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover', objectPosition: 'center' }} />
+              ) : (
+                <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: '0.4rem' }}>
+                  <div style={{ fontFamily: 'Cinzel, serif', letterSpacing: '0.2em', color: 'var(--text-dim)' }}>THE DRYDOCK IS EMPTY</div>
+                  <div className="text-dim" style={{ fontSize: '0.8rem', fontStyle: 'italic' }}>Lay a keel below.</div>
                 </div>
-                <button className="hover-brighten" style={{ background: 'transparent', border: 'none', padding: '0.2rem', fontSize: '1.4rem', color: 'var(--text-dim)', cursor: 'pointer', display: 'flex' }} onClick={handleRenameBase} title="Rename Base">✎</button>
-              </div>
-
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '1rem', marginBottom: '1.5rem' }}>
-                <span style={{ fontSize: '1.3rem', color: 'var(--text-dim)' }}>Lv.{base.level}</span>
-                {base.difficulty && base.difficulty !== 'normal' && (
-                  <span style={{
-                    fontSize: '0.8rem', padding: '0.15rem 0.6rem', borderRadius: 5,
-                    fontFamily: 'Cinzel, serif', letterSpacing: '1px',
-                    color: base.difficulty === 'hard' ? '#e66' : '#6e6',
-                    border: `1px solid ${base.difficulty === 'hard' ? 'rgba(230,100,100,0.4)' : 'rgba(100,230,100,0.4)'}`,
-                  }}>
-                    {base.difficulty.toUpperCase()} MODE
-                  </span>
+              )}
+              <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(to bottom, rgba(0,0,0,0) 55%, rgba(10,10,14,0.95) 100%)' }} />
+              {ship.tier > 0 && banner && (
+                <div style={{ position: 'absolute', top: 8, right: 12 }} title="Your banner flies from the mast">
+                  <TeamBanner banner={banner} size={56} />
+                </div>
+              )}
+            </div>
+            <div style={{ padding: '1rem' }}>
+              {/* THE SKY CHARTS — expeditions launch from the hull docked here */}
+              {ship.tier > 0 && (
+                <button onClick={() => setShowExpeditions(true)}
+                  style={{ display: 'flex', alignItems: 'center', gap: 12, width: '100%', textAlign: 'left', cursor: 'pointer', marginBottom: '1rem',
+                    border: '1px solid rgba(150,110,230,.45)', background: 'linear-gradient(120deg,rgba(42,22,80,.28),rgba(12,7,24,.5))', padding: '11px 16px',
+                    clipPath: 'polygon(0 0,100% 0,100% 100%,10px 100%)' }}>
+                  <span style={{ width: 9, height: 9, transform: 'rotate(45deg)', background: 'var(--lavender)', boxShadow: '0 0 8px var(--lavender)', flex: 'none' }} />
+                  <span style={{ fontFamily: "'Cinzel',serif", fontWeight: 700, letterSpacing: '.2em', fontSize: 12, color: 'var(--text-hi)' }}>THE SKY CHARTS</span>
+                  <span style={{ fontStyle: 'italic', fontSize: 13, color: 'var(--muted)' }}>dispatch expeditions — they sail while you sleep</span>
+                  <span style={{ flex: 1 }} />
+                  <span style={{ fontFamily: "'Cinzel',serif", fontSize: 12, letterSpacing: '.18em', color: 'var(--gold-hi)' }}>ENTER ›</span>
+                </button>
+              )}
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.5rem' }}>
+                <div>
+                  <h3 style={{ fontFamily: 'Cinzel, serif', color: '#b06aff', margin: 0 }}>
+                    ⚓ {ship.tier > 0 ? (ship.ship_name || ship.ship.name) : 'Shipyard'}
+                    {ship.tier > 0 && <span className="text-dim" style={{ fontSize: '0.8rem', marginLeft: '0.6rem' }}>{ship.ship.name} · Tier {ship.tier}/5</span>}
+                  </h3>
+                  {ship.tier > 0 && (
+                    <div className="text-dim" style={{ fontSize: '0.82rem', fontStyle: 'italic', marginTop: '0.3rem', maxWidth: 560 }}>{ship.ship.desc}</div>
+                  )}
+                </div>
+                {ship.defense && (
+                  <div title="Base defense rating for the coming Raid system: Wall + Bastion garrison + docked ship."
+                    style={{ fontFamily: 'Cinzel, serif', fontSize: '0.8rem', color: 'var(--text-dim)', textAlign: 'right', cursor: 'help' }}>
+                    Defense <span style={{ color: 'var(--gold)', fontSize: '1.1rem' }}>{ship.defense.total}</span>
+                    <div style={{ fontSize: '0.65rem' }}>Wall {ship.defense.wall} · Garrison {ship.defense.garrison} · Ship {ship.defense.ship}{ship.defense.beasts > 0 && <> · Beasts {ship.defense.beasts}</>}</div>
+                  </div>
                 )}
               </div>
-              
-              <div style={{ display: 'flex', gap: '2rem', justifyContent: 'center', width: '100%', padding: '1.5rem 0', borderTop: '1px solid var(--border)', borderBottom: '1px solid var(--border)', marginBottom: '1.5rem' }}>
-                <div style={{ textAlign: 'center' }}>
-                  <div className="text-dim" style={{ fontSize: '0.85rem', textTransform: 'uppercase', letterSpacing: '1px', marginBottom: '0.3rem' }}>Treasury</div>
-                  <div className="text-gold" style={{ fontFamily: 'Cinzel, serif', fontSize: '1.4rem' }}>{base.gold.toLocaleString()} G</div>
+              {ship.tier > 0 && (
+                <div style={{ display: 'flex', gap: '1.2rem', marginTop: '0.6rem', fontSize: '0.8rem' }}>
+                  <span className="text-dim">Crew capacity <span style={{ color: 'var(--text-hi)' }}>{ship.ship.crew}</span></span>
+                  <span className="text-dim">Firepower <span style={{ color: 'var(--text-hi)' }}>{ship.ship.defense}</span></span>
+                  <form style={{ marginLeft: 'auto', display: 'flex', gap: '0.4rem' }} onSubmit={async (e) => {
+                    e.preventDefault()
+                    if (!shipNameDraft.trim()) return
+                    try { await renameShip(shipNameDraft); setShipNameDraft(''); getShip().then(setShip) } catch (err) { alertDialog(err.message) }
+                  }}>
+                    <input className="input" placeholder="Name your ship…" value={shipNameDraft} onChange={e => setShipNameDraft(e.target.value)}
+                      style={{ background: 'rgba(0,0,0,0.3)', border: '1px solid var(--border)', padding: '0.25rem 0.5rem', color: '#fff', borderRadius: 4, fontSize: '0.78rem', width: 160 }} />
+                    <button className="btn" type="submit" style={{ fontSize: '0.7rem', padding: '0.25rem 0.6rem' }} disabled={!shipNameDraft.trim()}>Christen</button>
+                  </form>
                 </div>
-                <div style={{ textAlign: 'center' }}>
-                  <div className="text-dim" style={{ fontSize: '0.85rem', textTransform: 'uppercase', letterSpacing: '1px', marginBottom: '0.3rem' }}>Ingredients</div>
-                  <div style={{ fontFamily: 'Cinzel, serif', fontSize: '1.4rem', color: '#9fd68a' }}>{base.ingredients?.toLocaleString()}</div>
-                </div>
-                <div style={{ textAlign: 'center' }}>
-                  <div className="text-dim" style={{ fontSize: '0.85rem', textTransform: 'uppercase', letterSpacing: '1px', marginBottom: '0.3rem' }}>Aether</div>
-                  <div style={{ fontFamily: 'Cinzel, serif', fontSize: '1.4rem', color: '#8fb8ff' }}>{(base.aether || 0).toLocaleString()}</div>
-                </div>
-              </div>
-              
-              <div style={{ width: '100%' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.5rem', fontSize: '1.0rem' }}>
-                  <span className="text-dim">Market:</span>
-                  <span className="text-gold">+{goldGen} G / 5m</span>
-                </div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.5rem', fontSize: '1.0rem' }}>
-                  <span className="text-dim">Farm:</span>
-                  <span style={{ color: '#9fd68a' }}>+{ingredientsGen} Ing / 5m</span>
-                </div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '1.0rem' }}>
-                  <span className="text-dim">Skydock:</span>
-                  <span style={{ color: '#8fb8ff' }}>+{aetherGen} Aeth / 5m</span>
-                </div>
-              </div>
-            </div>
-
-            {/* Rest & Recovery */}
-            <div className="card" style={{ padding: '2rem', display: 'flex', flexDirection: 'column' }}>
-              <div style={{ fontFamily: 'Cinzel, serif', fontSize: '1.8rem', color: 'var(--text-hi)', marginBottom: '1rem' }}>Rest & Recovery</div>
-              <div className="text-dim" style={{ fontSize: '1.1rem', lineHeight: 1.6, marginBottom: 'auto' }}>
-                Resting at base recovers morale (+25), reduces stress (-20), and slowly heals trauma (-5) for all living heroes.<br/><br/>
-                Resting costs 50 ingredients (a hot meal for the roster) and has a 5-minute cooldown.
-              </div>
-              {(() => {
-                const now = Date.now() / 1000;
-                const lastRest = base.last_rest_time || 0;
-                const cd = 300;
-                const rem = Math.max(0, cd - (now - lastRest));
-                const isCooldown = rem > 0;
-                return (
-                  <button className="btn btn-gold" onClick={handleRest} disabled={resting || isCooldown} style={{ width: '100%', padding: '1rem', fontSize: '1.1rem', marginTop: '2rem' }}>
-                    {resting ? 'Resting...' : isCooldown ? `Cooldown (${Math.ceil(rem)}s)` : 'Rest All Heroes (50 Ingredients)'}
-                  </button>
-                )
-              })()}
-              {msg && <div className="text-green" style={{ marginTop: '1rem', fontSize: '1.1rem', textAlign: 'center' }}>{msg}</div>}
-            </div>
-
-            </div>
-            
-            {/* Bottom Row: Hero Chatter Box */}
-          <div className="card" style={{ padding: '1.5rem', minHeight: '250px', display: 'flex', flexDirection: 'column' }}>
-            <div style={{ fontFamily: 'Cinzel, serif', fontSize: '1.4rem', color: 'var(--gold)', marginBottom: '1rem', borderBottom: '1px solid var(--border)', paddingBottom: '0.5rem', display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
-              Hero Chatter
-              <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.3rem', fontSize: '0.7rem', color: 'var(--green)', fontFamily: 'monospace', letterSpacing: '1px' }}>
-                <span style={{ width: '7px', height: '7px', borderRadius: '50%', background: 'var(--green)', animation: 'pulse-live 1.5s ease-in-out infinite' }} />
-                LIVE
-              </span>
-            </div>
-            <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '0.8rem' }}>
-              {chats && chats.length > 0 ? chats.map(chat => (
-                <div key={chat.id} style={{ marginBottom: '0.6rem', transition: 'background 1s ease', background: newChatIds.has(chat.id) ? 'rgba(201,168,76,0.12)' : 'transparent', borderRadius: 4, padding: newChatIds.has(chat.id) ? '0.4rem' : '0' }}>
-                  <div style={{ display: 'flex', gap: '1rem', marginBottom: '0.2rem' }}>
-                    <span className="text-dim" style={{ fontSize: '0.8rem', whiteSpace: 'nowrap' }}>[{parseUtcTimestamp(chat.created_at).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}]</span>
-                    <span style={{ color: 'var(--gold)', fontSize: '0.8rem', whiteSpace: 'nowrap' }}>[{chat.location}]</span>
+              )}
+              {/* refit — a free point pool across Speed / Firepower / Armor.
+                  Tier is the hull class; refit makes each ship unique. */}
+              {ship.tier > 0 && ship.refit && (
+                <div style={{ marginTop: '0.9rem', borderTop: '1px solid var(--border)', paddingTop: '0.8rem' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
+                    <span style={{ width: 7, height: 7, transform: 'rotate(45deg)', background: 'var(--lavender)', display: 'inline-block' }} />
+                    <span style={{ fontFamily: "'Cinzel',serif", letterSpacing: '.26em', fontSize: 10, color: 'var(--lavender)' }}>REFIT</span>
+                    <span style={{ height: 1, flex: 1, background: 'rgba(150,110,230,.25)' }} />
+                    <span style={{ fontFamily: "'Cinzel',serif", fontSize: 9, letterSpacing: '.14em', color: ship.refit.unspent > 0 ? 'var(--gold-hi)' : 'var(--muted)' }}>
+                      {ship.refit.unspent} UNSPENT · POOL {ship.refit.pool}
+                    </span>
                   </div>
-                  {(chat.messages || []).map((m, i) => (
-                    <div key={i} style={{ fontSize: '1.05rem', marginLeft: '0.5rem' }}>
-                      <span className="text-hi" style={{ fontFamily: 'Cinzel, serif' }}>{m.speaker}:</span> {m.message}
-                    </div>
-                  ))}
+                  <div style={{ display: 'flex', gap: 18, alignItems: 'center', flexWrap: 'wrap' }}>
+                    {[['speed', 'SPEED'], ['fire', 'FIREPOWER'], ['armor', 'ARMOR']].map(([stat, label]) => (
+                      <div key={stat} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                        <span style={{ fontFamily: "'Cinzel',serif", fontSize: 9, letterSpacing: '.18em', color: 'var(--muted)', width: 74 }}>{label}</span>
+                        <button onClick={async () => { try { setShip(prev => prev); await refitShip(stat, -1); getShip().then(setShip) } catch (err) { alertDialog(err.message) } }}
+                          disabled={(ship.refit.allocated[stat] || 0) <= 0}
+                          style={{ width: 24, height: 24, border: '1px solid rgba(150,110,230,.45)', background: 'none', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontFamily: "'Cinzel',serif", color: 'var(--lavender)', cursor: 'pointer', opacity: (ship.refit.allocated[stat] || 0) <= 0 ? 0.4 : 1 }}>−</button>
+                        <span style={{ fontFamily: "'Cormorant Garamond',serif", fontWeight: 700, fontSize: 19, color: 'var(--text-hi)', width: 24, textAlign: 'center' }}>{ship.refit.allocated[stat] || 0}</span>
+                        <button onClick={async () => { try { await refitShip(stat, 1); getShip().then(setShip) } catch (err) { alertDialog(err.message) } }}
+                          disabled={ship.refit.unspent <= 0}
+                          style={{ width: 24, height: 24, border: '1px solid rgba(150,110,230,.45)', background: 'none', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontFamily: "'Cinzel',serif", color: 'var(--lavender)', cursor: 'pointer', opacity: ship.refit.unspent <= 0 ? 0.4 : 1 }}>＋</button>
+                      </div>
+                    ))}
+                    <span style={{ flex: 1 }} />
+                    {ship.refit.next_point_cost != null && (
+                      <button onClick={async () => {
+                        try {
+                          const res = await buyRefitPoint()
+                          alertDialog(`The fitters take ${res.cost.toLocaleString()}g — +1 refit point (${res.points} owned).`)
+                          getShip().then(setShip); getBase().then(setBase)
+                        } catch (err) { alertDialog(err.message) }
+                      }}
+                        style={{ cursor: 'pointer', fontFamily: "'Cinzel',serif", fontWeight: 600, letterSpacing: '.16em', fontSize: 9, color: '#cdbfe4', background: 'none', border: '1px solid rgba(150,110,230,.45)', padding: '7px 14px', clipPath: 'polygon(6px 0,100% 0,calc(100% - 6px) 100%,0 100%)' }}>
+                        BUY POINT · {ship.refit.next_point_cost.toLocaleString()}G
+                      </button>
+                    )}
+                  </div>
+                  <div style={{ fontSize: 12, fontStyle: 'italic', color: 'var(--muted)', marginTop: 8 }}>
+                    Points move freely — Firepower and Armor harden the docked hull's defense; Speed pays off on expeditions.
+                  </div>
                 </div>
-              )) : (
-                <div className="text-dim" style={{ fontStyle: 'italic', textAlign: 'center', marginTop: '2rem' }}>The lobby is quiet...</div>
+              )}
+              {ship.next ? (
+                <div style={{ marginTop: '0.9rem', borderTop: '1px solid var(--border)', paddingTop: '0.8rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.6rem' }}>
+                  <div>
+                    <div style={{ fontFamily: 'Cinzel, serif', fontSize: '0.85rem', color: 'var(--text-hi)' }}>
+                      {ship.tier > 0 ? 'Next hull' : 'Lay a keel'}: {ship.next.name} <span className="text-gold">({ship.next.cost.toLocaleString()}g)</span>
+                    </div>
+                    <div className="text-dim" style={{ fontSize: '0.72rem', marginTop: '0.2rem' }}>
+                      {ship.next.requires === 'engineer'
+                        ? 'Requires a Magic Engineer assigned to the Skydock.'
+                        : 'Requires a Magic Engineer — or any hero with 70+ Mental aptitude — assigned to the Skydock.'}
+                    </div>
+                    {ship.blocker && <div style={{ fontSize: '0.72rem', color: 'var(--red)', marginTop: '0.2rem' }}>{ship.blocker}</div>}
+                  </div>
+                  <button className="btn" disabled={!ship.can_build || shipBusy}
+                    onClick={async () => {
+                      setShipBusy(true)
+                      try {
+                        const res = await buildShip()
+                        alertDialog(`The ${res.name} takes to the sky! (Tier ${res.tier}) The fitters grant ${res.refit_points_granted ?? 3} refit points.`)
+                        getShip().then(setShip); getBase().then(setBase)
+                      } catch (err) { alertDialog(err.message) } finally { setShipBusy(false) }
+                    }}
+                    style={{ border: '1px solid #b06aff', color: '#d0a0ff', background: 'rgba(80,30,130,0.2)', padding: '0.5rem 1.2rem' }}>
+                    {shipBusy ? 'Building…' : ship.tier > 0 ? 'Lay the Next Keel' : 'Build Ship'}
+                  </button>
+                </div>
+              ) : (
+                <div style={{ marginTop: '0.9rem', fontFamily: 'Cinzel, serif', fontSize: '0.8rem', color: '#b06aff', textAlign: 'center' }}>
+                  ✦ The greatest hull the Skydock can produce. The sky is yours. ✦
+                </div>
               )}
             </div>
           </div>
+        )}
 
-        </div>
-      )}
-
-      {activeTab === 'facilities' && (
-        <>
-        {/* Category filter — horizontally scrolling chips */}
-        <div style={{ display: 'flex', gap: '0.5rem', overflowX: 'auto', paddingBottom: '0.75rem', marginBottom: '0.5rem' }}>
-          {FACILITY_CATEGORIES.map(cat => (
-            <button
-              key={cat}
-              onClick={() => setFacilityFilter(cat)}
-              className={`btn ${facilityFilter === cat ? 'btn-gold' : ''}`}
-              style={{ whiteSpace: 'nowrap', padding: '0.35rem 0.9rem', fontSize: '0.85rem' }}
-            >
-              {cat}
-            </button>
+        {/* assigned heroes — Illuminated diamond chips */}
+        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: '1rem' }}>
+          {fac.heroes.map(h => (
+            <div key={h.id} style={{ display: 'flex', alignItems: 'center', gap: 12, border: '1px solid rgba(184,151,98,.3)', background: 'rgba(12,7,24,.45)', padding: '8px 14px' }}>
+              <span style={{ position: 'relative', width: 38, height: 38, transform: 'rotate(45deg)', flex: 'none', border: '1px solid rgba(216,187,132,.55)', background: 'linear-gradient(135deg,#1c1030,#0c0718)', display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}>
+                {h.portrait_path && !h.portrait_path.includes('default_') ? (
+                  <img src={`/${h.portrait_path}`} alt={h.name} draggable={false}
+                    style={{ width: '142%', height: '142%', objectFit: 'cover', objectPosition: 'center 15%', transform: 'rotate(-45deg)', flex: 'none' }} />
+                ) : (
+                  <span style={{ transform: 'rotate(-45deg)', fontFamily: "'Cinzel',serif", fontWeight: 700, fontSize: 13, color: 'var(--gold-hi)' }}>{h.name[0]}</span>
+                )}
+              </span>
+              <div style={{ minWidth: 0 }}>
+                <div style={{ fontFamily: "'Cinzel',serif", fontWeight: 700, fontSize: 12, letterSpacing: '.06em', color: 'var(--text-hi)', whiteSpace: 'nowrap' }}>{h.name.toUpperCase()}</div>
+                {h.class_name && <div style={{ fontFamily: "'Cinzel',serif", fontSize: 8, letterSpacing: '.16em', color: 'var(--muted)', marginTop: 2 }}>{String(h.class_name).toUpperCase()}</div>}
+              </div>
+              <button onClick={() => handleRemoveFacility(h.id)} title="Send back to the roster"
+                style={{ background: 'none', border: 'none', color: 'var(--muted)', cursor: 'pointer', fontSize: 12, padding: '0 0 0 4px' }}>✕</button>
+              {fac.type === 'Forge' && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginLeft: 6 }}>
+                  <button onClick={() => handleCraft(h.id, 'weapon')} disabled={crafting} className="btn btn-gold" style={{ padding: '0.2rem 0.6rem', fontSize: '0.62rem' }}>WEAPON · 100g + 3 IRON + 1 BONE</button>
+                  <button onClick={() => handleCraft(h.id, 'armor')} disabled={crafting} className="btn btn-gold" style={{ padding: '0.2rem 0.6rem', fontSize: '0.62rem' }}>ARMOR · 100g + 2 CRYSTAL + 2 IRON</button>
+                  <button onClick={() => handleCraft(h.id, 'accessory')} disabled={crafting} className="btn btn-gold" style={{ padding: '0.2rem 0.6rem', fontSize: '0.62rem' }}>ACCESSORY · 100g + 3 DUST + 1 EAR</button>
+                </div>
+              )}
+            </div>
           ))}
         </div>
-        <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap' }}>
-          {/* Left Column: Built Facilities */}
-          <div style={{ flex: '2 1 500px', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-            {/* ── Shipyard — magic battleship, docked at the Skydock ── */}
-            {facilitiesData.built?.some(f => f.type === 'Skydock') && ship && (
-              <div className="card" style={{ overflow: 'hidden', padding: 0, border: '1px solid rgba(160,80,255,0.4)' }}>
-                <div style={{ width: '100%', aspectRatio: '21/9', overflow: 'hidden', position: 'relative', background: 'radial-gradient(ellipse at 50% 80%, rgba(60,30,100,0.4), #08060e)' }}>
-                  {ship.tier > 0 ? (
-                    <img src={`/images/battleships/ship_${ship.tier}.png`} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover', objectPosition: 'center' }} />
-                  ) : (
-                    <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: '0.4rem' }}>
-                      <div style={{ fontFamily: 'Cinzel, serif', letterSpacing: '0.2em', color: 'var(--text-dim)' }}>THE DRYDOCK IS EMPTY</div>
-                      <div className="text-dim" style={{ fontSize: '0.8rem', fontStyle: 'italic' }}>Lay a keel below.</div>
-                    </div>
-                  )}
-                  <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(to bottom, rgba(0,0,0,0) 55%, rgba(10,10,14,0.95) 100%)' }} />
-                  {ship.tier > 0 && banner && (
-                    <div style={{ position: 'absolute', top: 8, right: 12 }} title="Your banner flies from the mast">
-                      <TeamBanner banner={banner} size={56} />
-                    </div>
-                  )}
+
+        {/* Infirmary — the ward + field supplies (spec "Infirmary - Illuminated") */}
+        {fac.type === 'Infirmary' && (() => {
+          const hurting = baseHeroes
+            .filter(h => (h.trauma ?? 0) > 0)
+            .sort((a, b) => (b.trauma ?? 0) - (a.trauma ?? 0))
+            .slice(0, 5)
+          const untroubled = baseHeroes.length - hurting.length
+          const crafter = fac.heroes.find(h => /medic|priest/i.test(h.class_name || '')) || fac.heroes[0]
+          const stock = materials.Bandage || 0
+          const cost = bandageQty * 15
+          return (
+            <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap', margin: '0.5rem 0 1rem' }}>
+              {/* recovery ward */}
+              <div style={{ flex: '1.2 1 320px', minWidth: 300 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 10 }}>
+                  <span style={{ fontFamily: "'Cinzel',serif", letterSpacing: '.3em', fontSize: 11, color: 'var(--gold)' }}>THE WARD · HEAVIEST MINDS FIRST</span>
+                  <span style={{ height: 1, flex: 1, background: 'rgba(184,151,98,.2)' }} />
                 </div>
-                <div style={{ padding: '1rem' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.5rem' }}>
-                    <div>
-                      <h3 style={{ fontFamily: 'Cinzel, serif', color: '#b06aff', margin: 0 }}>
-                        ⚓ {ship.tier > 0 ? (ship.ship_name || ship.ship.name) : 'Shipyard'}
-                        {ship.tier > 0 && <span className="text-dim" style={{ fontSize: '0.8rem', marginLeft: '0.6rem' }}>{ship.ship.name} · Tier {ship.tier}/5</span>}
-                      </h3>
-                      {ship.tier > 0 && (
-                        <div className="text-dim" style={{ fontSize: '0.82rem', fontStyle: 'italic', marginTop: '0.3rem', maxWidth: 560 }}>{ship.ship.desc}</div>
-                      )}
-                    </div>
-                    {ship.defense && (
-                      <div title="Base defense rating for the coming Raid system: Wall + Bastion garrison + docked ship."
-                        style={{ fontFamily: 'Cinzel, serif', fontSize: '0.8rem', color: 'var(--text-dim)', textAlign: 'right', cursor: 'help' }}>
-                        Defense <span style={{ color: 'var(--gold)', fontSize: '1.1rem' }}>{ship.defense.total}</span>
-                        <div style={{ fontSize: '0.65rem' }}>Wall {ship.defense.wall} · Garrison {ship.defense.garrison} · Ship {ship.defense.ship}{ship.defense.beasts > 0 && <> · Beasts {ship.defense.beasts}</>}</div>
-                      </div>
-                    )}
-                  </div>
-
-                  {ship.tier > 0 && (
-                    <div style={{ display: 'flex', gap: '1.2rem', marginTop: '0.6rem', fontSize: '0.8rem' }}>
-                      <span className="text-dim">Crew capacity <span style={{ color: 'var(--text-hi)' }}>{ship.ship.crew}</span></span>
-                      <span className="text-dim">Firepower <span style={{ color: 'var(--text-hi)' }}>{ship.ship.defense}</span></span>
-                      <form style={{ marginLeft: 'auto', display: 'flex', gap: '0.4rem' }} onSubmit={async (e) => {
-                        e.preventDefault()
-                        if (!shipNameDraft.trim()) return
-                        try { await renameShip(shipNameDraft); setShipNameDraft(''); getShip().then(setShip) } catch (err) { alertDialog(err.message) }
-                      }}>
-                        <input className="input" placeholder="Name your ship…" value={shipNameDraft} onChange={e => setShipNameDraft(e.target.value)}
-                          style={{ background: 'rgba(0,0,0,0.3)', border: '1px solid var(--border)', padding: '0.25rem 0.5rem', color: '#fff', borderRadius: 4, fontSize: '0.78rem', width: 160 }} />
-                        <button className="btn" type="submit" style={{ fontSize: '0.7rem', padding: '0.25rem 0.6rem' }} disabled={!shipNameDraft.trim()}>Christen</button>
-                      </form>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  {hurting.length === 0 && (
+                    <div style={{ textAlign: 'center', fontSize: 13.5, fontStyle: 'italic', color: '#6f628c', padding: '14px 0' }}>
+                      Every mind in the roster breathes easy — the ward stands empty.
                     </div>
                   )}
-
-                  {ship.next ? (
-                    <div style={{ marginTop: '0.9rem', borderTop: '1px solid var(--border)', paddingTop: '0.8rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.6rem' }}>
-                      <div>
-                        <div style={{ fontFamily: 'Cinzel, serif', fontSize: '0.85rem', color: 'var(--text-hi)' }}>
-                          {ship.tier > 0 ? 'Next hull' : 'Lay a keel'}: {ship.next.name} <span className="text-gold">({ship.next.cost.toLocaleString()}g)</span>
+                  {hurting.map(h => {
+                    const t = h.trauma ?? 0
+                    const heavy = t >= 50
+                    const mid = t >= 20 && !heavy
+                    const border = heavy ? 'rgba(192,64,64,.45)' : mid ? 'rgba(232,163,76,.4)' : 'rgba(184,151,98,.3)'
+                    const barBorder = heavy ? 'rgba(192,64,64,.35)' : mid ? 'rgba(232,163,76,.3)' : 'rgba(143,191,159,.3)'
+                    const bar = heavy ? 'linear-gradient(90deg,#7a3030,#c05050)' : mid ? 'linear-gradient(90deg,#7a5220,#e8a34c)' : 'linear-gradient(90deg,#3a6a4a,#8fbf9f)'
+                    const tag = heavy ? '#d98a8a' : mid ? '#e8a34c' : '#8fbf9f'
+                    return (
+                      <div key={h.id} style={{ border: `1px solid ${border}`, background: heavy ? 'linear-gradient(90deg,rgba(60,16,22,.3),rgba(12,7,24,.6))' : 'rgba(12,7,24,.5)', padding: '9px 14px' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
+                          <span style={{ fontFamily: "'Cinzel',serif", fontWeight: heavy ? 700 : 600, fontSize: 12.5, letterSpacing: '.08em', color: heavy ? 'var(--text-hi)' : '#e7ddc9' }}>{h.name.toUpperCase()}</span>
+                          <span style={{ fontFamily: "'Cinzel',serif", fontSize: 9, letterSpacing: '.14em', color: tag }}>TRAUMA {t}{heavy ? ' · SHAKEN' : ''}</span>
                         </div>
-                        <div className="text-dim" style={{ fontSize: '0.72rem', marginTop: '0.2rem' }}>
-                          {ship.next.requires === 'engineer'
-                            ? 'Requires a Magic Engineer assigned to the Skydock.'
-                            : 'Requires a Magic Engineer — or any hero with 70+ Mental aptitude — assigned to the Skydock.'}
+                        <div style={{ height: 5, background: 'rgba(0,0,0,.5)', border: `1px solid ${barBorder}`, marginTop: 7 }}>
+                          <div style={{ width: `${Math.min(100, t)}%`, height: '100%', background: bar }} />
                         </div>
-                        {ship.blocker && <div style={{ fontSize: '0.72rem', color: 'var(--red)', marginTop: '0.2rem' }}>{ship.blocker}</div>}
+                        <div style={{ fontSize: 12.5, fontStyle: 'italic', color: 'var(--muted)', marginTop: 5 }}>
+                          {heavy ? 'The ward heals them as time passes — rest hastens it.' : mid ? 'Mending — a rest and a warm meal will see it off.' : 'Clear within the hour.'}
+                        </div>
                       </div>
-                      <button
-                        className="btn"
-                        disabled={!ship.can_build || shipBusy}
-                        onClick={async () => {
-                          setShipBusy(true)
-                          try {
-                            const res = await buildShip()
-                            alertDialog(`The ${res.name} takes to the sky! (Tier ${res.tier})`)
-                            getShip().then(setShip)
-                            getBase().then(setBase)
-                          } catch (err) { alertDialog(err.message) } finally { setShipBusy(false) }
-                        }}
-                        style={{ border: '1px solid #b06aff', color: '#d0a0ff', background: 'rgba(80,30,130,0.2)', padding: '0.5rem 1.2rem' }}
-                      >
-                        {shipBusy ? 'Building…' : ship.tier > 0 ? 'Refit Hull' : 'Build Ship'}
-                      </button>
-                    </div>
-                  ) : (
-                    <div style={{ marginTop: '0.9rem', fontFamily: 'Cinzel, serif', fontSize: '0.8rem', color: '#b06aff', textAlign: 'center' }}>
-                      ✦ The greatest hull the Skydock can produce. The sky is yours. ✦
+                    )
+                  })}
+                  {hurting.length > 0 && untroubled > 0 && (
+                    <div style={{ textAlign: 'center', fontSize: 13.5, fontStyle: 'italic', color: '#6f628c', padding: '6px 0' }}>
+                      The rest of the roster breathes easy — {untroubled} minds untroubled.
                     </div>
                   )}
                 </div>
               </div>
-            )}
-            {facilitiesData.built
-              .filter(fac => facilityFilter === 'All' || facilityCategory(fac.type) === facilityFilter)
-              .sort((a,b) => a.cost - b.cost).map(fac => (
-              <div key={fac.id} className="card" style={{ overflow: 'hidden', padding: 0 }}>
-                <div style={{ width: '100%', aspectRatio: '3/1', overflow: 'hidden', position: 'relative' }}>
-                  <FacilityBanner type={fac.type} level={fac.level} style={{ width: '100%', height: '100%', objectFit: 'cover', objectPosition: 'center', display: 'block' }} />
-                  <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(to bottom, rgba(0,0,0,0) 50%, rgba(10,10,14,0.95) 100%)' }} />
+
+              {/* field supplies */}
+              <div style={{ position: 'relative', flex: '1 1 280px', minWidth: 270, border: '1px solid rgba(224,133,133,.45)', background: 'linear-gradient(160deg,rgba(60,16,22,.22),rgba(12,7,24,.65))', padding: '16px 18px 70px', clipPath: 'polygon(0 0,100% 0,100% 100%,14px 100%)' }}>
+                <div style={{ position: 'absolute', left: 0, top: 0, width: 12, height: 12, borderLeft: '2px solid #e08585', borderTop: '2px solid #e08585' }} />
+                <div style={{ fontFamily: "'Cinzel',serif", letterSpacing: '.26em', fontSize: 10, color: '#e08585' }}>FIELD SUPPLIES</div>
+                <div style={{ fontFamily: "'Cinzel',serif", fontWeight: 900, fontSize: 19, color: 'var(--text-hi)', marginTop: 5 }}>CRAFT BANDAGES</div>
+                <div style={{ fontSize: 13.5, fontStyle: 'italic', color: '#c9a8ae', marginTop: 3 }}>Auto-used on your most injured heroes before the next floor.</div>
+                <div style={{ marginTop: 14, display: 'flex', flexDirection: 'column', gap: 6 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 14 }}>
+                    <span style={{ color: '#c9bfa8' }}>Cost per bandage</span>
+                    <span style={{ fontFamily: "'Cinzel',serif", fontSize: 12, color: '#a8dfb8' }}>15 INGREDIENTS</span>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 14 }}>
+                    <span style={{ color: '#c9bfa8' }}>In stock</span>
+                    <span style={{ fontFamily: "'Cinzel',serif", fontSize: 12, color: 'var(--text-hi)' }}>{stock}</span>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 14 }}>
+                    <span style={{ color: '#c9bfa8' }}>Crafter</span>
+                    <span style={{ fontFamily: "'Cinzel',serif", fontSize: 12, color: crafter ? 'var(--text-hi)' : '#d98a8a' }}>
+                      {crafter ? `${crafter.name.toUpperCase()}${crafter.class_name ? ` · ${String(crafter.class_name).toUpperCase()}` : ''}` : 'NONE ASSIGNED'}
+                    </span>
+                  </div>
                 </div>
-                <div style={{ padding: '1rem' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
-                  <div style={{ display: 'flex', flexDirection: 'column' }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                        <h3 style={{ fontFamily: 'Cinzel, serif', color: 'var(--gold)', margin: 0 }}>{fac.type} (Lv.{fac.level})</h3>
-                        <span title={FACILITY_TOOLTIPS[fac.type] || "Base facility."} style={{ fontSize: '0.8rem', color: 'var(--gold)', cursor: 'help' }}>[?]</span>
-                      </div>
-                      {getGenRate(fac) && (
-                        <div style={{ fontSize: '0.9rem', color: 'var(--star2)', marginTop: '0.2rem', fontFamily: 'Cinzel, serif' }}>
-                          {getGenRate(fac)}
-                        </div>
-                      )}
-                    </div>
-                  {fac.level < fac.max_level && (
-                    <div style={{ textAlign: 'right' }}>
-                      <button
-                        className="btn"
-                        onClick={() => handleUpgradeFacility(fac.id)}
-                        disabled={facilityLoading || base.gold < fac.upgrade_cost || fac.wall_capped}
-                        title={fac.wall_capped ? `The Wall must reach Level ${fac.level + 1} first — nothing outgrows its foundation.` : undefined}
-                        style={{ fontSize: '0.8rem', padding: '0.3rem 0.6rem' }}
-                      >
-                        Upgrade ({fac.upgrade_cost}g)
-                      </button>
-                      {fac.wall_capped && (
-                        <div style={{ fontSize: '0.65rem', color: 'var(--red)', marginTop: '0.2rem' }}>
-                          🧱 Wall Lv.{fac.level + 1} required
-                        </div>
-                      )}
-                    </div>
-                  )}
+                <div style={{ marginTop: 12, display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <span style={{ fontFamily: "'Cinzel',serif", fontSize: 10, letterSpacing: '.18em', color: 'var(--muted)' }}>QUANTITY</span>
+                  <button onClick={() => setBandageQty(q => Math.max(1, q - 1))} style={{ width: 26, height: 26, border: '1px solid rgba(224,133,133,.45)', background: 'none', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontFamily: "'Cinzel',serif", color: '#e08585', cursor: 'pointer' }}>−</button>
+                  <span style={{ fontFamily: "'Cormorant Garamond',serif", fontWeight: 700, fontSize: 22, color: 'var(--text-hi)', width: 30, textAlign: 'center' }}>{bandageQty}</span>
+                  <button onClick={() => setBandageQty(q => Math.min(20, q + 1))} style={{ width: 26, height: 26, border: '1px solid rgba(224,133,133,.45)', background: 'none', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontFamily: "'Cinzel',serif", color: '#e08585', cursor: 'pointer' }}>+</button>
+                  <span style={{ flex: 1 }} />
+                  <span style={{ fontSize: 13, fontStyle: 'italic', color: 'var(--muted)' }}>{cost} ingredients</span>
                 </div>
-                
-                <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap', marginBottom: '1rem' }}>
-                  {fac.heroes.map(h => (
-                    <div key={h.id} style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', background: 'rgba(0,0,0,0.3)', padding: '0.5rem 0.75rem', borderRadius: 6 }}>
-                      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-                            <img src={`/${h.portrait_path}`} alt={h.name} style={{ width: 100, height: 100, borderRadius: '50%', objectFit: 'cover', objectPosition: 'center 15%', border: '1px solid var(--border)' }} />
-                            <div className="text-hi" style={{ fontSize: '0.8rem', marginTop: '0.3rem', textAlign: 'center' }}>{h.name}</div>
-                          </div>
-                      <span style={{ fontSize: '0.95rem' }}>{h.name}</span>
-                      <button onClick={() => handleRemoveFacility(h.id)} style={{ background: 'none', border: 'none', color: 'var(--red)', cursor: 'pointer', marginLeft: '0.5rem' }}>&times;</button>
-                      {fac.type === 'Forge' && (
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.2rem', marginLeft: '0.5rem' }}>
-                          <button onClick={() => handleCraft(h.id, 'weapon')} disabled={crafting} className="btn btn-gold" style={{ padding: '0.2rem 0.5rem', fontSize: '0.75rem' }}>Weapon (100g, 3 Iron, 1 Bone)</button>
-                          <button onClick={() => handleCraft(h.id, 'armor')} disabled={crafting} className="btn btn-gold" style={{ padding: '0.2rem 0.5rem', fontSize: '0.75rem' }}>Armor (100g, 2 Dark Crystal, 2 Iron)</button>
-                          <button onClick={() => handleCraft(h.id, 'accessory')} disabled={crafting} className="btn btn-gold" style={{ padding: '0.2rem 0.5rem', fontSize: '0.75rem' }}>Accessory (100g, 3 Dust, 1 Ear)</button>
-                        </div>
-                      )}
-                      {fac.type === 'Infirmary' && (
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.2rem', marginLeft: '0.5rem' }}>
-                          <button onClick={() => handleCraftBandages(h.id)} disabled={crafting} className="btn btn-gold" style={{ padding: '0.2rem 0.5rem', fontSize: '0.75rem' }}>Bandage (15 ingredients)</button>
-                        </div>
-                      )}
+                <div style={{ fontSize: 12.5, fontStyle: 'italic', color: 'var(--muted)', marginTop: 10 }}>Only a Medic or Priest assigned to the ward rolls gauze worth trusting.</div>
+                <button disabled={crafting || !crafter || (base.ingredients ?? 0) < cost}
+                  onClick={() => handleCraftBandages(crafter.id, bandageQty)}
+                  style={{ position: 'absolute', left: 18, right: 18, bottom: 16, textAlign: 'center', cursor: 'pointer', fontFamily: "'Cinzel',serif", fontWeight: 700, letterSpacing: '.2em', fontSize: 12, color: '#0a0710', background: 'linear-gradient(120deg,#f0b8b8,#c05050)', border: 'none', padding: '10px 0', clipPath: 'polygon(10px 0,100% 0,calc(100% - 10px) 100%,0 100%)', boxShadow: '0 8px 24px rgba(192,80,80,.35)', opacity: crafting || !crafter || (base.ingredients ?? 0) < cost ? 0.5 : 1 }}>
+                  {crafting ? 'ROLLING…' : 'ROLL THE GAUZE'}
+                </button>
+              </div>
+            </div>
+          )
+        })()}
+
+        {/* assignment */}
+        {fac.heroes.length < fac.slots_unlocked && (
+          <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1rem' }}>
+            <select id={`assign-${fac.id}`} className="input" style={{ flex: 1 }}>
+              <option value="">Assign hero...</option>
+              {baseHeroes.filter(h => !fac.heroes.find(fh => fh.id === h.id)).map(h => (
+                <option key={h.id} value={h.id}>{h.name} ({h.class_name})</option>
+              ))}
+            </select>
+            <button className="btn btn-primary" onClick={() => {
+              const sel = document.getElementById(`assign-${fac.id}`)
+              if (sel && sel.value) handleAssignFacility(fac.id, parseInt(sel.value))
+            }} disabled={facilityLoading}>Assign</button>
+          </div>
+        )}
+
+        {/* Market Shop */}
+        {fac.type === 'Market' && Object.keys(marketCatalog).length > 0 && (
+          <div style={{ marginTop: '1rem', background: 'rgba(0,0,0,0.2)', padding: '0.75rem', borderRadius: 6 }}>
+            <div className="text-dim" style={{ marginBottom: '0.5rem', fontSize: '0.85rem' }}>Shop</div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))', gap: '0.5rem' }}>
+              {Object.entries(marketCatalog).map(([itemId, item]) => (
+                <div key={itemId} className="card" style={{ padding: '0.5rem', display: 'flex', flexDirection: 'column', gap: '0.3rem' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                    <ItemIcon name={item.name} kind="material" size={26} />
+                    <div style={{ fontSize: '0.85rem', fontWeight: 'bold' }}>{item.name}</div>
+                  </div>
+                  <button className="btn btn-gold" onClick={() => handlePurchase(itemId)}
+                    disabled={purchasing || (item.currency === 'gold' ? base.gold : base.gems) < item.cost}
+                    style={{ fontSize: '0.72rem', padding: '0.3rem', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
+                    <span style={{ width: 8, height: 8, transform: 'rotate(45deg)', display: 'inline-block', flex: 'none', background: item.currency === 'gold' ? '#7a5a20' : '#5a2a90', boxShadow: item.currency === 'gem' ? '0 0 6px rgba(90,42,144,.8)' : 'none' }} />
+                    {item.cost} {item.currency === 'gold' ? 'GOLD' : 'GEMS'}
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Mage Tower Research */}
+        {fac.type === 'Mage Tower' && mageUpgrades && (
+          <div style={{ marginTop: '1rem', background: 'rgba(0,0,0,0.2)', padding: '0.75rem', borderRadius: 6 }}>
+            <div style={{ color: 'var(--purple)', marginBottom: '0.5rem' }}>Research Points: {mageUpgrades.points}</div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))', gap: '0.5rem' }}>
+              {mageUpgrades.upgrades.map(u => (
+                <div key={u.id} className="card" style={{ padding: '0.5rem' }}>
+                  <div style={{ fontSize: '0.85rem', fontWeight: 'bold' }}>{u.name} (Lv.{u.level}/{u.max_level})</div>
+                  <div style={{ fontSize: '0.7rem', color: 'var(--text-dim)', margin: '0.2rem 0 0.5rem' }}>{u.desc}</div>
+                  <button className="btn" onClick={() => handleBuyResearch(u.id)} disabled={facilityLoading || u.level >= u.max_level || mageUpgrades.points < u.cost} style={{ width: '100%', fontSize: '0.75rem', padding: '0.2rem' }}>
+                    {u.level >= u.max_level ? 'MAX' : `Research (${u.cost} RP)`}
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* The Athenaeum research map */}
+        {fac.type === 'Athenaeum' && (
+          <AthenaeumPanel aether={base.aether} onResourceChange={() => { loadAll(); if (onGoldChange) onGoldChange() }} />
+        )}
+
+        {/* Mirror of Fate */}
+        {fac.type === 'Mirror of Fate' && (
+          <MirrorOfFate level={fac.level} gold={base.gold} onGoldChange={() => { loadAll(); if (onGoldChange) onGoldChange() }} />
+        )}
+
+        {/* Base-upgrade enhancement tracks */}
+        {fac.type === 'Infirmary' && (
+          <UpgradeTreePanel upgrade={baseUpgrades.find(u => u.id === 'infirmary')} gold={base.gold} busy={upgradingId === 'infirmary'} onBuy={handleBuyBaseUpgrade} />
+        )}
+        {fac.type === 'Forge' && (
+          <>
+            <UpgradeTreePanel upgrade={baseUpgrades.find(u => u.id === 'forge')} gold={base.gold} busy={upgradingId === 'forge'} onBuy={handleBuyBaseUpgrade} />
+            <RecipeBookPanel assignedHeroes={fac.heroes} gold={base.gold} materials={materials} onCrafted={() => { loadAll(); if (onGoldChange) onGoldChange() }} />
+          </>
+        )}
+
+        {/* Training Grounds */}
+        {fac.type === 'Training Grounds' && (
+          <TrainingGroundsPanel onChanged={() => { loadAll() }} />
+        )}
+
+        {/* Economy + endgame facility panels */}
+        {fac.type === 'Dining Hall' && <CookingPanel onResourceChange={() => { loadAll(); if (onGoldChange) onGoldChange() }} />}
+        {fac.type === 'Alchemist Lab' && <RefineAetherPanel onResourceChange={() => { loadAll(); if (onGoldChange) onGoldChange() }} />}
+        {fac.type === 'Bestiary' && <BestiaryPanel />}
+        {fac.type === 'Reliquary' && <ReliquaryPanel />}
+        {fac.type === 'Chronosphere' && <ChronospherePanel onResourceChange={() => { loadAll(); if (onGoldChange) onGoldChange() }} />}
+        {fac.type === 'Transcendence Core' && <TranscendencePanel gold={base.gold} onResourceChange={() => { loadAll(); if (onGoldChange) onGoldChange() }} />}
+      </>
+    )
+  }
+
+  // Interior backdrop art tracks the Wall: gate variant once a Wall stands,
+  // open palisade before one exists; visual tier steps with Wall level
+  // (same 13/26/39 bands as facility card art).
+  const wallFac = facilitiesData?.built?.find(f => f.type === 'Wall')
+  const bdTier = wallFac ? (wallFac.level >= 39 ? 4 : wallFac.level >= 26 ? 3 : wallFac.level >= 13 ? 2 : 1) : 1
+  const backdrop = `/images/base/interior_${wallFac ? 'gate' : 'nogate'}_t${bdTier}.png`
+
+  return (
+    <div className="page">
+      {/* No page backdrop — the painted interiors belong to individual
+          facilities, not the whole base (user call: it messes with the vibe). */}
+      <div className="ilm-base-layout">
+        {/* ═══ persistent left console (Home Base mockup) ═══ */}
+        <aside className="ilm-base-console">
+          {(() => {
+            // Title changes per sub-tab (user ask): Lobby keeps HOME BASE·HAVEN;
+            // Facilities and Hierarchy get their own solid + ghost stacks.
+            const t = activeTab === 'facilities'
+              ? { eyebrow: 'Between Climbs', solid: 'FACILITIES', ghost: 'THE WORKS' }
+              : activeTab === 'foundations'
+                // FOUNDATIONS is a long word — smaller sizes so it stays inside
+                // the 420px console instead of running under the art panels.
+                ? { eyebrow: 'Home Base', solid: 'FOUNDATIONS', ghost: 'BEDROCK', solidSize: 42, ghostSize: 38 }
+              : activeTab === 'floors'
+                ? { eyebrow: 'Home Base', solid: 'HIERARCHY', ghost: 'ASCEND' }
+                : { eyebrow: 'Between Climbs', solid: 'HOME BASE', ghost: 'HAVEN' }
+            return <StackedTitle eyebrow={t.eyebrow} ghost={t.ghost} solid={t.solid} solidSize={t.solidSize} ghostSize={t.ghostSize} />
+          })()}
+
+          {renderTabs()}
+
+          {/* HIERARCHY tab console — the mock shows the hierarchy LEDGER here
+              (not the income/chatter, which belong to the Lobby), so the floors
+              on the right get the whole canvas and can be big. */}
+          {activeTab === 'floors' && floorsData ? (() => {
+            const raised = floorsData.floors.length
+            const housed = floorsData.floors.reduce((s2, f) => s2 + f.heroes.length, 0)
+            const nextUnlockTower = (raised + 1) * 10
+            return (
+              <>
+                <div style={{ fontSize: 16, fontStyle: 'italic', color: '#c8b8dd', lineHeight: 1.6, marginTop: 6 }}>
+                  Every hero lives on a floor of your base. The fewer souls a floor houses, the greater
+                  its blessing on each — spread thin for power, pack deep for coverage.
+                </div>
+                <div style={{ marginTop: 20 }}>
+                  {[['FLOORS RAISED', raised, 'var(--gold-hi)'], ['HEROES HOUSED', housed, 'var(--text-hi)'], ['NEXT FLOOR', `AT TOWER FLOOR ${nextUnlockTower}`, 'var(--gold-hi)']].map(([k, v, c]) => (
+                    <div key={k} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', padding: '12px 0', borderBottom: '1px solid rgba(184,151,98,.2)' }}>
+                      <span style={{ fontFamily: "'Cinzel',serif", letterSpacing: '.22em', fontSize: 11, color: 'var(--muted)' }}>{k}</span>
+                      <span style={{ fontFamily: typeof v === 'number' ? "'Cormorant Garamond',serif" : "'Cinzel',serif", fontWeight: 700, fontSize: typeof v === 'number' ? 24 : 13, letterSpacing: typeof v === 'number' ? 0 : '.1em', color: c }}>{v}</span>
                     </div>
                   ))}
                 </div>
-
-                {fac.heroes.length < fac.slots_unlocked && (
-                  <div style={{ display: 'flex', gap: '0.5rem' }}>
-                    <select id={`assign-${fac.id}`} className="input" style={{ flex: 1 }}>
-                      <option value="">Assign hero...</option>
-                      {baseHeroes.filter(h => !fac.heroes.find(fh => fh.id === h.id)).map(h => (
-                        <option key={h.id} value={h.id}>{h.name} ({h.class_name})</option>
-                      ))}
-                    </select>
-                    <button className="btn btn-primary" onClick={() => {
-                      const sel = document.getElementById(`assign-${fac.id}`)
-                      if (sel && sel.value) handleAssignFacility(fac.id, parseInt(sel.value))
-                    }} disabled={facilityLoading}>Assign</button>
+                <button className="btn btn-primary" onClick={() => setRehouseMode(m => !m)}
+                  style={{ width: '100%', marginTop: 20, padding: '14px 0', fontSize: '0.9rem', letterSpacing: '.24em' }}>
+                  {rehouseMode ? 'DONE REHOUSING' : 'REHOUSE HEROES'}
+                </button>
+                {rehouseMode && (
+                  <div style={{ fontSize: 13, fontStyle: 'italic', color: 'var(--muted)', marginTop: 12, lineHeight: 1.5 }}>
+                    Drag a soul between floors — or click one to send them down to the Foundations.
                   </div>
                 )}
+              </>
+            )
+          })() : (
+            <>
+              <div className="ilm-base-stat">
+                <span className="ilm-base-stat-k">GOLD INCOME</span>
+                <span className="ilm-base-stat-v" style={{ color: 'var(--gold-hi)' }}>+{(goldGen * 288).toLocaleString()} / day</span>
+              </div>
+              <div className="ilm-base-stat">
+                <span className="ilm-base-stat-k">INGREDIENTS</span>
+                <span className="ilm-base-stat-v" style={{ color: '#8fbf9f' }}>+{(ingredientsGen * 288).toLocaleString()} / day</span>
+              </div>
+              <div className="ilm-base-stat">
+                <span className="ilm-base-stat-k">AETHER</span>
+                <span className="ilm-base-stat-v" style={{ color: '#8fb8ff' }}>+{(aetherGen * 288).toLocaleString()} / day</span>
+              </div>
+              <div className="ilm-base-stat">
+                <span className="ilm-base-stat-k">ROSTER</span>
+                <span className="ilm-base-stat-v">
+                  <b style={{ color: 'var(--text-hi)' }}>{baseHeroes.length} heroes</b>
+                  {(() => { const shaken = baseHeroes.filter(h => (h.morale ?? 100) < 40).length; return shaken > 0 ? <span style={{ color: '#d98a8a' }}> · {shaken} shaken</span> : null })()}
+                </span>
+              </div>
 
-                {/* Market Shop */}
-                {fac.type === 'Market' && Object.keys(marketCatalog).length > 0 && (
-                  <div style={{ marginTop: '1rem', background: 'rgba(0,0,0,0.2)', padding: '0.75rem', borderRadius: 6 }}>
-                    <div className="text-dim" style={{ marginBottom: '0.5rem', fontSize: '0.85rem' }}>Shop</div>
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))', gap: '0.5rem' }}>
-                      {Object.entries(marketCatalog).map(([itemId, item]) => (
-                        <div key={itemId} className="card" style={{ padding: '0.5rem', display: 'flex', flexDirection: 'column', gap: '0.3rem' }}>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-                            <ItemIcon name={item.name} kind="material" size={26} />
-                            <div style={{ fontSize: '0.85rem', fontWeight: 'bold' }}>{item.name}</div>
-                          </div>
-                          <button 
-                            className="btn btn-gold" 
-                            onClick={() => handleBuyMarketItem(itemId)} 
-                            disabled={purchasing || (item.currency === 'gold' ? base.gold : base.gems) < item.cost}
-                            style={{ fontSize: '0.75rem', padding: '0.3rem', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.3rem' }}
-                          >
-                            {item.cost} {item.currency === 'gold' ? <span>Gold <GameIcon name="gold_coin" size={14} /></span> : <span>Gems <GameIcon name="gem" size={14} /></span>}
-                          </button>
-                        </div>
-                      ))}
+              {/* hero chatter */}
+              <div style={{ marginTop: '1.4rem' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
+                  <span style={{ width: 7, height: 7, transform: 'rotate(45deg)', background: 'var(--gold)', display: 'inline-block' }} />
+                  <span style={{ fontFamily: "'Cinzel',serif", letterSpacing: '.3em', fontSize: '0.6rem', color: 'var(--gold)' }}>HERO CHATTER</span>
+                </div>
+                {chats.length === 0 && <div className="text-dim" style={{ fontSize: '0.85rem', fontStyle: 'italic' }}>The halls are quiet for now.</div>}
+                {/* Flatten the newest logs into individual spoken lines,
+                    fronted by the same diamond portraits the Hearth drawer
+                    uses — consistent hero chatter everywhere. */}
+                {chats
+                  .flatMap(c => (c.messages || []).map((m, mi) => ({ ...m, logId: c.id, key: `${c.id}-${mi}` })))
+                  .slice(0, 4)
+                  .map(m => {
+                    const hero = heroIndex[m.speaker]
+                    const shaken = hero ? ((hero.stress ?? 0) >= 60 || (hero.morale ?? 100) < 40) : false
+                    return (
+                      <div key={m.key} className={`ilm-base-chatter ${newChatIds.has(m.logId) ? 'fresh' : ''}`}
+                        style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                        <span style={{ padding: 5, flex: 'none' }}>
+                          <DiamondPortrait heroId={hero?.id} name={m.speaker} size={26} shaken={shaken} />
+                        </span>
+                        <span style={{ minWidth: 0 }}>
+                          <span className="ilm-base-chatter-who">{(m.speaker || 'A hero').toUpperCase()}</span>
+                          <span className="ilm-base-chatter-line"> — “{m.message}”</span>
+                        </span>
+                      </div>
+                    )
+                  })}
+              </div>
+            </>
+          )}
+        </aside>
+
+        {/* ═══ main content column ═══ */}
+        <main className="ilm-base-main">
+
+      {activeTab === 'lobby' && (() => {
+        // Recovery ladder: worst-off heroes surface individually, the rest
+        // fold into a single STEADY row (Home Base mockup).
+        const hurting = baseHeroes
+          .filter(h => (h.morale ?? 100) < 70 || (h.trauma ?? 0) > 30)
+          .sort((a, b) => (a.morale ?? 100) - (b.morale ?? 100))
+          .slice(0, 3)
+        const steadyCount = baseHeroes.length - hurting.length
+        const now = Date.now() / 1000
+        const rem = Math.max(0, 300 - (now - (base.last_rest_time || 0)))
+        const isCooldown = rem > 0
+        const rowStyle = { display: 'flex', alignItems: 'center', gap: 12 }
+        const recentLegacies = legacies.slice(0, 2)
+        return (
+        <div style={{ display: 'flex', gap: 24, alignItems: 'flex-start', flexWrap: 'wrap' }}>
+          {/* ── center column ── */}
+          <div style={{ flex: '1.2 1 420px', minWidth: 380, display: 'flex', flexDirection: 'column', gap: 16 }}>
+            {/* rest & recovery */}
+            <div style={{ border: '1px solid rgba(184,151,98,.4)', background: 'linear-gradient(160deg,rgba(20,11,34,.5),rgba(12,7,24,.6))', padding: '16px 18px', clipPath: 'polygon(0 0,100% 0,100% 100%,12px 100%)' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                <span style={{ width: 7, height: 7, transform: 'rotate(45deg)', background: 'var(--gold)', display: 'inline-block' }} />
+                <span style={{ fontFamily: "'Cinzel',serif", letterSpacing: '.3em', fontSize: 11, color: 'var(--gold)' }}>REST & RECOVERY</span>
+                <span style={{ height: 1, flex: 1, background: 'rgba(184,151,98,.2)' }} />
+              </div>
+              <div style={{ fontSize: 14.5, fontStyle: 'italic', color: 'var(--muted)', marginTop: 8, lineHeight: 1.45 }}>
+                Heroes return from the Tower whole in body — it is the mind that takes longer.
+              </div>
+              <div style={{ marginTop: 12, display: 'flex', flexDirection: 'column', gap: 10 }}>
+                {hurting.map(h => {
+                  const morale = h.morale ?? 100
+                  const shaken = morale < 40
+                  const barColor = shaken ? '#c04040' : '#c9a84c'
+                  const border = shaken ? 'rgba(192,64,64,.4)' : 'rgba(184,151,98,.35)'
+                  return (
+                    <div key={h.id} style={rowStyle}>
+                      <span style={{ fontFamily: "'Cinzel',serif", fontSize: 12, letterSpacing: '.12em', color: 'var(--text-hi)', width: 84, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{h.name.toUpperCase()}</span>
+                      <div style={{ flex: 1, height: 5, background: 'rgba(0,0,0,.5)', border: `1px solid ${border}` }}>
+                        <div style={{ width: `${morale}%`, height: '100%', background: barColor }} />
+                      </div>
+                      <span style={{ fontFamily: "'Cinzel',serif", fontSize: 10, letterSpacing: '.16em', color: shaken ? '#d98a8a' : 'var(--gold-hi)', width: 90, textAlign: 'right' }}>{shaken ? 'SHAKEN' : 'WEARY'}</span>
+                    </div>
+                  )
+                })}
+                {steadyCount > 0 && (
+                  <div style={rowStyle}>
+                    <span style={{ fontFamily: "'Cinzel',serif", fontSize: 12, letterSpacing: '.12em', color: 'var(--muted)', width: 84 }}>{hurting.length > 0 ? 'OTHERS' : 'ROSTER'}</span>
+                    <div style={{ flex: 1, height: 5, background: 'rgba(0,0,0,.5)', border: '1px solid rgba(74,154,106,.35)' }}>
+                      <div style={{ width: '100%', height: '100%', background: '#4a9a6a' }} />
+                    </div>
+                    <span style={{ fontFamily: "'Cinzel',serif", fontSize: 10, letterSpacing: '.16em', color: '#8fbf9f', width: 90, textAlign: 'right' }}>STEADY</span>
+                  </div>
+                )}
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginTop: 14 }}>
+                <button className="ilm-btn ilm-btn-gold" onClick={handleRest} disabled={resting || isCooldown} style={{ padding: '10px 22px' }}>
+                  {resting ? 'RESTING…' : isCooldown ? `EMBERS COOL · ${Math.ceil(rem)}S` : 'REST ALL HEROES'}
+                </button>
+                <span style={{ fontSize: 13, fontStyle: 'italic', color: 'var(--muted)' }}>50 ingredients — a hot meal for the roster. Morale +25 · stress −20 · trauma −5.</span>
+              </div>
+              {msg && <div style={{ marginTop: 10, fontSize: 14, fontStyle: 'italic', color: '#8fbf9f' }}>{msg}</div>}
+            </div>
+
+            {/* legacies of the fallen */}
+            <div style={{ border: '1px solid rgba(150,110,230,.35)', background: 'linear-gradient(160deg,rgba(42,22,80,.28),rgba(12,7,24,.6))', padding: '16px 18px', clipPath: 'polygon(0 0,100% 0,100% 100%,12px 100%)' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                <span style={{ width: 7, height: 7, transform: 'rotate(45deg)', background: 'var(--violet)', display: 'inline-block' }} />
+                <span style={{ fontFamily: "'Cinzel',serif", letterSpacing: '.3em', fontSize: 11, color: 'var(--lavender)' }}>LEGACIES OF THE FALLEN</span>
+                <span style={{ height: 1, flex: 1, background: 'rgba(150,110,230,.25)' }} />
+                <span style={{ fontFamily: "'Cinzel',serif", fontSize: 10, letterSpacing: '.18em', color: 'var(--muted)' }}>{legacies.length} REMEMBERED</span>
+              </div>
+              <div style={{ marginTop: 12, display: 'flex', flexDirection: 'column', gap: 9, fontSize: 16 }}>
+                {recentLegacies.length === 0 && (
+                  <div style={{ fontStyle: 'italic', color: 'var(--muted)', fontSize: 14 }}>No hero has yet fallen. May it stay that way.</div>
+                )}
+                {recentLegacies.map(leg => {
+                  const bonus = (() => { try { return JSON.parse(leg.bonus_json || '{}') } catch { return {} } })()
+                  return (
+                    <div key={leg.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 12 }}>
+                      <span style={{ minWidth: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                        <span style={{ fontFamily: "'Cinzel',serif", fontSize: 12.5, letterSpacing: '.1em', color: 'var(--text-hi)' }}>{(leg.hero_name || '').toUpperCase()}</span>
+                        <span style={{ fontStyle: 'italic', color: 'var(--muted)' }}> — {leg.is_sacrifice ? 'given to the rite' : 'fell in the Tower'}</span>
+                      </span>
+                      <span style={{ color: 'var(--lavender)', fontWeight: 600, whiteSpace: 'nowrap' }}>{bonus.primary_bonus?.desc || leg.title || ''}</span>
+                    </div>
+                  )
+                })}
+                <button onClick={() => setShowMemorial(true)}
+                  style={{ background: 'none', border: 'none', cursor: 'pointer', textAlign: 'left', padding: 0, fontFamily: "'Cinzel',serif", fontSize: 10, letterSpacing: '.24em', color: 'var(--muted)', marginTop: 2 }}>
+                  VIEW THE MEMORIAL ›
+                </button>
+              </div>
+            </div>
+
+            {/* lore journal teaser */}
+            <button onClick={() => setShowLore(true)}
+              style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, border: '1px solid rgba(184,151,98,.28)', background: 'rgba(12,7,24,.4)', padding: '12px 18px', cursor: 'pointer', width: '100%' }}>
+              <span style={{ fontFamily: "'Cinzel',serif", letterSpacing: '.24em', fontSize: 11, color: '#c9bfa8' }}>LORE JOURNAL</span>
+              <span style={{ fontSize: 15, fontStyle: 'italic', color: 'var(--muted)' }}>chronicles written by the climb</span>
+              <span style={{ fontFamily: "'Cinzel',serif", fontSize: 12, color: 'var(--gold-hi)' }}>READ ›</span>
+            </button>
+
+            {/* treasury ledger */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 12 }}>
+              {[
+                ['TREASURY', base.gold.toLocaleString(), 'var(--gold-hi)', goldGen > 0 ? `+${goldGen} / 5m` : null],
+                ['INGREDIENTS', (base.ingredients ?? 0).toLocaleString(), '#8fbf9f', ingredientsGen > 0 ? `+${ingredientsGen} / 5m` : null],
+                ['AETHER', (base.aether || 0).toLocaleString(), '#8fb8ff', aetherGen > 0 ? `+${aetherGen} / 5m` : null],
+              ].map(([k, v, c, gen]) => (
+                <div key={k} style={{ border: '1px solid rgba(184,151,98,.25)', background: 'rgba(12,7,24,.45)', padding: '10px 14px' }}>
+                  <div style={{ fontFamily: "'Cinzel',serif", letterSpacing: '.22em', fontSize: 9, color: 'var(--muted)' }}>{k}</div>
+                  <div style={{ fontFamily: "'Cormorant Garamond',serif", fontWeight: 700, fontSize: 22, color: c, lineHeight: 1.2 }}>{v}</div>
+                  {gen && <div style={{ fontFamily: "'Cinzel',serif", fontSize: 8, letterSpacing: '.12em', color: 'var(--muted)' }}>{gen}</div>}
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* ── right: the hanging banner ── */}
+          <div style={{ flex: '1 1 320px', minWidth: 300, position: 'relative', paddingTop: 16 }}>
+            {/* hanging rod + the two cords the banner is suspended from — the
+                cords bridge the rod to the cloth so it reads as CONNECTED, not
+                floating below a bar. */}
+            <div style={{ position: 'relative', height: 20, zIndex: 2 }}>
+              <div style={{ position: 'absolute', left: 10, right: 10, top: 8, height: 3, background: 'linear-gradient(90deg,rgba(184,151,98,0),#b89762 12%,#b89762 88%,rgba(184,151,98,0))' }} />
+              <div style={{ position: 'absolute', left: 6, top: 2, width: 14, height: 14, transform: 'rotate(45deg)', border: '1px solid var(--gold)', background: '#0c0718' }} />
+              <div style={{ position: 'absolute', right: 6, top: 2, width: 14, height: 14, transform: 'rotate(45deg)', border: '1px solid var(--gold)', background: '#0c0718' }} />
+              {/* cords */}
+              <div style={{ position: 'absolute', left: 'calc(50% - 58px)', top: 9, width: 1, height: 22, background: 'linear-gradient(#b89762,rgba(184,151,98,.35))' }} />
+              <div style={{ position: 'absolute', left: 'calc(50% + 57px)', top: 9, width: 1, height: 22, background: 'linear-gradient(#b89762,rgba(184,151,98,.35))' }} />
+            </div>
+            {/* banner cloth — unfurls from the rod on mount (scaleY), then sways.
+                The unfurl and the sway live on separate nested elements so the
+                scaleY and the rotate can't fight each other. The cloth top sits
+                just below the rod (the thin cords bridge the small gap) — it is
+                NOT tucked under the rod, so the whole banner, tip included,
+                lights up in the entrance sweep. */}
+            <div style={{ transformOrigin: 'top center', animation: 'banner-unfurl 0.95s cubic-bezier(.2,.9,.3,1) both', display: 'flex', flexDirection: 'column', alignItems: 'center', marginTop: 0 }}>
+              <div style={{ transformOrigin: 'top center', animation: 'banner-sway 7s ease-in-out 0.95s infinite', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+              <div className="hover-brighten" onClick={() => setShowBannerStudio(true)} title="Click to customize your Team Banner" style={{ cursor: 'pointer', position: 'relative', animation: 'banner-lightup 1.4s ease-out both' }}>
+                <TeamBanner banner={banner} size={250} style={{ alignItems: 'flex-start' }} />
+                {/* one-shot light sweep down the cloth as it lands — from the very top */}
+                <div style={{ position: 'absolute', left: '50%', top: 0, width: Math.round(250 / 1.8), height: 250, transform: 'translateX(-50%)', overflow: 'hidden', pointerEvents: 'none', clipPath: 'polygon(0 0,100% 0,100% 82%,50% 100%,0 82%)' }}>
+                  <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(180deg,transparent,rgba(230,215,255,.55),transparent)', animation: 'banner-shine 1.5s ease-out 0.5s both' }} />
+                </div>
+              </div>
+              <div style={{ textAlign: 'center', marginTop: 14 }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10 }}>
+                  <span style={{ fontFamily: "'Cinzel',serif", fontWeight: 700, letterSpacing: '.3em', fontSize: 17, color: 'var(--text-hi)' }}>{base.name?.toUpperCase()}</span>
+                  <button onClick={handleRenameBase} title="Rename Base" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-dim)', fontSize: 14, padding: 0, display: 'flex' }}>✎</button>
+                </div>
+                <div style={{ fontFamily: "'Cinzel',serif", letterSpacing: '.24em', fontSize: 10, color: 'var(--muted)', marginTop: 5 }}>
+                  LOBBY LV {base.level} · ROSTER {baseHeroes.length} / {base.max_roster_size || 10}
+                  {base.difficulty && base.difficulty !== 'normal' && <span style={{ color: base.difficulty === 'hard' ? '#d98a8a' : '#8fbf9f' }}> · {base.difficulty.toUpperCase()}</span>}
+                </div>
+              </div>
+              </div>
+            </div>
+            <div style={{ textAlign: 'center', marginTop: 22 }}>
+              <button onClick={() => setShowBannerStudio(true)}
+                style={{ fontFamily: "'Cinzel',serif", fontWeight: 600, letterSpacing: '.24em', fontSize: 12, color: '#cdbfe4', background: 'none', border: '1px solid rgba(150,110,230,.45)', padding: '10px 22px', clipPath: 'polygon(10px 0,100% 0,calc(100% - 10px) 100%,0 100%)', cursor: 'pointer' }}>
+                BANNER STUDIO
+              </button>
+            </div>
+          </div>
+        </div>
+        )
+      })()}
+
+      {/* ═══ FOUNDATIONS — the base's structure: the Lobby (roster roof) and the
+          Wall (facility ceiling), as two big art panels each clearly upgradeable. ═══ */}
+      {activeTab === 'foundations' && (() => {
+        const cap = base.max_roster_size || 10
+        const wall = facilitiesData?.built?.find(f => f.type === 'Wall')
+        const wallLevel = wall?.level ?? 1
+        // artPos frames each image inside the strip: the lobby art is 2.33:1
+        // (near the strip's shape, slight crop), the wall art is 16:9 so the
+        // strip can only show a band of it — aim that band at the gate.
+        const panels = [
+          { key: 'lobby', title: 'THE LOBBY', art: facArt('Lobby', base.level), artPos: 'center 62%', sigil: 'LOBBY', lv: base.level,
+            desc: 'The heart of the base — every level widens the roster’s roof.',
+            stat: `CAPACITY ${baseHeroes.length} / ${cap}`, pct: (baseHeroes.length / cap) * 100,
+            action: { label: `UPGRADE · ${(5000 * base.level).toLocaleString()}`, onClick: handleUpgradeBase, disabled: base.gold < 5000 * base.level } },
+          { key: 'wall', title: 'THE WALL', art: facArt('Wall', wallLevel), artPos: 'center 38%', sigil: 'WALL', lv: wallLevel,
+            desc: 'The bulwark. No facility may rise above the Wall — raise it to unlock deeper upgrades.',
+            stat: `FACILITY CEILING · LV ${wallLevel}`, pct: null,
+            action: (wall && wall.level < wall.max_level) ? { label: `UPGRADE · ${wall.upgrade_cost}g`, onClick: () => handleUpgradeFacility(wall.id), disabled: base.gold < wall.upgrade_cost } : null },
+        ]
+        return (
+          // Stacked, full-width — each panel is a long strip, so the wide art
+          // shows nearly its whole scene instead of a side-by-side crop.
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 22 }}>
+            {panels.map(p => (
+              <div key={p.key} className="ilm-foundation-panel">
+                {p.art && <img src={p.art} alt="" className="ilm-foundation-art" style={{ objectPosition: p.artPos }} onError={(e) => { e.currentTarget.style.display = 'none' }} />}
+                <span className="ilm-foundation-scrim" />
+                <span className="ilm-corner" /><span className="ilm-corner ilm-corner-r" />
+                <div className="ilm-foundation-body">
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+                    <span className="ilm-mono" style={{ width: 44, height: 44, flex: 'none' }}><Sigil set="facility" name={p.sigil} size={24} color="var(--gold-hi)" fallback={<span style={{ color: 'var(--gold-hi)' }}>◆</span>} /></span>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ display: 'flex', alignItems: 'baseline', gap: 10 }}>
+                        <span style={{ fontFamily: "'Cinzel',serif", fontWeight: 900, fontSize: '1.7rem', color: 'var(--text-hi)', letterSpacing: '.04em', textShadow: '0 1px 8px rgba(0,0,0,.95)' }}>{p.title}</span>
+                        <span className="ilm-micro" style={{ color: 'var(--gold-hi)' }}>LV {p.lv}</span>
+                      </div>
+                      <div className="text-dim" style={{ fontStyle: 'italic', fontSize: '0.9rem', textShadow: '0 1px 6px rgba(0,0,0,.95)', marginTop: 2 }}>{p.desc}</div>
                     </div>
                   </div>
-                )}
-
-                {/* Mage Tower Research */}
-                {fac.type === 'Mage Tower' && mageUpgrades && (
-                  <div style={{ marginTop: '1rem', background: 'rgba(0,0,0,0.2)', padding: '0.75rem', borderRadius: 6 }}>
-                    <div style={{ color: 'var(--purple)', marginBottom: '0.5rem' }}>Research Points: {mageUpgrades.points}</div>
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))', gap: '0.5rem' }}>
-                      {mageUpgrades.upgrades.map(u => (
-                        <div key={u.id} className="card" style={{ padding: '0.5rem' }}>
-                          <div style={{ fontSize: '0.85rem', fontWeight: 'bold' }}>{u.name} (Lv.{u.level}/{u.max_level})</div>
-                          <div style={{ fontSize: '0.7rem', color: 'var(--text-dim)', margin: '0.2rem 0 0.5rem' }}>{u.desc}</div>
-                          <button className="btn" onClick={() => handleBuyResearch(u.id)} disabled={facilityLoading || u.level >= u.max_level || mageUpgrades.points < u.cost} style={{ width: '100%', fontSize: '0.75rem', padding: '0.2rem' }}>
-                            {u.level >= u.max_level ? 'MAX' : `Research (${u.cost} RP)`}
-                          </button>
-                        </div>
-                      ))}
-                    </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginTop: 16 }}>
+                    <span className="ilm-micro" style={{ color: 'var(--muted)', whiteSpace: 'nowrap' }}>{p.stat}</span>
+                    {p.pct != null ? <div style={{ flex: 1 }}><Meter pct={p.pct} glow /></div> : <span style={{ flex: 1 }} />}
+                    {p.action
+                      ? <button className="ilm-btn ilm-btn-gold" onClick={p.action.onClick} disabled={p.action.disabled}>{p.action.label}</button>
+                      : <span className="ilm-micro" style={{ color: 'var(--muted)' }}>MAX LEVEL</span>}
                   </div>
-                )}
-
-                {/* Mirror of Fate — talent reveals */}
-                {fac.type === 'Mirror of Fate' && (
-                  <MirrorOfFate
-                    level={fac.level}
-                    gold={base.gold}
-                    onGoldChange={() => { loadAll(); if (onGoldChange) onGoldChange() }}
-                  />
-                )}
-
-                {/* Base-upgrade enhancement tracks (gold-bought, separate from facility level) */}
-                {fac.type === 'Infirmary' && (
-                  <UpgradeTreePanel upgrade={baseUpgrades.find(u => u.id === 'infirmary')} gold={base.gold} busy={upgradingId === 'infirmary'} onBuy={handleBuyBaseUpgrade} />
-                )}
-                {fac.type === 'Forge' && (
-                  <>
-                    <UpgradeTreePanel upgrade={baseUpgrades.find(u => u.id === 'forge')} gold={base.gold} busy={upgradingId === 'forge'} onBuy={handleBuyBaseUpgrade} />
-                    <RecipeBookPanel assignedHeroes={fac.heroes} gold={base.gold} materials={materials} onCrafted={() => { loadAll(); if (onGoldChange) onGoldChange() }} />
-                  </>
-                )}
-
-                {/* Training Grounds — solo drills + sparring */}
-                {fac.type === 'Training Grounds' && (
-                  <TrainingGroundsPanel onChanged={() => { loadAll() }} />
-                )}
-
-                {/* Economy + endgame facility panels */}
-                {fac.type === 'Dining Hall' && <CookingPanel onResourceChange={() => { loadAll(); if (onGoldChange) onGoldChange() }} />}
-                {fac.type === 'Alchemist Lab' && <RefineAetherPanel onResourceChange={() => { loadAll(); if (onGoldChange) onGoldChange() }} />}
-                {fac.type === 'Bestiary' && <BestiaryPanel />}
-                {fac.type === 'Reliquary' && <ReliquaryPanel />}
-                {fac.type === 'Chronosphere' && <ChronospherePanel onResourceChange={() => { loadAll(); if (onGoldChange) onGoldChange() }} />}
-                {fac.type === 'Transcendence Core' && <TranscendencePanel gold={base.gold} onResourceChange={() => { loadAll(); if (onGoldChange) onGoldChange() }} />}
                 </div>
               </div>
             ))}
           </div>
+        )
+      })()}
 
-          {/* Right Column: Available Facilities */}
-          <div style={{ flex: '1 1 300px' }}>
-            <h3 style={{ fontFamily: 'Cinzel, serif', color: 'var(--gold)', marginBottom: '1rem' }}>Available Facilities</h3>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-              {(() => {
-                // Hide "future" facilities gated behind floors you haven't
-                // reached — only show what you can actually build now (plus
-                // the current category filter). If a category ends up empty
-                // because everything in it is still floor-locked, surface the
-                // NEXT unlock floor's whole batch — several facilities can
-                // share an unlock floor (e.g. Farm + Market both at floor 2),
-                // so peek at all of them, not just the cheapest one.
-                const catMatch = fac => facilityFilter === 'All' || facilityCategory(fac.type) === facilityFilter
-                const inCat = facilitiesData.available.filter(catMatch).sort((a,b) => a.cost - b.cost)
-                let shown = inCat.filter(fac => !fac.floor_restricted)
-                if (shown.length === 0 && inCat.length > 0) {
-                  const nextFloor = Math.min(...inCat.map(f => f.unlock_floor))
-                  shown = inCat.filter(f => f.unlock_floor === nextFloor)
-                }
-                if (shown.length === 0) {
-                  return <div className="text-dim text-sm" style={{ fontStyle: 'italic' }}>Everything in this category is built. Nice work.</div>
-                }
-                return shown.map(fac => (
-                <div key={fac.type} className="card" style={{ display: 'flex', flexDirection: 'column', padding: '1rem' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.5rem' }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                        <span style={{ fontFamily: 'Cinzel, serif', fontSize: '1.1rem', color: 'var(--gold)' }}>{fac.type}</span>
-                        <span title={FACILITY_TOOLTIPS[fac.type] || "Base facility."} style={{ fontSize: '0.8rem', color: 'var(--gold)', cursor: 'help' }}>[?]</span>
-                      </div>
-                      <button className="btn btn-gold" onClick={() => handleBuildFacility(fac.type)} disabled={facilityLoading || base.gold < fac.cost || fac.floor_restricted} style={{ padding: '0.3rem 0.6rem', fontSize: '0.8rem' }}>
-                        Build ({fac.cost}g)
-                      </button>
+      {activeTab === 'facilities' && (() => {
+        // Wall lives on the Foundations tab now (with the Lobby), so keep it out
+        // of the buildable-facilities grid.
+        const catMatch = fac => (facilityFilter === 'All' || facilityCategory(fac.type) === facilityFilter) && fac.type !== 'Wall'
+        const built = facilitiesData.built.filter(catMatch).sort((a, b) => a.cost - b.cost)
+        const inCat = facilitiesData.available.filter(catMatch).sort((a, b) => a.cost - b.cost)
+        let avail = inCat.filter(f => !f.floor_restricted)
+        if (avail.length === 0 && inCat.length > 0) {
+          const nf = Math.min(...inCat.map(f => f.unlock_floor))
+          avail = inCat.filter(f => f.unlock_floor === nf)
+        }
+        const selFac = facilitiesData.built.find(f => f.id === selFacId)
+        const cap = base.max_roster_size || 10
+        return (
+          <>
+            {/* filter chips + card/list view toggle */}
+            <div className="ilm-fac-chips">
+              {FACILITY_CATEGORIES.map(cat => (
+                <button key={cat} className={`ilm-fac-chip ${facilityFilter === cat ? 'active' : ''}`} onClick={() => setFacilityFilter(cat)}>
+                  {cat.toUpperCase()}
+                </button>
+              ))}
+              <span style={{ flex: 1 }} />
+              <span className="ilm-fac-count" style={{ marginRight: 12 }}>{built.length} OF {built.length + avail.length}</span>
+              <div className="ilm-fac-viewtoggle">
+                {[['cards', '▦ CARDS'], ['list', '☰ LIST']].map(([v, label]) => (
+                  <button key={v} className={`ilm-fac-viewbtn ${facilityView === v ? 'active' : ''}`} onClick={() => setFacView(v)}>{label}</button>
+                ))}
+              </div>
+            </div>
+
+            {/* facilities grid — the Lobby moved to the Lobby tab (A1). The grid
+                scrolls within its OWN region (B) so the base page never grows
+                unbounded as more facilities get built. */}
+            <div className="ilm-fac-scroll">
+            {facilityView === 'list' ? (
+            <div className="ilm-fac-list">
+              {built.map(fac => (
+                <button key={fac.id} className={`ilm-fac-listrow ${selFacId === fac.id ? 'sel' : ''}`}
+                  onClick={() => setSelFacId(selFacId === fac.id ? null : fac.id)}>
+                  <span className="ilm-mono ilm-fac-mono" style={{ width: 30, height: 30 }}><Sigil set="facility" name={facSig(fac.type)} size={17} color="var(--gold-hi)" fallback={<span style={{ color: 'var(--gold-hi)' }}>{fac.type[0]}</span>} /></span>
+                  <span className="ilm-fac-card-name" style={{ flex: 1 }}>{fac.type}</span>
+                  {getGenRate(fac) && <span style={{ fontSize: '0.72rem', color: 'var(--green-hi)', marginRight: 12, whiteSpace: 'nowrap' }}>{getGenRate(fac).replace('Generating: ', '')}</span>}
+                  <span className="ilm-fac-lv" style={{ marginRight: 14 }}>LV {fac.level}</span>
+                  {fac.level < fac.max_level && (
+                    <span className={`ilm-fac-listaction ${fac.wall_capped ? 'capped' : ''}`}
+                      onClick={(e) => { e.stopPropagation(); if (!fac.wall_capped && base.gold >= fac.upgrade_cost) handleUpgradeFacility(fac.id) }}
+                      title={fac.wall_capped ? `Wall Lv.${fac.level + 1} required` : `Upgrade (${fac.upgrade_cost}g)`}>
+                      {fac.wall_capped ? (<><Sigil set="facility" name={facSig('Wall')} size={11} color="var(--red-hi)" fallback={<span>◱</span>} /> WALL {fac.level + 1}</>) : `UPGRADE · ${fac.upgrade_cost}g`}
+                    </span>
+                  )}
+                </button>
+              ))}
+              {avail.map(fac => (
+                <div key={fac.type} className="ilm-fac-listrow locked">
+                  <span className="ilm-mono ilm-fac-mono" style={{ width: 30, height: 30, opacity: .55 }}><Sigil set="facility" name={facSig(fac.type)} size={17} color="var(--muted)" fallback={<span style={{ color: 'var(--muted)' }}>{fac.type[0]}</span>} /></span>
+                  <span className="ilm-fac-card-name" style={{ flex: 1, color: 'var(--text-dim)' }}>{fac.type}</span>
+                  {fac.floor_restricted
+                    ? <span style={{ fontSize: '0.72rem', color: 'var(--lavender)', marginRight: 14, whiteSpace: 'nowrap' }}>Sealed · floor {fac.unlock_floor}</span>
+                    : <span className="ilm-fac-listaction build" onClick={() => { if (base.gold >= fac.cost) handleBuildFacility(fac.type) }} title={`Build (${fac.cost}g)`}>BUILD · {fac.cost}g</span>}
+                </div>
+              ))}
+            </div>
+            ) : (
+            <div className="ilm-fac-grid">
+              {built.map(fac => (
+                <button key={fac.id} className={`ilm-fac-card ${selFacId === fac.id ? 'sel' : ''}`}
+                  onClick={() => setSelFacId(selFacId === fac.id ? null : fac.id)}>
+                  <div className="ilm-fac-card-art">
+                    {facArt(fac.type, fac.level) && (
+                      <img src={facArt(fac.type, fac.level)} alt="" className="ilm-fac-card-art-img"
+                        onError={(e) => { e.currentTarget.style.display = 'none' }} />
+                    )}
+                    <span className="ilm-fac-card-art-ph">facility art png · full bleed</span>
+                  </div>
+                  <div className="ilm-fac-card-body">
+                    <span className="ilm-mono ilm-fac-mono"><Sigil set="facility" name={facSig(fac.type)} size={20} color="var(--gold-hi)" fallback={<span style={{ color: 'var(--gold-hi)' }}>{fac.type[0]}</span>} /></span>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div className="ilm-fac-card-name">{fac.type}</div>
+                      {getGenRate(fac) && <div className="ilm-fac-card-gen">{getGenRate(fac).replace('Generating: ', '')}</div>}
                     </div>
-                  {fac.floor_restricted && (
-                    <div style={{ color: 'var(--text-dim)', fontSize: '0.8rem', fontStyle: 'italic' }}>Unlocked at Floor {fac.unlock_floor}</div>
+                    <span className="ilm-fac-lv">LV {fac.level}</span>
+                  </div>
+                  {fac.level < fac.max_level && (
+                    <span className={`ilm-fac-upgrade ${fac.wall_capped ? 'capped' : ''}`}
+                      onClick={(e) => { e.stopPropagation(); if (!fac.wall_capped && base.gold >= fac.upgrade_cost) handleUpgradeFacility(fac.id) }}
+                      title={fac.wall_capped ? `Wall Lv.${fac.level + 1} required` : `Upgrade (${fac.upgrade_cost}g)`}>
+                      {fac.wall_capped ? (
+                        <><Sigil set="facility" name={facSig('Wall')} size={13} color="var(--red-hi)" fallback={<span>◱</span>} /> WALL LV.{fac.level + 1}</>
+                      ) : `UPGRADE · ${fac.upgrade_cost}g`}
+                    </span>
+                  )}
+                </button>
+              ))}
+              {avail.map(fac => (
+                <div key={fac.type} className="ilm-fac-card locked">
+                  <div className="ilm-fac-card-art">
+                    {!fac.floor_restricted && facArt(fac.type, 1) && (
+                      <img src={facArt(fac.type, 1)} alt="" className="ilm-fac-card-art-img" style={{ opacity: 0.35, filter: 'grayscale(.5)' }}
+                        onError={(e) => { e.currentTarget.style.display = 'none' }} />
+                    )}
+                    <span className="ilm-fac-card-art-ph">{fac.floor_restricted ? '?' : 'buildable'}</span>
+                  </div>
+                  <div className="ilm-fac-card-body">
+                    <span className="ilm-mono ilm-fac-mono" style={{ opacity: 0.55 }}><Sigil set="facility" name={facSig(fac.type)} size={20} color="var(--muted)" fallback={<span style={{ color: 'var(--muted)' }}>{fac.type[0]}</span>} /></span>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div className="ilm-fac-card-name" style={{ color: 'var(--text-dim)' }}>{fac.type}</div>
+                      {fac.floor_restricted
+                        ? <div className="ilm-fac-card-gen" style={{ color: 'var(--lavender)' }}>Sealed until floor {fac.unlock_floor}</div>
+                        : <div className="ilm-fac-card-gen" title={FACILITY_TOOLTIPS[fac.type] || 'Base facility.'}>Ready to raise</div>}
+                    </div>
+                  </div>
+                  {!fac.floor_restricted && (
+                    <span className="ilm-fac-upgrade build" onClick={() => { if (base.gold >= fac.cost) handleBuildFacility(fac.type) }}
+                      title={`Build (${fac.cost}g)`}>
+                      BUILD · {fac.cost}g
+                    </span>
                   )}
                 </div>
-                ))
-              })()}
+              ))}
             </div>
-          </div>
-        </div>
+            )}
+            </div>{/* /ilm-fac-scroll */}
 
-        </>
-      )}
+            {/* inline detail for the selected facility */}
+            {selFac && (
+              <Panel corner cornerRight tone="violet" style={{ padding: '1.2rem', marginTop: '1.2rem' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16 }}>
+                  <span className="ilm-mono" style={{ width: 34, height: 34 }}><Sigil set="facility" name={facSig(selFac.type)} size={20} color="var(--gold-hi)" fallback={<span style={{ color: 'var(--gold-hi)' }}>{selFac.type[0]}</span>} /></span>
+                  <span style={{ fontFamily: "'Cinzel',serif", fontWeight: 900, fontSize: '1.3rem', color: 'var(--text-hi)' }}>{selFac.type}</span>
+                  <span className="ilm-micro" style={{ color: 'var(--gold-hi)' }}>LV {selFac.level}</span>
+                  <span title={FACILITY_TOOLTIPS[selFac.type] || 'Base facility.'} style={{ color: 'var(--gold)', cursor: 'help', fontSize: '0.8rem' }}>[?]</span>
+                  <button className="ilm-close" style={{ marginLeft: 'auto' }} onClick={() => setSelFacId(null)}>✕</button>
+                </div>
+                {renderFacilityDetail(selFac)}
+              </Panel>
+            )}
+          </>
+        )
+      })()}
 
       {showBannerStudio && (
         <BannerStudio
@@ -961,196 +1336,98 @@ const getGenRate = (fac) => {
         />
       )}
 
-      {activeTab === 'mail' && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', maxWidth: '800px', margin: '0 auto' }}>
-          <h3 style={{ fontFamily: 'Cinzel, serif', color: 'var(--gold)', marginBottom: '0.5rem' }}>Mailbox</h3>
-          {mailList.length === 0 && <div className="text-dim text-sm text-center" style={{ marginTop: '2rem' }}>Your inbox is empty.</div>}
-          
-          {mailList.map(mail => (
-            <div key={mail.id} className="card" style={{ padding: '1rem', border: mail.is_claimed ? '1px solid var(--border)' : '1px solid var(--gold)' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '1rem' }}>
+      {showMemorial && <Memorial onClose={() => setShowMemorial(false)} />}
+      {showLore && <LoreJournal onClose={() => setShowLore(false)} />}
+      {showExpeditions && <Expeditions onClose={() => setShowExpeditions(false)} />}
+
+      {activeTab === 'floors' && floorsData && (() => {
+        // ── HIERARCHY — the base climbs like the Tower does (mock "Base
+        // Hierarchy"): Floor I is the widest foundation at the bottom, each
+        // raised floor stacks above it, the next floor waits sealed at the
+        // top. Rows rise bottom-first (floor-rise stagger). Heroes are
+        // draggable diamonds; drop on a floor to rehouse.
+        const floors = [...floorsData.floors].sort((a, b) => a.floor_number - b.floor_number)
+        const raised = floors.length
+        const housed = floors.reduce((s2, f) => s2 + f.heroes.length, 0)
+        const nextUnlockTower = (raised + 1) * 10
+        const ORDINAL = ['', 'FIRST', 'SECOND', 'THIRD', 'FOURTH', 'FIFTH', 'SIXTH', 'SEVENTH', 'EIGHTH', 'NINTH', 'TENTH']
+        const ROMANS = ['I', 'II', 'III', 'IV', 'V', 'VI', 'VII', 'VIII', 'IX', 'X']
+        const stacked = [...floors].reverse() // render top-down: highest floor first
+        return (
+          <div style={{ display: 'flex', justifyContent: 'center' }}>
+            {/* the stack — foundations widest at the bottom, each floor narrowing
+                upward, the sealed next floor full-width on top. The ledger moved
+                to the left console (mock parity), so the whole canvas is the
+                stack: tall bars, big hero diamonds. */}
+            <div className="ent-1" style={{ flex: '1 1 100%', maxWidth: 1100, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 18 }}>
+              {/* sealed next floor — full width, prominent */}
+              <div className="ent-fade" style={{ width: '100%', border: '1px dashed rgba(150,110,230,.45)', background: 'rgba(12,7,24,.3)', padding: '18px 24px', display: 'flex', alignItems: 'center', gap: 16 }}>
+                <span style={{ width: 40, height: 40, transform: 'rotate(45deg)', border: '1px dashed rgba(200,169,245,.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', flex: 'none' }}>
+                  <span style={{ transform: 'rotate(-45deg)', fontFamily: "'Cinzel',serif", fontSize: 12, color: 'var(--lavender)' }}>{ROMANS[raised] || raised + 1}</span>
+                </span>
                 <div>
-                  <div style={{ fontFamily: 'Cinzel, serif', fontSize: '1.2rem', color: mail.is_claimed ? 'var(--text-hi)' : 'var(--gold)' }}>{mail.subject}</div>
-                  <div className="text-dim text-sm" style={{ marginTop: '0.2rem' }}>From: {mail.sender} &nbsp;·&nbsp; {parseUtcTimestamp(mail.created_at).toLocaleDateString()}</div>
-                </div>
-                {!mail.is_claimed ? (
-                  <button className="btn btn-gold" onClick={() => handleClaimMail(mail.id)} disabled={claiming} style={{ padding: '0.5rem 1rem' }}>
-                    Claim Rewards
-                  </button>
-                ) : (
-                  <span className="text-dim text-sm">Claimed</span>
-                )}
-              </div>
-              
-              <div style={{ lineHeight: 1.6, color: 'var(--text-hi)', whiteSpace: 'pre-wrap', marginBottom: '1.5rem', padding: '1rem', background: 'rgba(0,0,0,0.2)', borderRadius: 6 }}>
-                {mail.body}
-              </div>
-              
-              <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap' }}>
-                <span className="text-dim text-sm" style={{ alignSelf: 'center' }}>Rewards:</span>
-                {(() => {
-                  try {
-                    const rw = JSON.parse(mail.rewards_json || '{}')
-                    const badges = []
-                    if (rw.gems) badges.push(<div key="gems" style={{ padding: '0.3rem 0.6rem', background: 'rgba(0,255,255,0.1)', border: '1px solid rgba(0,255,255,0.3)', borderRadius: 4, color: '#00ffff' }}>{rw.gems} <GameIcon name="gem" size={14} /></div>)
-                    if (rw.gold) badges.push(<div key="gold" style={{ padding: '0.3rem 0.6rem', background: 'rgba(201,168,76,0.1)', border: '1px solid var(--gold)', borderRadius: 4, color: 'var(--gold)' }}>{rw.gold} Gold</div>)
-                    if (rw.ingredients || rw.supplies) badges.push(<div key="ingredients" style={{ padding: '0.3rem 0.6rem', background: 'rgba(159,214,138,0.1)', border: '1px solid #9fd68a', borderRadius: 4, color: 'var(--text-hi)' }}>{(rw.ingredients || 0) + (rw.supplies || 0)} Ingredients</div>)
-                    return badges
-                  } catch (e) {
-                    return null
-                  }
-                })()}
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
-
-      {activeTab === 'legacy' && (
-        <div>
-          <h3 style={{ fontFamily: 'Cinzel, serif', color: 'var(--gold)', marginBottom: '1rem' }}>
-            Fallen Heroes {legacies.length > 0 && <span className="text-dim text-sm">({legacies.length})</span>}
-          </h3>
-          {legacies.length === 0 && <div className="text-dim text-sm">No legacies found.</div>}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
-            {legacies.slice(legacyPage * LEGACIES_PER_PAGE, (legacyPage + 1) * LEGACIES_PER_PAGE).map(leg => {
-              const bonus = (() => { try { return JSON.parse(leg.bonus_json || '{}') } catch { return {} } })()
-              const expanded = expandedLegacyId === leg.id
-              return (
-                <div key={leg.id} className="card" style={{ padding: '0.6rem 0.9rem', cursor: 'pointer' }}
-                     onClick={() => setExpandedLegacyId(expanded ? null : leg.id)}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-                    {leg.is_sacrifice && leg.portrait_path ? (
-                      <img src={`/${leg.portrait_path}`} alt={leg.hero_name} style={{ width: 32, height: 32, borderRadius: '50%', objectFit: 'cover', objectPosition: 'center 15%', border: '1px solid var(--gold)', flexShrink: 0 }} />
-                    ) : (
-                      <div style={{ width: 32, height: 32, borderRadius: '50%', background: '#222', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.9rem', color: '#555', flexShrink: 0 }}>
-                        ✦
-                      </div>
-                    )}
-                    <div style={{ minWidth: 110, fontFamily: 'Cinzel, serif', color: 'var(--text-hi)', fontSize: '0.9rem' }}>{leg.hero_name}</div>
-                    <div className="text-dim text-xs" style={{ minWidth: 90 }}>{leg.is_sacrifice ? 'Sacrificed' : 'Fallen'} · {leg.hero_star}★</div>
-                    <div className="text-xs" style={{ color: 'var(--gold)', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{leg.title}</div>
-                    <div className="text-dim text-xs" style={{ flexShrink: 0 }}>{expanded ? '▲' : '▼'}</div>
+                  <div style={{ fontFamily: "'Cinzel',serif", fontWeight: 700, letterSpacing: '.18em', fontSize: 14, color: 'var(--lavender)' }}>
+                    {ORDINAL[raised + 1] || `${raised + 1}TH`} FLOOR — SEALED
                   </div>
-                  {expanded && (
-                    <div style={{ marginTop: '0.6rem', paddingTop: '0.6rem', borderTop: '1px solid var(--border)' }}>
-                      <div className="text-xs text-dim" style={{ lineHeight: 1.4, marginBottom: '0.4rem' }}>{leg.flavor_text}</div>
-                      <div className="text-xs text-dim">
-                        Floors survived: {bonus.floors_survived ?? 0} · Kills: {bonus.kills ?? 0} · Legacy: {bonus.primary_bonus?.desc || 'None'}
-                      </div>
-                    </div>
-                  )}
-                </div>
-              )
-            })}
-          </div>
-          {legacies.length > LEGACIES_PER_PAGE && (
-            <div style={{ display: 'flex', justifyContent: 'center', gap: '1rem', marginTop: '1rem' }}>
-              <button className="btn" disabled={legacyPage === 0} onClick={() => setLegacyPage(p => Math.max(0, p - 1))}>← Prev</button>
-              <div className="text-dim text-sm" style={{ alignSelf: 'center' }}>
-                Page {legacyPage + 1} of {Math.ceil(legacies.length / LEGACIES_PER_PAGE)}
-              </div>
-              <button className="btn" disabled={(legacyPage + 1) * LEGACIES_PER_PAGE >= legacies.length} onClick={() => setLegacyPage(p => p + 1)}>Next →</button>
-            </div>
-          )}
-        </div>
-      )}
-
-      {activeTab === 'floors' && floorsData && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-          <div className="card" style={{ marginBottom: '1rem', padding: '1rem 1.5rem' }}>
-            <div style={{ display: 'flex', alignItems: 'baseline', gap: '1rem', flexWrap: 'wrap' }}>
-              <div style={{ fontFamily: 'Cinzel, serif', fontSize: '1.1rem', color: 'var(--text-hi)' }}>Base Hierarchy</div>
-              <div className="text-dim text-sm">
-                Drag heroes onto a floor to station them — stationed heroes get an all-stats bonus in the Tower and recover fatigue faster.
-              </div>
-            </div>
-            {/* Full mechanics behind a disclosure — the three-paragraph wall
-                of text was the first thing the tab showed. */}
-            <details style={{ marginTop: '0.5rem' }}>
-              <summary className="text-sm" style={{ cursor: 'pointer', userSelect: 'none', color: 'rgba(201,168,76,0.8)' }}>
-                How the bonus math works
-              </summary>
-              <div className="text-dim text-sm" style={{ lineHeight: 1.6, marginTop: '0.5rem' }}>
-                Each floor has a fixed bonus pool that's split evenly among whoever's stationed there — higher floors have
-                a bigger pool, but spreading more heroes across one floor shrinks everyone's individual share.
-                Diminishing returns kick in fast: going from 1 to 2 heroes on a floor costs each of them far more than
-                2 to 3 does. The little curve under each floor's bonus % shows exactly where it sits on that drop-off.
-                Every hero always lives on some floor — drag them between floors to redistribute.
-              </div>
-            </details>
-          </div>
-          
-          <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap' }}>
-            {/* Everyone lives on a floor (backend defaults everyone to Floor 1),
-                so there's no "unassigned" pool anymore — the floors ARE the
-                roster view; drag heroes between floors to redistribute. */}
-            <div style={{ flex: '1 1 100%', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-              <h3 style={{ fontFamily: 'Cinzel, serif', color: 'var(--gold)', marginBottom: '0.5rem' }}>Floors</h3>
-              {floorsData.floors.map(f => (
-                <div key={f.floor_number} className="card" style={{ display: 'flex', alignItems: 'center', gap: '1.2rem', padding: '0.85rem 1rem', borderLeft: '2px solid var(--gold-dim)' }}>
-                  <div style={{ width: '100px', flexShrink: 0 }}>
-                    <div style={{ fontFamily: 'Cinzel, serif', color: 'var(--gold)', fontSize: '1.05rem' }}>Floor {f.floor_number}</div>
-                    <div className="text-green" style={{ fontSize: '0.75rem', fontWeight: 'bold' }} title="Stat bonus per stationed hero, and bonus fatigue recovery rate">
-                      +{f.stat_bonus_pct}% stats
-                    </div>
-                    {f.bonus_curve && <DiminishingReturnsCurve curve={f.bonus_curve} current={Math.max(1, f.heroes.length)} />}
-                  </div>
-                  <div style={{ flex: 1, display: 'flex', gap: '1rem', flexWrap: 'wrap' }}>
-                    {/* Render assigned heroes */}
-                    {f.heroes.map(h => (
-                      <div key={h.id}
-                           draggable
-                           onDragStart={(e) => e.dataTransfer.setData('heroId', h.id)}
-                           onClick={() => { if (f.floor_number !== 1) handleAssignFloor(h.id, 1) }}
-                           style={{ cursor: 'grab', position: 'relative' }}
-                           title={f.floor_number !== 1 ? `${h.name} (Lv ${h.level} ${h.hero_class}) — drag to another floor, or click to send back to Floor 1` : `${h.name} (Lv ${h.level} ${h.hero_class}) — drag to another floor`}>
-                        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-                            <img src={`/${h.portrait_path}`} alt={h.name} draggable={false} style={{ width: 100, height: 100, borderRadius: '50%', objectFit: 'cover', objectPosition: 'center 15%', border: '1px solid var(--border)' }} />
-                            <div className="text-hi" style={{ fontSize: '0.8rem', marginTop: '0.3rem', textAlign: 'center' }}>{h.name}</div>
-                          </div>
-                      </div>
-                    ))}
-                    {/* Render single empty drop slot */}
-                    <div onDragOver={(e) => e.preventDefault()}
-                         onDrop={(e) => {
-                           e.preventDefault();
-                           const heroId = e.dataTransfer.getData('heroId');
-                           if (heroId) {
-                             handleAssignFloor(heroId, f.floor_number);
-                           }
-                         }}
-                         style={{ 
-                           width: 100, height: 100, borderRadius: '50%', 
-                           border: '1px dashed var(--text-dim)', 
-                           display: 'flex', alignItems: 'center', justifyContent: 'center',
-                           transition: 'all 0.2s'
-                         }}>
-                      <span className="text-dim" style={{ fontSize: '1.5rem' }}>+</span>
-                    </div>
+                  <div style={{ fontFamily: "'Cinzel',serif", letterSpacing: '.18em', fontSize: 9, color: 'var(--muted)', marginTop: 3 }}>
+                    RAISED WHEN THE TOWER'S {nextUnlockTower}TH FALLS
                   </div>
                 </div>
-              ))}
-              <div className="text-dim text-sm" style={{ fontStyle: 'italic', marginTop: '0.3rem' }}>
-                ⛰ A new base floor unlocks every 10 Tower floors cleared. Every hero lives on a floor —
-                new arrivals settle on Floor 1; spread them out as more floors open up.
               </div>
+
+              {stacked.map(f => {
+                const fromBottom = f.floor_number            // 1 = foundations
+                // foundations (floor 1) widest; each floor up loses ~12%, floor
+                // to the count so a tall tower still fits.
+                const step = Math.min(12, 44 / Math.max(raised, 1))
+                const width = Math.max(52, 100 - (raised - f.floor_number) * step)
+                return (
+                  <div key={f.floor_number}
+                    onDragOver={(e) => e.preventDefault()}
+                    onDrop={(e) => { e.preventDefault(); const hid = e.dataTransfer.getData('heroId'); if (hid) handleAssignFloor(hid, f.floor_number) }}
+                    style={{ width: `${width}%`, minHeight: 70, border: '1px solid rgba(184,151,98,.35)', background: 'linear-gradient(160deg,rgba(42,22,80,.22),rgba(12,7,24,.55))', padding: '16px 24px',
+                      display: 'flex', alignItems: 'center', gap: 16,
+                      animation: `floor-rise .55s cubic-bezier(.2,.9,.3,1) ${0.1 + (fromBottom - 1) * 0.12}s both` }}>
+                    <span style={{ width: 42, height: 42, transform: 'rotate(45deg)', border: '1px solid var(--gold-hi)', background: 'linear-gradient(150deg,#2a1650,#140b22)', display: 'flex', alignItems: 'center', justifyContent: 'center', flex: 'none', boxShadow: '0 0 12px rgba(184,151,98,.3)' }}>
+                      <span style={{ transform: 'rotate(-45deg)', fontFamily: "'Cinzel',serif", fontWeight: 700, fontSize: 15, color: 'var(--text-hi)' }}>{ROMANS[f.floor_number - 1]}</span>
+                    </span>
+                    <div style={{ flex: 1, display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', minWidth: 0 }}>
+                      {f.heroes.map(h => (
+                        <span key={h.id} draggable
+                          onDragStart={(e) => e.dataTransfer.setData('heroId', String(h.id))}
+                          onClick={() => { if (rehouseMode && f.floor_number !== 1) handleAssignFloor(h.id, 1) }}
+                          title={`${h.name} · Lv ${h.level} ${h.hero_class}${rehouseMode && f.floor_number !== 1 ? ' — click to send to the Foundations' : ''}`}
+                          style={{ width: 52, height: 52, transform: 'rotate(45deg)', flex: 'none', cursor: 'grab', border: '1px solid rgba(216,187,132,.55)', background: '#140b22', display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}>
+                          {h.portrait_path && !h.portrait_path.includes('default_') ? (
+                            <img src={`/${h.portrait_path}`} alt={h.name} draggable={false}
+                              style={{ width: '142%', height: '142%', objectFit: 'cover', objectPosition: 'center 15%', transform: 'rotate(-45deg)', flex: 'none', pointerEvents: 'none' }} />
+                          ) : (
+                            <span style={{ transform: 'rotate(-45deg)', fontFamily: "'Cinzel',serif", fontSize: 15, color: 'var(--gold-hi)' }}>{h.name[0]}</span>
+                          )}
+                        </span>
+                      ))}
+                      {rehouseMode && (
+                        <span style={{ width: 44, height: 44, transform: 'rotate(45deg)', flex: 'none', border: '1px dashed rgba(150,110,230,.4)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                          <span style={{ transform: 'rotate(-45deg)', color: 'var(--muted)', fontSize: 14 }}>+</span>
+                        </span>
+                      )}
+                    </div>
+                    <div style={{ textAlign: 'right', flex: 'none' }}>
+                      <div style={{ fontFamily: "'Cormorant Garamond',serif", fontWeight: 700, fontSize: 28, color: 'var(--lavender)', lineHeight: 1 }}>+{f.stat_bonus_pct}%</div>
+                      <div style={{ fontFamily: "'Cinzel',serif", letterSpacing: '.16em', fontSize: 9, color: 'var(--muted)', marginTop: 4 }}>PER HERO · {f.heroes.length} HOUSED</div>
+                    </div>
+                  </div>
+                )
+              })}
+
+              <div style={{ fontFamily: "'Cinzel',serif", letterSpacing: '.3em', fontSize: 11, color: 'var(--muted)', marginTop: 4 }}>THE FOUNDATIONS</div>
             </div>
           </div>
-        </div>
-      )}
+        )
+      })()}
 
-      {activeTab === 'lore' && (
-        <div className="card" style={{ maxWidth: 780, margin: '0 auto', width: '100%' }}>
-          <div style={{ fontFamily: 'Cinzel, serif', fontSize: '1.2rem', color: 'var(--gold)', marginBottom: '1.2rem' }}>
-            <GameIcon name="journal" size={20} /> Lore Journal
-          </div>
-          <div className="text-dim" style={{ fontSize: '0.8rem', marginBottom: '1.2rem' }}>
-            A new page unlocks every 10 floors cleared — written from what your team actually fought and chose along the way.
-          </div>
-          <LoreJournal inline />
-        </div>
-      )}
+        </main>
+      </div>
     </div>
   )
 }

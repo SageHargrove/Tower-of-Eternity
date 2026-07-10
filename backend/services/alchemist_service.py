@@ -58,11 +58,20 @@ def process_alchemist_lab(conn):
         return
 
     import random
+    # Support revamp: a star-scaled brewing bonus per assignee when a true
+    # Alchemist-line hero runs the Lab (support_service.BREW_BONUS).
+    star_bonus = 0.0
+    try:
+        from services.support_service import get_support_effects
+        star_bonus = get_support_effects(conn).get("brew_bonus", 0.0)
+    except Exception:
+        pass
+
     brew_chance_total = 0.0
     for a in assignments:
         class_bonus = 0.04 if a["hero_class"] in ("Alchemist", "Grand Alchemist", "Mage") else 0.015
         mental_apt = (a["apt_mental"] or 50) / 100
-        brew_chance_total += class_bonus + mental_apt * 0.02
+        brew_chance_total += class_bonus + mental_apt * 0.02 + star_bonus
 
     brew_rolls = min(minutes_passed, 30)
     for _ in range(brew_rolls):

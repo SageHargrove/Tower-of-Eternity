@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react'
 import { regenerateProfile, getHeroAptitudes, getHeroRelationships } from '../api/client'
 import { EquipmentTypeIcon } from './EquipmentTypeIcon'
 import GameIcon from './GameIcon'
+import Sigil from './Sigil'
 // Keep in sync with InventoryPage's ladder: common gray -> uncommon green ->
 // rare blue -> epic purple -> legendary orange -> red/cyan/magenta top end.
 const RARITY_COLORS = {
@@ -28,7 +29,7 @@ const MORALE_STATE_LABEL = {
 // is grouped under its base-class family here, and the whole family shares
 // one icon + color — new evolutions just need a one-line addition to a list,
 // not a whole new icon/color decision.
-const CLASS_FAMILIES = {
+export const CLASS_FAMILIES = {
   'Warrior': { icon: 'class_warrior', color: '#c87830', members: ['Warrior', 'Knight', 'Berserker', 'Paladin', 'Aegis', 'Templar', 'Bloodrager', 'Juggernaut', 'Crusader', 'Divine Sentinel'] },
   'Spearman': { icon: 'class_dragoon', color: '#c8a030', members: ['Spearman', 'Lancer', 'Halberdier', 'Dragoon', 'Pikemaster', 'Vanguard', 'Glaive Lord', 'Warlord', 'Wyvern Rider', 'Dragon Knight'] },
   'Thief': { icon: 'class_rogue', color: '#7030c8', members: ['Thief', 'Assassin', 'Rogue', 'Ninja', 'Shadowblade', 'Nightstalker', 'Trickster', 'Shinobi', 'Shadowmaster', 'Infiltrator'] },
@@ -136,7 +137,7 @@ const BATTLE_TENDENCY_TOOLTIPS = {
   'Vengeful': 'Fights like every battle is personal — anger keeps them in the fight, never fleeing.',
 };
 
-const FRONTLINE_FAMILIES = ['Warrior', 'Spearman', 'Thief', 'Spellsword', 'Scout', 'Blacksmith', 'Farmer']
+export const FRONTLINE_FAMILIES = ['Warrior', 'Spearman', 'Thief', 'Spellsword', 'Scout', 'Blacksmith', 'Farmer']
 
 export function tierForStar(birthStar) {
   if (birthStar >= 7) return 'prismatic'
@@ -181,6 +182,20 @@ export function ClassBadge({ heroClass }) {
   if (heroClass === 'Classless') archetype = 'Wildcard'
   else if (FRONTLINE_FAMILIES.includes(familyName)) archetype = 'Frontline'
 
+  // Prefer the custom class sigil (class-base/<FAMILY>.svg, recolorable),
+  // falling back to the legacy flat PNG GameIcon when no SVG exists. Family
+  // name → UPPER_SNAKE, except the set ships M_ENGINEER.svg (not
+  // MAGIC_ENGINEER) and has no CLASSLESS.svg (fallback covers it).
+  const sigilName = familyName === 'Magic Engineer'
+    ? 'M_ENGINEER'
+    : familyName.toUpperCase().replace(/ /g, '_')
+  const glyph = (
+    <Sigil
+      set="class-base" name={sigilName} size={14} color={color}
+      fallback={icon !== '?' ? <GameIcon name={icon} size={14} /> : '?'}
+    />
+  )
+
   return (
     <span 
       title={`[${archetype}] ${CLASS_TOOLTIPS[familyName] || 'A powerful hero.'}`}
@@ -193,7 +208,7 @@ export function ClassBadge({ heroClass }) {
       marginTop: '0.3em',
       cursor: 'help',
     }}>
-      {icon !== '?' ? <GameIcon name={icon} size={14} /> : '?'} {heroClass}
+      {glyph} {heroClass}
     </span>
   )
 }
