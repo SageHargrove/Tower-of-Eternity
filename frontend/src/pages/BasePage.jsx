@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react'
 import { StackedTitle, Panel, Meter, SectionHeader } from '../components/ilm/Ilm'
-import { getBase, getFacilities, buildFacility, upgradeFacility, assignFacility, removeFacility, restHeroes, listHeroes, configTraining, getMageTowerUpgrades, buyResearchUpgrade, craftMaterialEquipment, craftBandages, getBaseFloors, assignBaseFloor, getLegacies, getChatLogs, renameBase, upgradeBase, getMarketCatalog, purchaseMarketItem, getBaseUpgrades, buyBaseUpgrade, getMailList, claimMail, getShip, buildShip, renameShip, refitShip, buyRefitPoint } from '../api/client'
+import { getBase, getFacilities, buildFacility, upgradeFacility, assignFacility, removeFacility, restHeroes, listHeroes, configTraining, getMageTowerUpgrades, buyResearchUpgrade, craftMaterialEquipment, craftBandages, getBaseFloors, assignBaseFloor, getLegacies, getHearth, renameBase, upgradeBase, getMarketCatalog, purchaseMarketItem, getBaseUpgrades, buyBaseUpgrade, getMailList, claimMail, getShip, buildShip, renameShip, refitShip, buyRefitPoint } from '../api/client'
 import MirrorOfFate from '../components/MirrorOfFate'
 import ItemIcon from '../components/ItemIcon'
 import TeamBanner from '../components/TeamBanner'
@@ -171,16 +171,19 @@ export default function BasePage({ onGoldChange, onSubTabChange, tourTargetSubTa
   const LEGACIES_PER_PAGE = 10
   const [floorsData, setFloorsData] = useState(null)
   const [assigning, setAssigning] = useState(false)
+  // The lobby feed IS the Hearth feed (per-hero latest lines) — same data
+  // the top-bar CHATTER drawer shows, so chatter reads identically wherever
+  // you meet it. Only the framing differs: the drawer adds the reply actions.
   const [chats, setChats] = useState([])
-  const [heroIndex, setHeroIndex] = useState({})
   const [newChatIds, setNewChatIds] = useState(new Set())
   const seenChatIds = React.useRef(new Set())
   const hasLoadedChatsOnce = React.useRef(false)
 
-  function applyChats(ch) {
-    const list = ch || []
-    const fresh = hasLoadedChatsOnce.current ? list.filter(c => !seenChatIds.current.has(c.id)).map(c => c.id) : []
-    list.forEach(c => seenChatIds.current.add(c.id))
+  function applyChats(data) {
+    const list = (data && data.lines) || []
+    const keyOf = (l) => `${l.speaker}|${l.created_at}`
+    const fresh = hasLoadedChatsOnce.current ? list.filter(l => !seenChatIds.current.has(keyOf(l))).map(keyOf) : []
+    list.forEach(l => seenChatIds.current.add(keyOf(l)))
     hasLoadedChatsOnce.current = true
     setChats(list)
     if (fresh.length) {
@@ -204,7 +207,7 @@ export default function BasePage({ onGoldChange, onSubTabChange, tourTargetSubTa
   // that only updates on a full page reload.
   useEffect(() => {
     const interval = setInterval(() => {
-      getChatLogs(5).then(applyChats).catch(() => {})
+      getHearth().then(applyChats).catch(() => {})
     }, 20000)
     return () => clearInterval(interval)
   }, [])
@@ -218,7 +221,7 @@ export default function BasePage({ onGoldChange, onSubTabChange, tourTargetSubTa
         listHeroes(true),
         getLegacies().catch(() => ({ legacies: [] })),
         getBaseFloors().catch(() => ({ floors: [], base_heroes: [] })),
-        getChatLogs(5).catch(() => []),
+        getHearth().catch(() => ({ lines: [] })),
         getMarketCatalog().catch(() => ({})),
         getBaseUpgrades().catch(() => []),
         getMailList().catch(() => [])
@@ -226,9 +229,6 @@ export default function BasePage({ onGoldChange, onSubTabChange, tourTargetSubTa
       setBase(b)
       setFacilitiesData(fac)
       setBaseHeroes(heroes.filter(h => h.is_alive === 1 && h.is_on_team === 0))
-      // name -> hero lookup for the chatter feed's diamond portraits (full
-      // roster, since on-team heroes chatter too)
-      setHeroIndex(Object.fromEntries(heroes.filter(h => h.is_alive === 1).map(h => [h.name, h])))
       setLegacies(leg.legacies || [])
       setFloorsData(flrs)
       applyChats(ch)
@@ -937,28 +937,18 @@ const getGenRate = (fac) => {
                   <span style={{ fontFamily: "'Cinzel',serif", letterSpacing: '.3em', fontSize: '0.6rem', color: 'var(--gold)' }}>HERO CHATTER</span>
                 </div>
                 {chats.length === 0 && <div className="text-dim" style={{ fontSize: '0.85rem', fontStyle: 'italic' }}>The halls are quiet for now.</div>}
-                {/* Flatten the newest logs into individual spoken lines,
-                    fronted by the same diamond portraits the Hearth drawer
-                    uses — consistent hero chatter everywhere. */}
-                {chats
-                  .flatMap(c => (c.messages || []).map((m, mi) => ({ ...m, logId: c.id, key: `${c.id}-${mi}` })))
-                  .slice(0, 4)
-                  .map(m => {
-                    const hero = heroIndex[m.speaker]
-                    const shaken = hero ? ((hero.stress ?? 0) >= 60 || (hero.morale ?? 100) < 40) : false
-                    return (
-                      <div key={m.key} className={`ilm-base-chatter ${newChatIds.has(m.logId) ? 'fresh' : ''}`}
-                        style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                        <span style={{ padding: 5, flex: 'none' }}>
-                          <DiamondPortrait heroId={hero?.id} name={m.speaker} size={26} shaken={shaken} />
-                        </span>
-                        <span style={{ minWidth: 0 }}>
-                          <span className="ilm-base-chatter-who">{(m.speaker || 'A hero').toUpperCase()}</span>
-                          <span className="ilm-base-chatter-line"> — “{m.message}”</span>
-                        </span>
-                      </div>
-                    )
-                  })}
+                {chats.slice(0, 4).map(l => (
+                  <div key={`${l.speaker}|${l.created_at}`} className={`ilm-base-chatter ${newChatIds.has(`${l.speaker}|${l.created_at}`) ? 'fresh' : ''}`}
+                    style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                    <span style={{ padding: 5, flex: 'none' }}>
+                      <DiamondPortrait heroId={l.hero_id} name={l.speaker} size={26} shaken={l.mood === 'shaken'} />
+                    </span>
+                    <span style={{ minWidth: 0 }}>
+                      <span className="ilm-base-chatter-who">{(l.speaker || 'A hero').toUpperCase()}</span>
+                      <span className="ilm-base-chatter-line"> — “{l.message}”</span>
+                    </span>
+                  </div>
+                ))}
               </div>
             </>
           )}
@@ -1312,18 +1302,25 @@ const getGenRate = (fac) => {
             )}
             </div>{/* /ilm-fac-scroll */}
 
-            {/* inline detail for the selected facility */}
+            {/* Detail opens as a MODAL overlay (like Hero Detail) instead of a
+                panel appended below the grid — clicking a card no longer drops
+                the content way down the page. Scrim scrolls (align-items:
+                flex-start), modal max-width:100% is zoom-safe. */}
             {selFac && (
-              <Panel corner cornerRight tone="violet" style={{ padding: '1.2rem', marginTop: '1.2rem' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16 }}>
-                  <span className="ilm-mono" style={{ width: 34, height: 34 }}><Sigil set="facility" name={facSig(selFac.type)} size={20} color="var(--gold-hi)" fallback={<span style={{ color: 'var(--gold-hi)' }}>{selFac.type[0]}</span>} /></span>
-                  <span style={{ fontFamily: "'Cinzel',serif", fontWeight: 900, fontSize: '1.3rem', color: 'var(--text-hi)' }}>{selFac.type}</span>
-                  <span className="ilm-micro" style={{ color: 'var(--gold-hi)' }}>LV {selFac.level}</span>
-                  <span title={FACILITY_TOOLTIPS[selFac.type] || 'Base facility.'} style={{ color: 'var(--gold)', cursor: 'help', fontSize: '0.8rem' }}>[?]</span>
-                  <button className="ilm-close" style={{ marginLeft: 'auto' }} onClick={() => setSelFacId(null)}>✕</button>
+              <div className="ilm-modal-scrim" style={{ zIndex: 100, alignItems: 'flex-start', justifyContent: 'center', overflowY: 'hidden', padding: '28px' }} onClick={() => setSelFacId(null)}>
+                <div className="ilm-facmodal" onClick={e => e.stopPropagation()}>
+                  <span className="ilm-corner" />
+                  <span className="ilm-corner ilm-corner-r" />
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16 }}>
+                    <span className="ilm-mono" style={{ width: 34, height: 34 }}><Sigil set="facility" name={facSig(selFac.type)} size={20} color="var(--gold-hi)" fallback={<span style={{ color: 'var(--gold-hi)' }}>{selFac.type[0]}</span>} /></span>
+                    <span style={{ fontFamily: "'Cinzel',serif", fontWeight: 900, fontSize: '1.3rem', color: 'var(--text-hi)' }}>{selFac.type}</span>
+                    <span className="ilm-micro" style={{ color: 'var(--gold-hi)' }}>LV {selFac.level}</span>
+                    <span title={FACILITY_TOOLTIPS[selFac.type] || 'Base facility.'} style={{ color: 'var(--gold)', cursor: 'help', fontSize: '0.8rem' }}>[?]</span>
+                    <button className="ilm-close" style={{ marginLeft: 'auto' }} onClick={() => setSelFacId(null)}>✕</button>
+                  </div>
+                  {renderFacilityDetail(selFac)}
                 </div>
-                {renderFacilityDetail(selFac)}
-              </Panel>
+              </div>
             )}
           </>
         )

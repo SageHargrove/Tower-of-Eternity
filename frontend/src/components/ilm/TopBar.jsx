@@ -80,19 +80,14 @@ function IconBtn({ title, onClick, lit, children }) {
 }
 
 /* ---- the Hearth toggle ----------------------------------------------------
- * Labeled button per the Hearth mockup (1D) — a word, not just a glyph, since
- * it toggles a persistent drawer rather than opening a one-shot overlay. */
-function HearthBtn({ onClick, lit, dot }) {
+ * Icon-only like its neighbors (a labeled button read as off-model in the
+ * cluster) — the double speech bubble + the title tooltip carry the meaning. */
+export function HearthGlyph() {
   return (
-    <button className={`ilm-iconbox ${lit ? 'lit' : ''}`} title="The Hearth — hero chatter" onClick={onClick}
-      style={{ width: 'auto', padding: '0 12px', display: 'flex', alignItems: 'center', gap: 8 }}>
-      <span style={{ position: 'relative', width: 18, height: 16, flex: 'none', display: 'inline-block' }}>
-        <span style={{ position: 'absolute', left: 0, top: 1, width: 12, height: 8, border: '1px solid currentColor', borderRadius: 1 }} />
-        <span style={{ position: 'absolute', left: 5, top: 6, width: 12, height: 8, border: '1px solid currentColor', borderRadius: 1, background: '#0d0818' }} />
-      </span>
-      <span style={{ fontFamily: "'Cinzel',serif", letterSpacing: '.2em', fontSize: '0.6rem' }}>CHATTER</span>
-      {dot && <span className="notif-dot" style={{ animation: 'pulse-live 2.5s ease-in-out infinite' }} />}
-    </button>
+    <>
+      <span style={{ position: 'absolute', left: 5, top: 7, width: 13, height: 9, border: '1px solid currentColor', borderRadius: 1 }} />
+      <span style={{ position: 'absolute', left: 11, top: 12, width: 13, height: 9, border: '1px solid currentColor', borderRadius: 1, background: '#0d0818' }} />
+    </>
   )
 }
 
@@ -139,7 +134,7 @@ export default function TopBar({
         <Currency value={gems} label="GEMS" color="var(--violet)" glow="var(--violet)" />
         {aether > 0 && <Currency value={aether} label="AETHER" color="var(--lavender)" glow="rgba(200,169,245,.6)" />}
         <span className="ilm-topbar-div" />
-        {onHearth && <HearthBtn onClick={onHearth} lit={active === 'hearth'} dot={hearthDot} />}
+        {onHearth && <IconBtn title="The Hearth — hero chatter" onClick={onHearth} lit={active === 'hearth'}><HearthGlyph />{hearthDot && <span className="notif-dot" style={{ animation: 'pulse-live 2.5s ease-in-out infinite' }} />}</IconBtn>}
         {onFriends && <IconBtn title="Allies" onClick={onFriends} lit={active === 'friends'}><UiIcon name="friends" fallback={<FriendsGlyph />} /></IconBtn>}
         {onMail && <IconBtn title="Missives" onClick={onMail} lit={active === 'mail'}><UiIcon name="mail" fallback={<MailGlyph />} />{mailDot && <span className="notif-dot" style={{ animation: 'pulse-live 2.5s ease-in-out infinite' }} />}</IconBtn>}
         {onChat && <IconBtn title="Chat" onClick={onChat} lit={active === 'chat'}><UiIcon name="chat" fallback={<ChatGlyph />} /></IconBtn>}
