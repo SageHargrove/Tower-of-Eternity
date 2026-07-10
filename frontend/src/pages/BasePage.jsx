@@ -30,7 +30,7 @@ const facSig = (t) => (t ? String(FAC_NAME_ALIAS[t] || t).toUpperCase().replace(
 // late-game facilities only shipped their high tiers (a Bestiary was never a
 // shack), so clamp to the nearest tier that actually has a file.
 const FACILITY_ART_TIERS = {
-  alchemist_lab: [1, 2, 3, 4], bastion: [1, 2, 3, 4], bestiary: [3],
+  alchemist_lab: [1, 2, 3, 4], athenaeum: [1, 2, 3, 4], bastion: [1, 2, 3, 4], bestiary: [3],
   chronosphere: [3, 4], dining_hall: [1, 2, 3, 4], farm: [1, 2, 3, 4],
   forge: [1, 2, 3, 4], infirmary: [1, 2, 3, 4], lobby: [1, 2, 3, 4],
   mage_tower: [1, 2, 3, 4], market: [1, 2, 3, 4], mirror_of_fate: [3, 4],
@@ -1307,7 +1307,11 @@ const getGenRate = (fac) => {
                 the content way down the page. Scrim scrolls (align-items:
                 flex-start), modal max-width:100% is zoom-safe. */}
             {selFac && (
-              <div className="ilm-modal-scrim" style={{ zIndex: 100, alignItems: 'flex-start', justifyContent: 'center', overflowY: 'hidden', padding: '28px' }} onClick={() => setSelFacId(null)}>
+              // Default scrim z-index (1000) sits ABOVE the topbar (z-index 100);
+              // the earlier zIndex:100 override let the topbar cover the modal's
+              // top edge. Centered both axes — the modal caps at max-height and
+              // scrolls internally, so centering never clips a tall facility.
+              <div className="ilm-modal-scrim" style={{ padding: '28px' }} onClick={() => setSelFacId(null)}>
                 <div className="ilm-facmodal" onClick={e => e.stopPropagation()}>
                   <span className="ilm-corner" />
                   <span className="ilm-corner ilm-corner-r" />
