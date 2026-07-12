@@ -1,5 +1,7 @@
 import React, { useState, useEffect } from 'react'
 import { listHeroes, revealHeroTalent } from '../api/client'
+import MinigameShell, { AUTO_RESOLVE_MULT } from './minigames/MinigameShell'
+import MirrorGlimpse from './minigames/MirrorGlimpse'
 
 // Inline panel rendered inside the Mirror of Fate FACILITY card on the
 // Base page (it used to be a standalone base-upgrade card). Reveal detail
@@ -29,13 +31,26 @@ export default function MirrorOfFate({ level, gold, onGoldChange }) {
   const selected = heroes.find(h => h.id === parseInt(selectedId))
   const cost = selected ? (selected.current_star || selected.birth_star) * 500 : 0
 
-  async function handleReveal() {
-    if (!selected) return
+  // READ THE GLASS — the reveal opens the recognition minigame; a clean
+  // reading discounts the Mirror's price (x3 = a third), a clouded one
+  // spends a fifth of it for nothing.
+  const [showGlass, setShowGlass] = useState(false)
+
+  function handleReveal() { if (selected) setShowGlass(true) }
+
+  async function doReveal(mult) {
+    setShowGlass(false)
     setRevealing(true)
     setMsg(null)
     try {
-      const res = await revealHeroTalent(selected.id)
-      setHeroes(prev => prev.map(h => h.id === selected.id ? { ...h, talent_reveal: res.talent_reveal } : h))
+      const res = await revealHeroTalent(selected.id, mult)
+      if (res.clouded) {
+        setMsg(res.message || 'The glass clouds over — the offering is spent.')
+      } else {
+        setHeroes(prev => prev.map(h => h.id === selected.id ? { ...h, talent_reveal: res.talent_reveal } : h))
+        if (res.base_cost && res.gold_spent < res.base_cost) setMsg(`A clean reading — the Mirror asked only ${res.gold_spent.toLocaleString()}g of its ${res.base_cost.toLocaleString()}g price.`)
+        else if (res.base_cost && res.gold_spent > res.base_cost) setMsg(`A murky reading — the Mirror demanded ${res.gold_spent.toLocaleString()}g for its trouble.`)
+      }
       if (onGoldChange) onGoldChange()
     } catch (e) {
       setMsg(e.message)
@@ -81,6 +96,16 @@ export default function MirrorOfFate({ level, gold, onGoldChange }) {
           <div style={{ fontSize: '1.1rem', color: 'var(--gold)' }}>{selected.talent_reveal}</div>
           <div className="text-dim text-sm">Already revealed — frozen at the Mirror's level when revealed.</div>
         </div>
+      )}
+
+      {showGlass && selected && (
+        <MinigameShell
+          title="READ THE GLASS"
+          flavor={`The Mirror will show ${selected.name}'s truth — for a price the reading itself decides. A clean read pays a fraction; a clouded one pays for nothing.`}
+          onSkip={() => doReveal(AUTO_RESOLVE_MULT)}
+          onResolve={(mult) => doReveal(mult)}
+          game={(difficulty, onDone) => <MirrorGlimpse difficulty={difficulty} onDone={onDone} />}
+        />
       )}
     </div>
   )

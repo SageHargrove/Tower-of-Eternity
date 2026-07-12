@@ -37,10 +37,9 @@ class EnterFloorRequest(BaseModel):
     team_ids: list[int] = []
     team_id: int = 1
     floor_number: int
-    # The manager's standing tactical directive — applies to every combat
-    # floor automatically rather than interrupting with a popup per floor
-    # (the team executes the fight itself either way; this is the one lever
-    # the manager actually gets to pull before the team engages).
+    # DEAD FIELD — kept only for API compatibility. Stance/pre-battle
+    # modifiers were deliberately removed (user design law 2026-07-12:
+    # floor N is always floor N). The backend ignores this value.
     stance: str = "balanced"
     # Retrieval Missions only: the deployed hero who works the objective
     # instead of fighting. Required when the floor is a "retrieval" — the
@@ -218,7 +217,7 @@ def _resolve_real_combat(conn, hero_teams, floor_number, is_boss, is_miniboss, z
                 # Set depressed for 24 hours
                 until = (datetime.datetime.utcnow() + datetime.timedelta(hours=24)).isoformat()
                 conn.execute("UPDATE heroes SET condition = 'Depressed', condition_until = ? WHERE id = ?", (until, surv_id))
-                combat_result.setdefault("log", []).append(f"  🌧️ {surv_hr['name']} is overcome with despair after losing bonded comrades.")
+                combat_result.setdefault("log", []).append(f"  ◆ {surv_hr['name']} is overcome with despair after losing bonded comrades.")
                 
             # Apply Retirement (Survivor's Guilt) if near-wipe of bonded allies
             if is_near_wipe and high_bonds_count >= 2:
@@ -229,7 +228,7 @@ def _resolve_real_combat(conn, hero_teams, floor_number, is_boss, is_miniboss, z
                     if nw_surv >= 2:
                         # Retire
                         conn.execute("UPDATE heroes SET condition = 'Retired', is_on_team = 0 WHERE id = ?", (surv_id,))
-                        combat_result.setdefault("log", []).append(f"  💀 {surv_hr['name']}'s mind breaks from surviving another massacre. They retire from active duty.")
+                        combat_result.setdefault("log", []).append(f"  ✦ {surv_hr['name']}'s mind breaks from surviving another massacre. They retire from active duty.")
                         
             # Apply standard trauma
             trauma_data = witness_death_trauma(is_close_ally=high_bonds_count > 0)
@@ -304,7 +303,7 @@ def _resolve_real_combat(conn, hero_teams, floor_number, is_boss, is_miniboss, z
         if undiscovered:
             conn.execute("UPDATE recipes SET is_discovered = 1 WHERE id = ?", (undiscovered["id"],))
             result["blueprint_found"] = undiscovered["name"]
-            combat_result.setdefault("log", []).append(f"📜 Found a new Blueprint: {undiscovered['name']}!")
+            combat_result.setdefault("log", []).append(f"✦ Found a new Blueprint: {undiscovered['name']}!")
 
     if combat_result.get("relic_drop"):
         result["relic_drop"] = combat_result["relic_drop"]
@@ -312,18 +311,26 @@ def _resolve_real_combat(conn, hero_teams, floor_number, is_boss, is_miniboss, z
     # Endgame facility hooks — Bestiary capture roll on any winning fight,
     # Reliquary trophy on a winning boss floor (every 10th).
     if combat_result["winner"] == "heroes":
+        # Deeds — permanent accomplishment records mined from this fight.
+        try:
+            from services.deeds_service import record_deeds
+            new_deeds = record_deeds(conn, combat_result, floor_number, is_boss, is_miniboss)
+            if new_deeds:
+                result["deeds_earned"] = new_deeds
+        except Exception as e:
+            print(f"Deed hook error: {e}")
         try:
             from services.endgame_service import maybe_capture_beast, maybe_award_trophy
             enemy_names = [e["name"] for e in combat_result.get("initial_state", {}).get("enemies", [])]
             captured = maybe_capture_beast(conn, floor_number, enemy_names, is_boss)
             if captured:
                 result["beast_captured"] = captured
-                combat_result.setdefault("log", []).append(f"🐾 {captured['name']} was subdued and dragged back to the Bestiary!")
+                combat_result.setdefault("log", []).append(f"✦ {captured['name']} was subdued and dragged back to the Bestiary!")
             if is_boss:
                 trophy = maybe_award_trophy(conn, floor_number, enemy_names)
                 if trophy:
                     result["trophy_earned"] = trophy
-                    combat_result.setdefault("log", []).append(f"🏛️ Trophy claimed: {trophy['boss_name']} (Floor {trophy['floor']}) — mount it in the Reliquary for {trophy['buff_label']}.")
+                    combat_result.setdefault("log", []).append(f"✦ Trophy claimed: {trophy['boss_name']} (Floor {trophy['floor']}) — mount it in the Reliquary for {trophy['buff_label']}.")
         except Exception as e:
             print(f"Endgame hook error: {e}")
 
@@ -344,28 +351,34 @@ def preview_floor(floor_number: int):
         ).fetchone()
         visited = bool(visited_row and visited_row["visited"])
 
-        # Support revamp — the SCOUT's recon: a Scout-line hero assigned to
-        # the Bestiary reveals floor types up to N floors past the deepest
-        # climb (star-scaled), so the next stretch stops reading UNKNOWN.
-        scouted = False
-        if not visited:
-            try:
-                from services.support_service import get_support_effects
-                reveal = get_support_effects(conn).get("scout_reveal_floors", 0)
-                if reveal:
-                    hrow = conn.execute("SELECT highest_floor FROM base WHERE id = 1").fetchone()
-                    highest = (hrow["highest_floor"] if hrow else 0) or 0
-                    scouted = floor_number <= highest + reveal
-            except Exception:
-                pass
-
-    if not visited and not scouted:
+    # Floors stay UNKNOWN until walked (user rule — Scout no longer reveals
+    # ahead; its power moved to the Bestiary hunt). But a floor you've BEEN
+    # on is learned knowledge: its condition, its elite, its boss's phase
+    # behavior are deterministic facts worth remembering between attempts.
+    if not visited:
         return {"floor_type": None, "blurb": None, "visited": False}
+
+    intel = {}
+    try:
+        from services.combat_service import roll_floor_condition, roll_boss_phases, make_enemies, ELITE_AFFIXES
+        cond = roll_floor_condition(floor_number)
+        if cond:
+            intel["condition"] = {"name": cond["name"], "desc": cond["desc"]}
+        if floor_number % 10 == 0:
+            intel["boss_phases"] = [p["kind"] for p in roll_boss_phases(floor_number)]
+        elif floor_number % 5 != 0:
+            elite = next((e.name for e in make_enemies(floor_number)
+                          if any(e.name.startswith(a + " ") for a in ELITE_AFFIXES)), None)
+            if elite:
+                intel["elite"] = elite
+    except Exception:
+        pass
+
     return {
         "floor_type": floor_type,
         "blurb": FLOOR_FLAVOR_INTRO.get(floor_type, ""),
         "visited": visited,
-        "scouted": scouted,
+        **intel,
     }
 
 @router.post("/floor/enter")
@@ -568,17 +581,11 @@ def enter_floor(req: EnterFloorRequest):
             elif floor_type == "cursed_ground":
                 cursed_debuff = {"poison_rounds": 3, "poison_magnitude": 0.06, "hp_pct_loss": 0.25}
 
-            # The manager's stance — a real, standing lever on every regular
-            # combat floor (Boss/Miniboss stay a committed "no dial" comp
-            # check, consistent with their framing). Aggressive trades
-            # tougher enemies for better loot; Cautious trades the other way.
-            if not is_boss and not is_miniboss:
-                if req.stance == "aggressive":
-                    reward_mult *= 1.2
-                    extra_difficulty_mult *= 1.15
-                elif req.stance == "cautious":
-                    reward_mult *= 0.9
-                    extra_difficulty_mult *= 0.85
+            # STANCE IS DEAD (user design law 2026-07-12): floor N is always
+            # floor N — no player-side pre-battle modifiers. The old
+            # aggressive/cautious dial was deliberately removed; req.stance
+            # remains in the request model only for API compatibility and is
+            # ignored. Variance comes from WHO you send, never a toggle.
 
             from services.difficulty_service import get_difficulty_mults
             enemy_stat_mult = get_difficulty_mults(conn)["enemy_stat_mult"] * extra_difficulty_mult

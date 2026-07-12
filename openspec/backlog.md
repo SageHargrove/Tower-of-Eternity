@@ -21,31 +21,32 @@ when ready; nothing here is scheduled.
   benefit; no LoRA needed for this specific failure.
 
 ## Floor Variety
-- Floor types beyond combat are thin — survival/defend/escort/explore
-  exist, but wanted: "war," "find and retrieve," and other distinct floor
-  archetypes, not just combat dressed up differently.
-- Lore readout before floor 10, or an unlockable lore page that grows as
-  you climb.
+- ~~"Find and retrieve"~~ — DONE (Retrieval floors: designated Runner
+  channels the objective; their death fails the floor). Still open: "war"
+  and other archetypes beyond the current survival/defend/escort/explore/
+  retrieval/ambush/blitz/cursed set.
+- ~~Lore readout / unlockable lore page~~ — DONE twice over: the Lore
+  Journal (floor-unlocked pages) AND the discovery Codex (2026-07-11,
+  see-it-to-learn-it entries with a "N of M pages recovered" counter).
 
 ## Skills Content
-- **Bespoke skill kits per class**: only 6 classes (Warrior, Spearman,
-  Thief, Archer, Mage, Magic Engineer) have a dedicated `SKILL_POOL` entry
-  in `services/skills_service.py` — the other ~130 classes (Knight,
-  Paladin, Necromancer, Acolyte, Cleric, etc.) all fall back to the shared
-  `GENERIC_SKILLS` pool. Stopgapped for now (GENERIC_SKILLS bumped to 3
-  actives + more passives, every 3★+ hero guaranteed at least one active),
-  but the real ask is hundreds-to-thousands of unique skills long-term,
-  weighted more passive than active, with passives leaning class-agnostic
-  and actives leaning class-specific.
+- ~~Bespoke skill kits per class~~ — DONE (audited 2026-07-11): every one
+  of the 148 classes now has a full 30-skill kit (8-12 actives each);
+  2nd-tier pinnacle evolutions inherit their lineage's kit by design.
+  Long-term "thousands of skills" ambition remains open-ended.
 
 ## Systems / Text Quality
 - **LLM model for narrative text**: currently Gemini-based
   (services/llm_service.py). Investigate Haiku (or another model) for
   better text quality if Gemini Pro doesn't work out — user is
   independently testing this.
-- **Secure coding / anti-cheat audit**: no review has been done on
-  preventing save-file tampering, request forgery, or other client-side
-  cheating vectors.
+- **Secure coding / anti-cheat audit** — PARTIALLY reviewed 2026-07-11:
+  arena server has real bearer-token auth + hashed passwords; single-player
+  save is client-authoritative by design (acceptable offline). CRITICAL
+  before ANY publish: rotate the ANTHROPIC_API_KEY and move LLM calls
+  behind an owned proxy (the packaged exe ships backend/.env otherwise);
+  PvP payloads are client-relayed (spoofable) — server-side validation
+  needed before ranked play matters.
 
 ## Notes
 - Each item above was independently confirmed missing (not just

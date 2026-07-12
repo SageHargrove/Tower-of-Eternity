@@ -83,6 +83,24 @@ BASE_STYLE = (
     "intricate details, masterpiece, best quality, very awa, absurdres, newest, same universe aesthetic"
 )
 
+# ---------------------------------------------------------------------------
+# Per-pipeline LoRA stacks (final call 2026-07-10): heroes use the manhwa-
+# trained main LoRA PURE — the combo stack that mixed the v2 distill in was
+# rejected (distill style bleeds into heroes: darker, flatter). Monsters keep
+# the distill, whose creature renders beat the main LoRA outright.
+#   ToE_Heroes_Main = was Real_Tower_of_Eternity_epoch_10 (manhwa-trained)
+#   ToE_Monsters    = was Tower_of_Eternity_v2_epoch_7 (distill; monsters only)
+# Env vars override for experiments without code edits.
+# ---------------------------------------------------------------------------
+HERO_LORA = os.getenv("COMFY_LORA_HERO", (
+    "ToE_Heroes_Main.safetensors:0.65,"
+    "AddMicroDetails_NoobAI_v5.safetensors:0.3"
+))
+MONSTER_LORA = os.getenv("COMFY_LORA_MONSTER", (
+    "ToE_Monsters.safetensors:0.65,"
+    "AddMicroDetails_NoobAI_v5.safetensors:0.3"
+))
+
 # Full-body, fixed framing. A single full-body asset is stored per hero and
 # cropped two ways in the UI (card = head/chest via object-position:top; the
 # expanded/leader view = the whole figure), so this framing must reliably
@@ -93,6 +111,7 @@ FRAMING = (
     "(full body:1.35), (full-length character illustration:1.3), head to feet fully visible, "
     "entire body inside the frame, feet near the bottom edge of the frame, "
     "character centered horizontally, (the character fills most of the frame height:1.1), "
+    "both legs and both feet clearly lit and visible, "
     "fully clothed, wearing a detailed outfit, plain empty background"
 )
 
@@ -100,24 +119,32 @@ FRAMING = (
 # which produced the same stiff mannequin stance on every hero. One of these
 # is rolled per generation instead; all are full-body-compatible danbooru
 # tag combos so the framing contract above still holds.
-# GOLDEN SET — the exact 12 poses of the batch the user called perfect.
-# The 22-pose expansion + camera angles (r7-r11) caused the progressive
-# realism drift: complex compositions (foreshortened lunges, airborne
-# leaps, map-crouches, dutch angles) push the model off its cel-shaded
-# prior. Do NOT expand this list without A/B evidence.
+# Derived from the GOLDEN SET (the batch the user called perfect), revised
+# 2026-07-10 per Liam: ALL crouching/kneeling poses cut (never look cool),
+# "adjusting gauntlet" cut (both hands busy -> the model plants the sword
+# free-standing in mid-air), three standing poses he picked added. Keep
+# compositions SIMPLE — the 22-pose expansion + camera angles (r7-r11)
+# caused a progressive realism drift (foreshortened lunges, airborne leaps,
+# dutch angles push the model off its cel-shaded prior).
 POSES = [
-    "standing, contrapposto, hand on hilt, cape billowing in the wind",
+    # "hand on hilt"/"sliding sword" rewritten weapon-generic 2026-07-11: the
+    # sword-specific wording forced swords onto spearmen/mages/etc. The class
+    # outfit now names the weapon; poses defer to it.
+    "standing, contrapposto, hand resting on their sheathed weapon, cape billowing in the wind",
     "walking toward viewer, mid-stride, coat flaring behind",
     "fighting stance, weapon drawn and lowered at the side, blood on blade",
     "action pose, weapon raised, dynamic angle",
     "looking back over shoulder, three-quarter view, wind-swept",
-    "kneeling on one knee, sword planted in the ground, head bowed slightly",
     "leaning weight on one leg, arms crossed, confident",
     "casting a spell, one arm extended, magic swirling around hand",
-    "crouching low, ready to strike, predatory posture",
-    "standing at ease, hand resting on weapon, gaze to the side",
+    # REMOVED 2026-07-10: "standing at ease, hand resting on weapon, gaze to
+    # the side" — reliably renders as hands-on-pommel with the sword planted
+    # point-down between the legs, and the blade routinely impales a foot
+    # (same ban rationale as "aiming at viewer"). 11 poses now.
     "mid-turn, cloak swirling, dramatic movement",
-    "one hand raised adjusting gauntlet, casual poise",
+    "weapon resting across one shoulder, relaxed grip, head tilted",
+    "mid-draw, drawing their weapon, eyes locked on viewer",
+    "standing amid falling embers, weapon sheathed, serene",
 ]
 
 # No camera tokens — the golden batch had none.
@@ -130,10 +157,61 @@ _WEAPON_WORDS = ("weapon", "sword", "hilt", "sheath", "blade")
 POSES_NEUTRAL = [p for p in POSES if not any(w in p for w in _WEAPON_WORDS)]
 NONCOMBAT_CLASSES = {"Chef", "Medic", "Scout", "Blacksmith", "Quartermaster",
                      "Tactician", "Priest", "Alchemist", "Merchant", "Farmer", "Classless"}
+# Casters fight, but not with drawn blades — weapon poses on them made the
+# model conjure swords (weapon audit 2026-07-11: Mage 2/6, Acolyte 1/4 sworded).
+CASTER_CLASSES = {"Mage", "Acolyte"}
+
+# ── Pose/weapon coherence (2026-07-11) ─────────────────────────────────────
+# The outfit forces "holding X" but a randomly-rolled pose (arms crossed,
+# casting, sheathed-weapon) could contradict it — the weapon then floats or
+# defies physics. Fix: each held-weapon class substitutes its actual weapon
+# noun into the pose text, and classes whose weapon CANNOT sheath (spear/bow/
+# axe) are barred from sheath/draw/hands-busy poses.
+HELD_WEAPON_NOUN = {
+    "Warrior": "sword", "Knight": "sword", "Paladin": "sword",
+    "Spellsword": "sword", "Thief": "dagger",
+    "Berserker": "war axe", "Spearman": "spear", "Archer": "bow",
+}
+_SHEATHABLE = {"Warrior", "Knight", "Paladin", "Spellsword", "Thief"}
+# pose fragments that contradict a permanently-held large weapon
+_HANDS_BUSY_WORDS = ("sheath", "mid-draw", "arms crossed", "casting a spell")
+
+# noncombat/caster classes holding a signature prop (pitchfork, tome, map,
+# charm, mace...) can't cross their arms over it either
+PROP_CLASSES = {"Farmer", "Mage", "Tactician", "Acolyte", "Priest", "Chef"}
 
 def _random_pose(hero_class: str = None) -> str:
-    pool = POSES_NEUTRAL if hero_class in NONCOMBAT_CLASSES else POSES
-    return random.choice(CAMERAS) + random.choice(pool)
+    if hero_class in HELD_WEAPON_NOUN:
+        noun = HELD_WEAPON_NOUN[hero_class]
+        if hero_class in _SHEATHABLE:
+            pool = POSES
+        else:
+            pool = [p for p in POSES if not any(w in p for w in _HANDS_BUSY_WORDS)]
+        return random.choice(CAMERAS) + random.choice(pool).replace("weapon", noun)
+    if hero_class in (NONCOMBAT_CLASSES | CASTER_CLASSES):
+        pool = POSES_NEUTRAL
+        if hero_class in PROP_CLASSES:
+            pool = [p for p in pool if "arms crossed" not in p] or POSES_NEUTRAL
+        return random.choice(CAMERAS) + random.choice(pool)
+    return random.choice(CAMERAS) + random.choice(POSES)
+
+# Classes that should never spontaneously grow a sword get it negatived away
+# (unweighted, per the negative-weight rule). Knives/cleavers/sickles stay
+# allowed — Chef/Farmer legitimately carry those. Use negative_for_class()
+# instead of raw NEGATIVE_STYLE when generating a hero of a known class.
+# "multiple weapons/sword at hip": even with a spear/bow in hand the model
+# kept strapping a bonus belt sword onto the hip (NoobAI prior) — banned for
+# every class whose signature weapon isn't a sword.
+_NO_SWORD_NEGATIVE = ("sword, holding sword, sheathed sword, greatsword, katana, "
+                      "multiple weapons, second weapon, sword at hip")
+# Combat classes with a non-sword signature weapon (spear/bow/axe/daggers).
+NON_SWORD_COMBAT = {"Spearman", "Archer", "Berserker", "Thief"}
+NO_SWORD_CLASSES = NONCOMBAT_CLASSES | CASTER_CLASSES | NON_SWORD_COMBAT
+
+def negative_for_class(hero_class: str = None) -> str:
+    if hero_class in NO_SWORD_CLASSES:
+        return NEGATIVE_STYLE + ", " + _NO_SWORD_NEGATIVE
+    return NEGATIVE_STYLE
 
 # Pushes generation away from the failure modes seen in practice:
 # soft painterly/semi-realistic rendering, flat vector-poster coloring,
@@ -166,7 +244,7 @@ NEGATIVE_STYLE = (
     "two-tone black and white illustration, ink silhouette art, manga lineart only, "
     "flat poster illustration, no midtone shading, character blending into background color, "
     "overexposed, blown out highlights, washed out, sketch, unfinished sketch, "
-    "monochrome, no color saturation, "
+    "monochrome, no color saturation, retro artstyle, 1990s \\(style\\), 1980s \\(style\\), muted color palette, "
     "halftone pattern, screentone dots, dot pattern texture, halftone dots, pixelated dither effect, "
     "newsprint halftone texture, polka dot artifact, "
     "western comic book art style, american superhero comic style, realistic painted comic shading, "
@@ -194,6 +272,13 @@ NEGATIVE_STYLE = (
     # coincided with a batch-wide realism drift (over-weighted negatives
     # distort style); r7's 1.2/plain/plain was the last good state
     "(body dissolving into darkness:1.2), limbs fading into the background, dark clothing merging with background, "
+    # back-foot blackout (2026-07-11): the mid-stride/trailing-leg poses kept
+    # rendering the rear foot as a black void. Unweighted per the negative-
+    # weight rule.
+    "foot fading into shadow, back leg lost in darkness, unlit rear foot, leg swallowed by shadow, "
+    # floor-disc/platform motif (2026-07-12): some renders stand the hero on a
+    # glowing colored disc/platform — bad for game-side cutouts, ban it.
+    "glowing circle on the floor, light disc under feet, standing on a glowing platform, colored spotlight on the ground, "
     "detailed scenery background, busy background, environment background, landscape background, "
     # ground/floor creep — the void should hold only a soft shadow under
     # the feet, never terrain (merchant-on-rubble / berserker-on-white-floor
@@ -302,6 +387,12 @@ HUMANOID_ENEMY_NAMES = {
     "The Ashen Colossus", "Stoneheart the Unbroken", "The Obsidian Tyrant",
     "The Drowned Naga Queen", "Knight-Captain Mordrek", "Pit Fiend Commander",
     "Goblin King", "Vaelor, the Fallen Ascendant",
+    # Leviathan's Graveyard — the person-shaped sea enemies (undead sailors,
+    # captains, the bone-grafted giant) route through the hero-grade pipeline.
+    "Drowned Deckhand", "Galleon Captain", "Bone-Grafted Goliath", "Captain Iron-Lung",
+    # 2026-07-10 variety adds that are person-shaped.
+    "Gnoll Marauder", "Blood Thrall", "Cambion", "Succubus",
+    "Magma Colossus", "Dragonkin Warrior", "The Forgotten God", "Ancient Revenant",
     # Harpy/Frost Wight are person-shaped — they render far better through
     # the hero-grade humanoid recipe than MONSTER_STYLE (Liam, 2026-07-06:
     # "for humanoid ones you could pull from the humanoid prompts").
@@ -466,30 +557,30 @@ EXPRESSIONS = [
 # classes like Merchant drifted off-style.
 CLASS_OUTFITS = {
     "Warrior": "heavy armor, pauldrons, weathered torn cloak, gauntlets, sturdy leather boots",
-    "Knight": "ornate plate armor, engraved pauldrons, surcoat, armored sabatons",
-    "Berserker": "fur trim armor, war paint, bare shoulders, scars, fur-wrapped boots",
-    "Paladin": "silver plate armor, white cape, glowing sigils, gorget, armored sabatons",
-    "Spearman": "scale armor, leather straps, shoulder plate, sashes, leather boots",
+    "Knight": "ornate plate armor, engraved pauldrons, surcoat, (kite shield on arm:1.1), armored sabatons",
+    "Berserker": "fur trim armor, war paint, bare shoulders, scars, heavy war axe, fur-wrapped boots",
+    "Paladin": "silver plate armor, white cape, glowing sigils, gorget, (heater shield with a holy crest:1.1), armored sabatons",
+    "Spearman": "scale armor, leather straps, shoulder plate, sashes, short spear, spear held upright close to the body, leather boots",
     "Thief": "black hooded cloak, dark leather armor, dagger sheath on thigh, fingerless gloves, face-shadowing hood, soft leather boots",
-    "Archer": "hooded green cloak, leather vambraces, quiver on back, bow, leather boots",
+    "Archer": "hooded green cloak, leather vambraces, quiver on back, (holding a bow:1.15), leather boots",
     # Tome, not staff — established art preference (staffs render badly and
     # the game's Mage identity is the Tome; see frontend prefs)
     "Mage": "long flowing robe, wide sleeves, glowing runes on fabric, holding an open arcane tome, glowing magical script floating from its pages, pointed leather shoes",
-    "Acolyte": "simple holy vestments, prayer beads, cloth sash, simple sandals",
+    "Acolyte": "simple holy vestments, holding a glowing prayer charm, prayer beads, cloth sash, simple sandals",
     "Spellsword": "half-plate armor over cloth, runed sword, glowing blade, armored boots",
     "Magic Engineer": "goggles on head, leather apron, mechanical gauntlet on one arm, tool belt, heavy work boots",
     "Classless": "worn traveling clothes, patched cloak, simple tunic",
     # support & profession classes — previously all fell to the default
     "Chef": "chef whites reimagined as fantasy garb, apron, rolled sleeves, cleaver at the belt, sturdy shoes",
     "Medic": "long coat with satchel, bandage rolls at the belt, gloves, leather shoes",
-    "Scout": "camouflage cloak, light leather armor, spyglass at the hip, soft travel boots",
+    "Scout": "camouflage cloak, light leather armor, shortbow slung on back, coiled rope and belt pouches at the hip, soft travel boots",
     "Blacksmith": "sturdy work shirt with rolled sleeves, heavy leather apron, thick gloves, soot smudges, hammer at the belt, heavy work boots",
     "Quartermaster": "practical field uniform, ledger satchel, many belt pouches, sturdy boots",
-    "Tactician": "military longcoat with epaulettes, map case, white gloves, polished riding boots",
+    "Tactician": "military longcoat with epaulettes, holding a rolled battle map, map case, white gloves, polished riding boots",
     "Priest": "ornate ecclesiastical robes, gold trim stole, censer, simple shoes",
     "Alchemist": "long dark coat, potion vials strapped across chest, stained gloves, leather shoes",
     "Merchant": "rich fabric doublet, fur-lined mantle, coin pouch and rings, traveling pack, fine leather boots",
-    "Farmer": "rustic work clothes, straw hat on back, sickle at the belt, worn work boots",
+    "Farmer": "rustic work clothes, wearing a straw hat, carrying a woven basket of fresh vegetables, worn work boots",
 }
 DEFAULT_OUTFIT = "dark fantasy traveling clothes, worn cloak, leather boots"
 
@@ -682,7 +773,7 @@ def _generate_one_cached(birth_star: int):
         # hires=True: two-pass upscale-refine. Cache fill is a background
         # job, so the ~2x generation time is free — and the second pass is
         # what rescues small faces/eyes at full-body framing.
-        success = generate_portrait_comfy(prompt, filename, negative=NEGATIVE_STYLE, hires=True)
+        success = generate_portrait_comfy(prompt, filename, negative=negative_for_class(hero_class), hires=True, lora_override=HERO_LORA)
         if success:
             add_to_cache(birth_star, filename, gender, hero_class)
             print(f"[Cache] Generated {birth_star}★ {hero_class} ({gender}) portrait -> {filename}")
@@ -705,7 +796,7 @@ def _generate_custom_portrait(hero_id: int, portrait_prompt: str, hero_name: str
             f"{gender_tag}, looking at viewer, {_quality_tag(5)}, "
             f"{FRAMING}, {BASE_STYLE}, " + portrait_prompt
         )
-        success = generate_portrait_comfy(full_prompt, filename, negative=NEGATIVE_STYLE)
+        success = generate_portrait_comfy(full_prompt, filename, negative=NEGATIVE_STYLE, lora_override=HERO_LORA)
         if success:
             update_hero_portrait(hero_id, filename)
             _prewarm_card(hero_id, filename)
@@ -874,6 +965,45 @@ ENEMY_PORTRAIT_HINTS = {
     "The Hydra Sovereign": "a colossal multi-headed hydra beast towering upward, five serpentine necks rising from a massive scaled body, deep emerald-green scales clearly visible with darker ridged patterns, each head baring fangs and glowing yellow eyes, swampy lair-throne background",
     "The Dracolich Herald": "an imposing undead dragon herald, bleached bone-white scales and exposed ribs clearly visible over a skeletal serpentine frame, tattered leathery wing-remnants trailing violet mist, a crowned skull-like draconic head with glowing violet eyes, crypt-cavern-throne background",
 
+    # ─── LEVIATHAN'S GRAVEYARD (sea band, floors 61-70) — dark abyssal-water
+    # backgrounds fit both the theme and the void aesthetic. See
+    # docs/leviathan-graveyard-design.md. ───
+    "Drowned Deckhand": "an undead drowned sailor clearly lit, waterlogged bloated grey-green skin, rusted anchor chains wrapped around a tattered naval coat, hollow glowing teal eyes, gripping a barnacle-crusted cutlass, seaweed clinging to its frame, pitch-black abyssal water background",
+    "Bone-Crab Scavenger": "(no humans, monster:1.2), a massive deep-sea crab clearly lit, using a chunk of colossal leviathan rib-bone as a protective shell on its back, glossy dark-blue chitin, oversized armored claws, many small glowing teal eyes, pitch-black ocean-floor background scattered with glowing bones",
+    "Coral-Grown Husk": "(no humans, monster:1.2), a hulking dead creature entirely overgrown with sharp calcified deep-sea coral clearly lit, jagged pink-and-white coral plating covering a humanoid husk, faint glowing teal polyps, a barely-visible skull face within the coral, pitch-black abyssal water background",
+    "Abyssal Lamprey": "(no humans, monster:1.2), a giant pale eel-like lamprey clearly lit, sickly translucent white flesh, a huge circular fanged sucker-mouth ringed with teeth, a long sinuous body, faint bioluminescent blue markings, no eyes, pitch-black deep-sea water background",
+    "Marrow-Worm": "(no humans, monster:1.2), a disgusting segmented blind bone-worm clearly lit, pale ridged chitinous segments, a round fanged maw, no eyes, glistening slick skin, bursting out from within a colossal glowing white skeleton, pitch-black ocean-floor background",
+    "Sunken Wisp": "(no humans, monster:1.2), a floating bioluminescent anglerfish lure clearly lit, a glowing teal orb of light on a curved stalk trailing wispy tendrils, faint ghostly translucent form, drifting like a will-o-wisp, pitch-black abyssal water background",
+    "Galleon Captain": "an undead galleon captain clearly lit, waterlogged grey skin beneath a barnacle-covered naval officer's coat and tricorn hat, hollow glowing teal eyes, wielding a rusted ship's wheel as a shield and a curved saber, seaweed and chains draped over him, pitch-black abyssal water background",
+    "Trench Stalker": "(no humans, monster:1.2), a pitch-black shark-like deep-sea predator clearly lit, sleek dark hide that blends into the water, an enormous gaping maw of jagged glowing teeth, cold dead eyes, a lure-lit angler stalk, sinuous powerful body, pitch-black deep-sea water background",
+    "Bone-Grafted Goliath": "a hulking deep-sea giant clearly lit, muscular blue-grey humanoid body crudely fused with jagged pieces of colossal leviathan bone forming natural armor and bladed weapons on its arms, a grim barnacled face, glowing teal eyes, pitch-black ocean-floor background",
+    "Captain Iron-Lung": "the dread captain of a sunken galleon clearly lit, a towering undead pirate lord in a heavy barnacle-crusted naval coat, an iron diving-helm fused to his head with glowing teal eye-lenses, gripping spectral flintlocks and a rusted ship's anchor as a weapon, chains and seaweed trailing, pitch-black abyssal water background with a wrecked ship silhouette",
+    "The Calcified Horror": "(no humans, monster:1.2), an enormous ancient crustacean horror clearly lit, using the entire skull of a dead leviathan as a colossal shell on its back, immense armored claws, thick calcified coral-encrusted plating, rows of glowing teal eyes deep within the skull's sockets, pitch-black ocean-floor background scattered with glowing bones",
+    "Thalassor, the Undead Leviathan": "(no humans, monster:1.2), a colossal reanimated sea-serpent leviathan rising from the depths clearly lit, a half-rotten skeletal serpentine body held together by dark abyssal magic, exposed glowing white ribs and vertebrae, tattered fins, writhing tentacles, pulsing bioluminescent teal energy coursing through its bones, a massive fanged skull-like head with blazing teal eyes and a glowing maw, pitch-black abyssal ocean background with crushing dark water",
+
+    # ─── 2026-07-10 variety adds (per-zone roster depth) ───
+    "Abyssal Serpent": "(no humans, monster:1.2), a giant deep-sea serpent clearly lit, a long sinuous eel-like body with dark iridescent blue-green scales, faint bioluminescent markings, a fanged maw gaping wide, glowing pale eyes, finned frills, coiling through the water, pitch-black abyssal ocean background",
+    "Giant Rat": "(no humans, monster:1.2), a large diseased rat clearly lit, matted mangy brown fur, beady red eyes, long yellowed incisors, a scaly worm-like tail, hunched aggressive stance, dark stone dungeon background",
+    "Gnoll Marauder": "a savage gnoll marauder clearly lit, a hyena-headed humanoid with a coarse spotted-fur muscular body, a snarling fanged maw, pointed ears, wielding a crude jagged cleaver, bone-and-hide armor, wild eyes, dark wasteland background",
+    "Crawling Hand": "(no humans, monster:1.2), a severed undead crawling hand clearly lit, a pale grey-green disembodied hand scuttling on its fingers, exposed bone at the wrist stump, faint necrotic glow, unnervingly animate, dark crypt-floor background",
+    "Blood Thrall": "a vampire blood thrall clearly lit, a gaunt pale-skinned humanoid servant with sunken red eyes, sharp fangs, dark tattered noble servant's garb stained with blood, clawed hands, an entranced hungry expression, dark crimson-lit crypt background",
+    "Obsidian Tortoise": "(no humans, monster:1.2), a massive tortoise construct clearly lit, a domed shell of black volcanic obsidian with glowing molten-orange cracks, thick stone-scaled legs, a blunt rocky head with glowing eyes, ancient carved runes on the shell, dark cavern background",
+    "Hellhound": "(no humans, monster:1.2), a demonic hellhound clearly lit, a large muscular black-furred hound with glowing molten-orange cracks across its hide, burning ember eyes, bared fangs dripping embers, smoke curling from its maw, a spiked collar, dark brimstone background",
+    "Cambion": "a cambion half-demon warrior clearly lit, a handsome cruel humanoid with ashen-red skin, small curved horns, glowing amber eyes, a lean muscular build, dark spiked leather armor, small bat wings, gripping a wicked curved blade, dark infernal background",
+    "Succubus": "a succubus clearly lit, a seductive dark-fae humanoid woman with dusky violet skin, small curved horns, glowing pink eyes, large bat wings, long dark hair, elegant dark clothing, clawed hands, a sly dangerous smile, dark infernal background",
+    "Vile Corvid": "(no humans, monster:1.2), a large sinister raven-like bird clearly lit, glossy black-and-purple feathers, a cruel hooked beak, beady glowing red eyes, ragged wings spread, clutching a stolen trinket in its talons, dark misty background",
+    "Griffon": "(no humans, monster:1.2), a majestic griffon clearly lit, the head, wings and taloned forelegs of an eagle with golden-brown feathers, the muscular hindquarters and tail of a lion, fierce glowing amber eyes, wings spread wide, dark stormy sky background",
+    "Dire Sabertooth": "(no humans, monster:1.2), a massive sabertooth big-cat clearly lit, powerful tawny-and-black striped muscular body, huge curved sabre fangs, glowing amber eyes, bristling fur, a snarling roar, dark rocky highland background",
+    "Elder Treant": "(no humans, monster:1.2), a towering ancient treant clearly lit, a walking tree with gnarled bark-skin, thick root-like legs, long branch-arms with clawed twig-fingers, glowing green eyes set in a knotted wooden face, moss and glowing fungi on its body, dark forest background",
+    "Phoenix": "(no humans, monster:1.2), a magnificent phoenix clearly lit, a large majestic bird wreathed in brilliant orange-gold flames, radiant fiery plumage, glowing golden eyes, wings spread wide trailing embers and fire, dark background making the flames glow",
+    "Magma Colossus": "a towering magma colossus clearly lit, a hulking humanoid giant of blackened volcanic rock with glowing molten-orange lava coursing through the cracks in its body, a craggy head with burning eyes, massive stone fists, radiating heat and embers, dark volcanic background",
+    "Carapace Fiend": "a demonic carapace fiend clearly lit, a hulking demon humanoid encased in segmented insectoid chitin armor, glossy dark-red carapace plating, sharp mandible-like jaw, multiple glowing eyes, clawed pincer hands, curved horns, dark infernal background",
+    "Void Horror": "(no humans, monster:1.2), an eldritch void horror clearly lit, a writhing mass of dark tentacles and too many eyes, shifting non-euclidean form, glowing purple void-energy seeping between its forms, a gaping fanged maw, an unsettling otherworldly presence, dark starless void background",
+    "Dragonkin Warrior": "a fearsome dragonkin warrior clearly lit, a muscular dragon-headed humanoid with (dark crimson scaled skin:1.2), a reptilian snout with bared fangs, curved horns, glowing slit-pupil eyes, small folded wings, ornate dark plate armor, gripping a massive halberd, a long tail, dark background",
+    "Drake": "(no humans, monster:1.2), a fierce drake clearly lit, a lesser wingless dragon with a lean muscular reptilian body, dark bronze-green scales, a horned draconic head with bared fangs, glowing orange eyes, powerful clawed legs, a whipping spiked tail, prowling low, dark rocky background",
+    "Ancient Revenant": "an ancient revenant warrior clearly lit, a towering armored undead champion in tarnished ornate ancient plate armor, glowing cold-blue light in its empty helm and armor gaps, a tattered royal cape, gripping a massive ancient runed blade, wreathed in faint spectral mist, dark ruined-throne background",
+    "The Forgotten God": "a colossal forgotten god clearly lit, a serene godlike humanoid of immense scale, radiant pale marble-like skin etched with glowing golden divine script, multiple ethereal arms, a calm ancient face with glowing eyes and a halo of shattered light, flowing celestial robes, an aura of overwhelming forgotten power, dark cosmic background with drifting stars",
+
     # --- 13 checklist normals added to fill each decade out to its full
     # 4-normal/2-elite roster (PLAN_floor_workshop_enemies.md's family
     # table), plus 4 dedicated Raid Bosses for floors 20/40/60/80 ---
@@ -923,7 +1053,7 @@ def _generate_enemy_portrait(enemy_name: str, hint: str, tier_dir: str = "normal
                 f"menacing pose, dramatic lighting, {MONSTER_STYLE}"
             )
             negative = MONSTER_NEGATIVE
-        success = generate_portrait_comfy(prompt, path, negative=negative)
+        success = generate_portrait_comfy(prompt, path, negative=negative, lora_override=MONSTER_LORA)
         if success:
             print(f"[Cache] Generated enemy portrait: {enemy_name} -> {path}")
         else:
@@ -1028,7 +1158,7 @@ def _generate_boss_portrait(key: str, hint: str):
             f"{hint}, {BOSS_EPIC_FLAVOR}, monster design, dark fantasy creature, centered composition, "
             f"imposing menacing pose, dramatic lighting, epic atmosphere, {MONSTER_STYLE}"
         )
-        success = generate_portrait_comfy(prompt, path, negative=MONSTER_NEGATIVE)
+        success = generate_portrait_comfy(prompt, path, negative=MONSTER_NEGATIVE, lora_override=MONSTER_LORA)
         if success:
             print(f"[Cache] Generated boss portrait '{key}' -> {path}")
         else:

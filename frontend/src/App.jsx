@@ -54,9 +54,9 @@ const TAB_TOUR_STEPS = [
   { tab: 'arena', label: 'World', title: 'The World',
     body: "Everything beyond your Tower: PvP arenas, leaderboards, and (soon) base raids and server-wide tournaments. Never touches your real save, and heroes never actually die here." },
   { tab: 'base', subTab: 'lobby', label: 'Base', title: 'Home Base',
-    body: "Rest your heroes here between runs, watch your gold and supply income, and manage Legacies." },
+    body: "Rest your heroes here between runs, watch your gold and ingredient income, and manage Legacies." },
   { tab: 'base', subTab: 'facilities', label: 'Facilities', title: 'Facilities',
-    body: "Build and staff facilities like the Forge, Restaurant, and Infirmary — assign support-class heroes (Blacksmith, Chef, Medic, etc.) here for big bonuses. Most support classes can't fight, so this is where they actually pull their weight." },
+    body: "Build and staff facilities like the Forge, Dining Hall, and Infirmary — station a support-class hero (Blacksmith, Chef, Medic...) in their own facility and their COMPANY BOON rides with every climb: feasts, field surgery, opening gambits. Their evolution branch decides the boon; their star and growth decide its strength." },
 ]
 
 export default function App() {
@@ -327,7 +327,7 @@ export default function App() {
           maxHeight: '90vh', overflowY: 'auto',
           boxShadow: '-4px 0 12px rgba(0,0,0,0.4)'
         }}>
-          <div style={{ fontFamily: 'Cinzel, serif', fontSize: '1rem', color: '#ff8080' }}>🛠 Dev Tools</div>
+          <div style={{ fontFamily: 'Cinzel, serif', fontSize: '1rem', color: '#ff8080' }}>✦ Dev Tools</div>
           <div className="text-dim" style={{ fontSize: '0.7rem', marginBottom: '0.3rem' }}>
             Profile "{activeProfile}" only
           </div>

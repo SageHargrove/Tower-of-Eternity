@@ -1,5 +1,7 @@
 import React, { useState, useEffect } from 'react'
-import { getTrainingStatus, setTrainingRegimen, sparHeroes, runTrainingTournament } from '../api/client'
+import { getTrainingStatus, setTrainingRegimen, sparHeroes, runTrainingTournament, listHeroes, managerSpar } from '../api/client'
+import MinigameShell, { AUTO_RESOLVE_MULT } from './minigames/MinigameShell'
+import StrategyDuel from './minigames/StrategyDuel'
 import StakesBanner from './StakesBanner'
 
 /*
@@ -60,10 +62,34 @@ export default function TrainingGroundsPanel({ onChanged }) {
   const [tourBusy, setTourBusy] = useState(false)
   const [tourResult, setTourResult] = useState(null)
 
+  // The Commander's Table (strategy duel minigame)
+  const [duelRoster, setDuelRoster] = useState([])
+  const [duelHeroId, setDuelHeroId] = useState('')
+  const [showDuel, setShowDuel] = useState(false)
+  const [duelMsg, setDuelMsg] = useState(null)
+
   async function refresh() {
     try { setData(await getTrainingStatus()) } catch (e) { setMsg({ text: e.message, err: true }) }
+    listHeroes(true).then(hs => {
+      const living = (hs || []).filter(h => h.is_alive === 1)
+      setDuelRoster(living)
+      // default the seat to the team leader — the manhwa moment
+      const lead = living.find(h => h.is_team_leader === 1)
+      if (lead) setDuelHeroId(prev => prev || String(lead.id))
+    }).catch(() => {})
   }
   useEffect(() => { refresh() }, [])
+
+  async function resolveDuel(mult) {
+    setShowDuel(false)
+    try {
+      const res = await managerSpar(parseInt(duelHeroId), mult)
+      setDuelMsg({ text: res.message + (res.xp ? ` (+${res.xp.toLocaleString()} XP${res.leadership_up ? ', leadership deepens' : ''}${res.leveled ? ` — LEVEL ${res.new_level}!` : ''})` : '') })
+      if (onChanged) onChanged()
+    } catch (e) {
+      setDuelMsg({ text: e.message, err: true })
+    }
+  }
 
   async function applyRegimen(hero, patch) {
     const regimen = patch.regimen ?? hero.training_regimen ?? 'focus'
@@ -347,6 +373,42 @@ export default function TrainingGroundsPanel({ onChanged }) {
             ))}
           </div>
         )}
+
+        {/* THE COMMANDER'S TABLE — play a hero at stones; the game trains them.
+            Backend gates it to once per day per hero. */}
+        <div style={{ marginTop: 18, borderTop: '1px solid rgba(184,151,98,.25)', paddingTop: 12 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
+            <span style={{ fontSize: 15, fontStyle: 'italic', color: '#c8b8dd' }}>The Commander's Table</span>
+            <span style={{ ...micro, color: 'var(--muted)' }}>ONCE A DAY</span>
+          </div>
+          <div style={{ fontSize: 12.5, fontStyle: 'italic', color: 'var(--muted)', marginTop: 4 }}>
+            Sit a hero across the board — win or lose, the game sharpens them. Higher stakes teach more.
+          </div>
+          <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+            <select className="input" value={duelHeroId} onChange={e => setDuelHeroId(e.target.value)}
+              style={{ flex: 1, background: 'rgba(0,0,0,.3)', border: '1px solid var(--border)', color: '#fff', padding: '0.4rem' }}>
+              <option value="">Choose an opponent…</option>
+              {duelRoster.map(h => (
+                <option key={h.id} value={h.id}>{h.name}{h.is_team_leader ? ' — TEAM LEADER' : ''} (Lv.{h.level})</option>
+              ))}
+            </select>
+            <button className="ilm-btn ilm-btn-gold" disabled={!duelHeroId} onClick={() => setShowDuel(true)}>SIT DOWN</button>
+          </div>
+          {duelMsg && <div style={{ fontSize: 12.5, fontStyle: 'italic', color: duelMsg.err ? '#d98a8a' : '#a8dfb8', marginTop: 6 }}>{duelMsg.text}</div>}
+        </div>
+
+        {showDuel && (() => {
+          const opp = duelRoster.find(h => String(h.id) === String(duelHeroId))
+          return (
+            <MinigameShell
+              title="THE COMMANDER'S TABLE"
+              flavor={`${opp?.name || 'The hero'} sets the stones. Every game leaves them a little sharper — a hard one leaves them changed.`}
+              onSkip={() => resolveDuel(AUTO_RESOLVE_MULT)}
+              onResolve={(mult) => resolveDuel(mult)}
+              game={(difficulty, onDone) => <StrategyDuel difficulty={difficulty} onDone={onDone} opponentName={opp?.name || 'the hero'} aptitude={opp?.apt_leadership ?? 50} />}
+            />
+          )
+        })()}
       </div>
     </div>
   )

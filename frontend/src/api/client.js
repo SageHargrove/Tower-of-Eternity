@@ -62,7 +62,7 @@ async function request(path, options = {}) {
   if (Array.isArray(data?.ego_rebellions) && data.ego_rebellions.length) {
     for (const reb of data.ego_rebellions) {
       emitToast({
-        title: '⚡ Ego Rebellion',
+        title: 'Ego Rebellion',
         lines: [{ label: reb.hero_name, value: reb.message, color: '#ff8888' }],
         borderColor: '#ff4444',
       })
@@ -81,6 +81,7 @@ export const getEgoRecommendation = (heroId) => request(`/heroes/${heroId}/ego_r
 
 // Base
 export const getBase = () => request('/base/')
+export const getSupportBoons = () => request('/base/support')
 export const renameBase = (name) => request('/base/rename', { method: 'POST', body: JSON.stringify({ name }) })
 export const setMasterName = (name) => request('/base/master-name', { method: 'POST', body: JSON.stringify({ name }) })
 export const completeTutorial = () => request('/base/tutorial/complete', { method: 'POST' })
@@ -90,11 +91,14 @@ export const runDailyDungeon = (type, tier = 1) => request(`/base/daily_dungeon/
 export const getDailyDungeonStatus = () => request('/base/daily_dungeon/status')
 export const getHeraldFeed = () => request('/herald/')
 export const getExpeditions = () => request('/base/expeditions')
-export const dispatchExpedition = (lane, heroIds) => request('/base/expeditions/dispatch', { method: 'POST', body: JSON.stringify({ lane, hero_ids: heroIds }) })
+export const dispatchExpedition = (lane, heroIds, qualityMult = 1.0) => request('/base/expeditions/dispatch', { method: 'POST', body: JSON.stringify({ lane, hero_ids: heroIds, quality_mult: qualityMult }) })
 export const collectExpedition = (lane) => request('/base/expeditions/collect', { method: 'POST', body: JSON.stringify({ lane }) })
 export const recallExpedition = (lane) => request('/base/expeditions/recall', { method: 'POST', body: JSON.stringify({ lane }) })
 export const getTavern = () => request('/base/tavern')
 export const buyTavernRound = (heroId = null) => request('/base/tavern/round', { method: 'POST', body: JSON.stringify({ hero_id: heroId }) })
+export const tavernDice = (wager, mult, heroId = null) => request('/base/tavern/dice', { method: 'POST', body: JSON.stringify({ wager, mult, hero_id: heroId }) })
+export const huntBeast = (mult) => request('/base/bestiary/hunt', { method: 'POST', body: JSON.stringify({ mult }) })
+export const shrineRite = (mult) => request('/base/shrine/rite', { method: 'POST', body: JSON.stringify({ mult }) })
 export const getSparkWishlist = () => request('/gacha/wishlist')
 export const setSparkWishlist = (classes) => request('/gacha/wishlist', { method: 'POST', body: JSON.stringify({ classes }) })
 export const payLocalFee = (amount, reason = '') => request('/base/pay_fee', { method: 'POST', body: JSON.stringify({ amount, reason }) })
@@ -112,7 +116,7 @@ export const buyResearchUpgrade = (upgradeId) => request('/base/facilities/mage-
 
 export const getBaseUpgrades = () => request('/base/upgrades')
 export const buyBaseUpgrade = (upgradeId) => request('/base/upgrades/purchase', { method: 'POST', body: JSON.stringify({ upgrade_id: upgradeId }) })
-export const revealHeroTalent = (heroId) => request('/base/talent-observatory/reveal', { method: 'POST', body: JSON.stringify({ hero_id: heroId }) })
+export const revealHeroTalent = (heroId, qualityMult = 1.0) => request('/base/talent-observatory/reveal', { method: 'POST', body: JSON.stringify({ hero_id: heroId, quality_mult: qualityMult }) })
 
 export const grantResources = (gold = 0, gems = 0, ingredients = 0, aether = 0) => request('/base/dev/grant', { method: 'POST', body: JSON.stringify({ gold, gems, ingredients, aether }) })
 
@@ -121,6 +125,10 @@ export const sparHeroes = (heroAId, heroBId) => request('/base/facilities/spar',
 
 // Hero relationships (mentors, students, rivals/comrades) for the card
 export const getHeroRelationships = (heroId) => request(`/heroes/${heroId}/relationships`)
+// Deeds — permanent accomplishment records (persist after death)
+export const getHeroDeeds = (heroId) => request(`/heroes/${heroId}/deeds`)
+// The Commander's Table — strategy-duel minigame reward (once/day/hero)
+export const managerSpar = (heroId, mult) => request(`/heroes/${heroId}/manager-spar`, { method: 'POST', body: JSON.stringify({ mult }) })
 
 // Training Grounds solo drills (regimens)
 export const getTrainingStatus = () => request('/base/facilities/training')
@@ -129,7 +137,7 @@ export const runTrainingTournament = () => request('/base/facilities/training/to
 
 // Forge Recipe Book (blueprint recipes discovered in the Tower)
 export const getForgeRecipes = () => request('/forge/recipes')
-export const craftPremadeRecipe = (crafterId, recipeId) => request('/forge/craft/premade', { method: 'POST', body: JSON.stringify({ crafter_id: crafterId, recipe_id: recipeId }) })
+export const craftPremadeRecipe = (crafterId, recipeId, qualityMult = 1.0) => request('/forge/craft/premade', { method: 'POST', body: JSON.stringify({ crafter_id: crafterId, recipe_id: recipeId, quality_mult: qualityMult }) })
 
 // Team banner
 export const getBanner = () => request('/base/banner')
@@ -137,8 +145,8 @@ export const saveBanner = (templateTier, emblem, paint, extra = {}) => request('
 
 // Dining Hall cooking + Alchemist aether refining
 export const getDiningCatalog = () => request('/base/dining/catalog')
-export const cookFood = (recipeId, quantity = 1) => request('/base/dining/cook', { method: 'POST', body: JSON.stringify({ recipe_id: recipeId, quantity }) })
-export const refineAether = (batches = 1) => request('/base/alchemist/refine-aether', { method: 'POST', body: JSON.stringify({ batches }) })
+export const cookFood = (recipeId, quantity = 1, qualityMult = 1.0) => request('/base/dining/cook', { method: 'POST', body: JSON.stringify({ recipe_id: recipeId, quantity, quality_mult: qualityMult }) })
+export const refineAether = (batches = 1, qualityMult = 1.0) => request('/base/alchemist/refine-aether', { method: 'POST', body: JSON.stringify({ batches, quality_mult: qualityMult }) })
 
 // Endgame facilities
 export const getBestiary = () => request('/base/bestiary')

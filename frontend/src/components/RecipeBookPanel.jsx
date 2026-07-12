@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react'
 import ItemIcon from './ItemIcon'
 import { getForgeRecipes, craftPremadeRecipe } from '../api/client'
+import MinigameShell, { AUTO_RESOLVE_MULT } from './minigames/MinigameShell'
+import ForgeTiming from './minigames/ForgeTiming'
 
 /*
  * THE FORGE — recipes + the anvil (spec "Forge - Illuminated.dc.html").
@@ -36,13 +38,28 @@ export default function RecipeBookPanel({ assignedHeroes, gold, materials, onCra
     return total >= need
   }
 
-  async function handleCraft(recipe) {
+  // The craft button opens STRIKE THE STEEL (the Forge timing minigame) —
+  // skipping auto-resolves at the ADEPT baseline (never a punishment).
+  const [minigameRecipe, setMinigameRecipe] = useState(null)
+
+  function handleCraft(recipe) {
     if (!crafterId) { setMsg({ text: 'Assign a hero to the Forge to craft.', err: true }); return }
+    setMinigameRecipe(recipe)
+  }
+
+  async function doCraft(recipe, qualityMult) {
+    setMinigameRecipe(null)
     setBusy(true)
     setMsg(null)
     try {
-      const res = await craftPremadeRecipe(parseInt(crafterId), recipe.id)
-      setMsg({ text: `${res.equipment.name} forged — ${res.equipment.rarity}-rank base, shaped by the crafter's hand.` })
+      const res = await craftPremadeRecipe(parseInt(crafterId), recipe.id, qualityMult)
+      if (res.ruined) {
+        setMsg({ text: res.message || 'The work is ruined — the materials are gone.', err: true })
+        if (onCrafted) onCrafted()
+        return
+      }
+      const q = res.quality && res.quality !== 1 ? ` The strikes ${res.quality > 1 ? 'sang' : 'faltered'} — quality ×${res.quality.toFixed(2)}.` : ''
+      setMsg({ text: `${res.equipment.name} forged — ${res.equipment.rarity}-rank base, shaped by the crafter's hand.${q}` })
       if (onCrafted) onCrafted()
     } catch (e) {
       setMsg({ text: e.message, err: true })
@@ -183,6 +200,17 @@ export default function RecipeBookPanel({ assignedHeroes, gold, materials, onCra
           </div>
         )}
       </div>
+
+      {/* STRIKE THE STEEL — forge timing minigame (skip = ADEPT baseline) */}
+      {minigameRecipe && (
+        <MinigameShell
+          title="STRIKE THE STEEL"
+          flavor={`${minigameRecipe.name} waits on the anvil. Take the hammer yourself, or trust the smith's steady hands.`}
+          onSkip={() => doCraft(minigameRecipe, AUTO_RESOLVE_MULT)}
+          onResolve={(mult) => doCraft(minigameRecipe, mult)}
+          game={(difficulty, onDone) => <ForgeTiming difficulty={difficulty} onDone={onDone} />}
+        />
+      )}
     </div>
   )
 }

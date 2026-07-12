@@ -6,10 +6,11 @@
  * mirror the mockup's chevrons. Data-only component — mutations arrive
  * through props from HeroesPage (equipment modal, gift, ascend cluster).
  */
-import React, { useState } from 'react'
+import React, { useState, useEffect } from 'react'
 import Sigil from './Sigil'
 import GameIcon from './GameIcon'
-import { toggleFavorite, regenerateProfile } from '../api/client'
+import { toggleFavorite, regenerateProfile, getHeroDeeds } from '../api/client'
+import Tip, { TIPS } from './Tip'
 import { emitToast } from '../toastBus'
 
 const RARITY_COLORS = { F: '#8a8a96', E: '#8a8a96', D: '#9fb59f', C: '#8fbf9f', B: '#7fb2d9', 'B+': '#7fb2d9', A: '#c8a9f5', S: '#ffd88a', SS: '#ffb35c', SSS: '#7ecfd8' }
@@ -57,6 +58,13 @@ export default function HeroDetail({ hero, onManageEquipment, onManageConsumable
   const [tab, setTab] = useState('stats')
   const [open, setOpen] = useState({ mind: true, apt: true, skills: true, gear: true })
   const [fullChronicle, setFullChronicle] = useState(false)
+  // Deeds — permanent accomplishment records mined from real fights.
+  const [deeds, setDeeds] = useState([])
+  useEffect(() => {
+    let live = true
+    if (hero?.id) getHeroDeeds(hero.id).then(d => { if (live) setDeeds(d || []) }).catch(() => {})
+    return () => { live = false }
+  }, [hero?.id])
   const [fav, setFav] = useState(!!hero?.is_favorite)
   const [regenning, setRegenning] = useState(false)
   const toggle = k => setOpen(o => ({ ...o, [k]: !o[k] }))
@@ -236,9 +244,11 @@ export default function HeroDetail({ hero, onManageEquipment, onManageConsumable
             {(
               <div style={{ marginTop: 10 }}>
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: '10px 12px' }}>
-                  {[['STR', hero.strength], ['INT', hero.intelligence], ['AGI', hero.agility], ['END', hero.endurance], ['WIL', hero.willpower], ['LCK', hero.luck, 'var(--gold-hi)']].map(([k, v, c]) => (
+                  {[['STR', hero.strength, TIPS.strength], ['INT', hero.intelligence, TIPS.intelligence], ['AGI', hero.agility, TIPS.agility], ['END', hero.endurance, TIPS.endurance], ['WIL', hero.willpower, TIPS.willpower], ['LCK', hero.luck, TIPS.luck, 'var(--gold-hi)']].map(([k, v, tip, c]) => (
                     <div key={k}>
-                      <div style={{ fontFamily: "'Cinzel',serif", letterSpacing: '.24em', fontSize: 9, color: k === powerStat(hero) ? 'var(--gold-hi)' : 'var(--muted)' }}>{k}</div>
+                      <Tip text={tip}>
+                        <div style={{ fontFamily: "'Cinzel',serif", letterSpacing: '.24em', fontSize: 9, color: k === powerStat(hero) ? 'var(--gold-hi)' : 'var(--muted)' }}>{k}</div>
+                      </Tip>
                       <div style={{ fontFamily: "'Cormorant Garamond',serif", fontWeight: 700, fontSize: 22, color: c || 'var(--text-hi)', lineHeight: 1.1 }}>{Math.round(v ?? 0)}</div>
                     </div>
                   ))}
@@ -264,9 +274,9 @@ export default function HeroDetail({ hero, onManageEquipment, onManageConsumable
             {open.mind && (
               <div style={{ marginTop: 10 }}>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                  {[['MORALE', hero.morale ?? 100, '#4a9a6a', 'rgba(74,154,106,.35)', '#8fbf9f'], ['STRESS', hero.stress ?? 0, '#c9a84c', 'rgba(184,151,98,.3)', '#d8bb84'], ['TRAUMA', hero.trauma ?? 0, '#c04040', 'rgba(192,64,64,.3)', '#d98a8a']].map(([k, v, bar, border, valc]) => (
+                  {[['MORALE', hero.morale ?? 100, '#4a9a6a', 'rgba(74,154,106,.35)', '#8fbf9f', TIPS.morale], ['STRESS', hero.stress ?? 0, '#c9a84c', 'rgba(184,151,98,.3)', '#d8bb84', TIPS.stress], ['TRAUMA', hero.trauma ?? 0, '#c04040', 'rgba(192,64,64,.3)', '#d98a8a', TIPS.trauma]].map(([k, v, bar, border, valc, tip]) => (
                     <div key={k} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                      <span style={{ fontFamily: "'Cinzel',serif", letterSpacing: '.2em', fontSize: 9, color: 'var(--muted)', width: 52 }}>{k}</span>
+                      <Tip text={tip}><span style={{ fontFamily: "'Cinzel',serif", letterSpacing: '.2em', fontSize: 9, color: 'var(--muted)', width: 52, display: 'inline-block' }}>{k}</span></Tip>
                       <div style={{ flex: 1, height: 4, background: 'rgba(0,0,0,.5)', border: `1px solid ${border}` }}>
                         <div style={{ width: `${Math.min(100, v)}%`, height: '100%', background: bar }} />
                       </div>
@@ -275,7 +285,7 @@ export default function HeroDetail({ hero, onManageEquipment, onManageConsumable
                   ))}
                 </div>
                 <div style={{ display: 'flex', gap: 7, marginTop: 11, flexWrap: 'wrap' }}>
-                  <span style={{ fontFamily: "'Cinzel',serif", fontSize: 9, letterSpacing: '.14em', color: 'var(--gold-hi)', border: '1px solid rgba(184,151,98,.4)', padding: '2px 8px' }}>FATIGUE {hero.fatigue ?? 0}/10</span>
+                  <Tip text={TIPS.fatigue}><span style={{ fontFamily: "'Cinzel',serif", fontSize: 9, letterSpacing: '.14em', color: 'var(--gold-hi)', border: '1px solid rgba(184,151,98,.4)', padding: '2px 8px' }}>FATIGUE {hero.fatigue ?? 0}/10</span></Tip>
                   {hero.condition && <span style={{ fontFamily: "'Cinzel',serif", fontSize: 9, letterSpacing: '.14em', color: '#c9bfa8', border: '1px solid rgba(184,151,98,.35)', padding: '2px 8px' }}>{hero.condition.toUpperCase()}</span>}
                   {traits.map(t => (
                     <span key={t.id || t.name} title={t.desc} style={{ fontFamily: "'Cinzel',serif", fontSize: 9, letterSpacing: '.14em', color: '#c8a9f5', border: '1px solid rgba(150,110,230,.4)', padding: '2px 8px', cursor: 'help' }}>{(t.name || '').toUpperCase()}</span>
@@ -305,7 +315,9 @@ export default function HeroDetail({ hero, onManageEquipment, onManageConsumable
                           <span style={{ transform: 'rotate(-45deg)', fontFamily: "'Cinzel',serif", fontSize: 13, color: 'var(--lavender)' }}>?</span>
                         </div>
                       )}
-                      <div style={{ fontFamily: "'Cinzel',serif", fontSize: 8, letterSpacing: '.14em', color: v != null ? 'var(--gold-hi)' : 'var(--muted)', marginTop: 9 }}>{a.toUpperCase()}</div>
+                      <Tip text={TIPS[`apt_${a.toLowerCase()}`]} width={240}>
+                        <div style={{ fontFamily: "'Cinzel',serif", fontSize: 8, letterSpacing: '.14em', color: v != null ? 'var(--gold-hi)' : 'var(--muted)', marginTop: 9 }}>{a.toUpperCase()}</div>
+                      </Tip>
                     </div>
                   )
                 })}
@@ -443,6 +455,30 @@ export default function HeroDetail({ hero, onManageEquipment, onManageConsumable
               </div>
             )
           })()}
+
+          {/* deeds — the record of what they've actually DONE. Written by the
+              combat engine at dramatic moments; survives the hero's death. */}
+          {deeds.length > 0 && (
+            <div style={{ marginTop: 18, borderTop: '1px solid rgba(184,151,98,.2)', paddingTop: 14 }}>
+              <div style={{ display: 'flex', alignItems: 'baseline', gap: 12, marginBottom: 10 }}>
+                <span style={{ fontFamily: "'Cinzel',serif", letterSpacing: '.28em', fontSize: 10, color: 'var(--gold)' }}>DEEDS</span>
+                <span style={{ fontFamily: "'Cinzel',serif", letterSpacing: '.14em', fontSize: 9, color: 'var(--muted)' }}>{deeds.length} RECORDED</span>
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 7 }}>
+                {(fullChronicle ? deeds : deeds.slice(0, 5)).map((d, i) => (
+                  <div key={i} style={{ display: 'flex', alignItems: 'baseline', gap: 10 }}>
+                    <span style={{ width: 6, height: 6, transform: 'rotate(45deg)', background: 'var(--gold-dim)', display: 'inline-block', flex: 'none', position: 'relative', top: -1 }} />
+                    <span style={{ fontSize: 14.5, fontStyle: 'italic', color: '#d8cbb0', lineHeight: 1.4 }}>{d.deed}</span>
+                  </div>
+                ))}
+              </div>
+              {deeds.length > 5 && !fullChronicle && (
+                <button onClick={() => setFullChronicle(true)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--gold-hi)', fontFamily: "'Cinzel',serif", fontSize: 10, letterSpacing: '.2em', marginTop: 8, padding: 0 }}>
+                  ALL {deeds.length} DEEDS ›
+                </button>
+              )}
+            </div>
+          )}
         </div>
       </div>
     </div>

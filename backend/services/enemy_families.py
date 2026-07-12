@@ -107,6 +107,32 @@ DROWNED_NAGA_QUEEN = {
     "stat_mod": {"atk": 1.2, "def": 1.0, "spd": 1.1, "health": 1.2},
 }
 
+# ─── Floors 61-70: LEVIATHAN'S GRAVEYARD (sea) miniboss+boss ────────────────
+# See docs/leviathan-graveyard-design.md. Floor 65 randomly rotates between
+# three sea minibosses (incl. the already-sea Drowned Naga Queen); floor 70 is
+# Thalassor. The Undead Monarch (vampire king) that used to be floor 70's boss
+# moved down to floor 60 (the vampire-heavy ascendant band) — kept, not cut.
+
+CAPTAIN_IRON_LUNG = {
+    "name": "Captain Iron-Lung",
+    "abilities": ["cleave", "team_buff_aura", "last_stand"],
+    "spawn_template": "Drowned Deckhand",
+    "stat_mod": {"atk": 1.4, "def": 1.1, "spd": 1.3, "health": 1.3},
+}
+
+THE_CALCIFIED_HORROR = {
+    "name": "The Calcified Horror",
+    "abilities": ["shell_armor", "crushing_blow", "self_regen"],
+    "stat_mod": {"atk": 1.2, "def": 1.7, "spd": 0.5, "health": 1.7},
+}
+
+THALASSOR = {
+    "name": "Thalassor, the Undead Leviathan",
+    "abilities": ["cleave", "summon_add", "enrage", "crushing_blow"],
+    "spawn_template": "Marrow-Worm",
+    "stat_mod": {"atk": 1.4, "def": 1.3, "spd": 0.9, "health": 1.7},
+}
+
 # ─── Floors 71-90: apex/dread tiers' miniboss+boss ─────────────────────────
 
 KNIGHT_CAPTAIN_MORDREK = {
@@ -205,7 +231,7 @@ MINIBOSS_OVERRIDES = {
     25: SKARN_LIZARD_CHIEFTAIN,
     45: BULLHORN_MINOTAUR_LORD,
     55: STONEHEART_UNBROKEN,
-    65: DROWNED_NAGA_QUEEN,
+    65: [CAPTAIN_IRON_LUNG, THE_CALCIFIED_HORROR, DROWNED_NAGA_QUEEN],  # sea band rotates 3
     75: KNIGHT_CAPTAIN_MORDREK,
     85: PIT_FIEND_COMMANDER,
     95: DRACOLICH_HERALD,
@@ -219,7 +245,11 @@ AETHERION_END_OF_ALL_THINGS = {
 }
 
 def get_miniboss_override(floor_number: int) -> dict | None:
-    return MINIBOSS_OVERRIDES.get(floor_number)
+    entry = MINIBOSS_OVERRIDES.get(floor_number)
+    if isinstance(entry, list):
+        import random
+        return random.choice(entry)
+    return entry
 
 
 GORRATH_BONEBREAKER = {
@@ -257,14 +287,21 @@ STORMCALLER_SKY_TYRANT = {
     "stat_mod": {"atk": 1.3, "def": 1.1, "spd": 1.1, "health": 1.5},
 }
 
+THE_FORGOTTEN_GOD = {
+    "name": "The Forgotten God",
+    "abilities": ["team_buff_aura", "crushing_blow", "enrage", "last_stand"],
+    "spawn_template": "Void Horror",
+    "stat_mod": {"atk": 1.35, "def": 1.2, "spd": 1.05, "health": 1.5},
+}
+
 BOSS_OVERRIDES = {
     20: [TROLL_KING, GORRATH_BONEBREAKER],
     30: HOBGOBLIN_WARLORD,
     40: [GRAVE_SOVEREIGN, ROTCALLER_FESTER_HOST],
-    60: [OBSIDIAN_TYRANT, EARTHSHAKER_TITAN],
-    70: UNDEAD_MONARCH,
+    60: [OBSIDIAN_TYRANT, EARTHSHAKER_TITAN, UNDEAD_MONARCH],  # vampire king moved here (kept)
+    70: THALASSOR,  # Leviathan's Graveyard boss (was Undead Monarch, relocated to 60)
     80: [HYDRA_SOVEREIGN, ASHEN_COLOSSUS, STORMCALLER_SKY_TYRANT],
-    90: MASKED_HORROR_BOSS,
+    90: [MASKED_HORROR_BOSS, THE_FORGOTTEN_GOD],
     # Floor 100 is a Raid Boss (Aetherion) — this fallback is never reached
     # in normal play because get_raid_boss_override fires first.
     100: [LICH_KING, NIGHTWING_DEVOURER],

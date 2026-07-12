@@ -112,7 +112,7 @@ export default function TutorialOverlay({ fairyGender, onComplete }) {
             <img src={fairyImg} style={{ width: '100%', height: '100%', objectFit: 'cover' }}
               onError={(e) => { e.target.style.display = 'none'; e.target.nextSibling.style.display = 'flex' }} />
             <div style={{ width: '100%', height: '100%', display: 'none', alignItems: 'center', justifyContent: 'center', fontSize: '2.5rem' }}>
-              🧚
+              ✦
             </div>
           </div>
           <div>

@@ -255,6 +255,64 @@ export function playRiteHum() {
   osc.stop(now + 2.4); osc2.stop(now + 2.4)
 }
 
+// ─── Event-cue SFX (same synth approach — swap for samples anytime) ───
+
+// Deed recorded: a quiet, proud two-note horn.
+export function playDeedChime() {
+  if (!_ready()) return
+  _tone(587, { type: 'triangle', vol: 0.035, dur: 0.25 })
+  _tone(880, { type: 'triangle', vol: 0.04, at: 0.18, dur: 0.5 })
+  _tone(1760, { type: 'sine', vol: 0.012, at: 0.18, dur: 0.6 })
+}
+
+// Boss phase change: a low brass-like warning swell.
+export function playPhaseHorn() {
+  if (!_ready()) return
+  _tone(98, { type: 'sawtooth', vol: 0.05, dur: 0.7, slideTo: 147 })
+  _tone(196, { type: 'square', vol: 0.02, at: 0.1, dur: 0.6 })
+  _tone(294, { type: 'sine', vol: 0.025, at: 0.35, dur: 0.5 })
+}
+
+// Floor cleared: short ascending fanfare.
+export function playVictoryFanfare() {
+  if (!_ready()) return
+  _tone(523, { vol: 0.04, dur: 0.18 })
+  _tone(659, { vol: 0.04, at: 0.14, dur: 0.18 })
+  _tone(784, { vol: 0.045, at: 0.28, dur: 0.4 })
+  _tone(1568, { type: 'triangle', vol: 0.015, at: 0.28, dur: 0.55 })
+}
+
+// Defeat: a slow low toll.
+export function playDefeatToll() {
+  if (!_ready()) return
+  _tone(220, { type: 'sine', vol: 0.05, dur: 0.9, slideTo: 110 })
+  _tone(110, { type: 'sine', vol: 0.04, at: 0.5, dur: 1.2, slideTo: 82 })
+}
+
+// Craft complete: anvil clang + metallic ring.
+export function playCraftClang() {
+  if (!_ready()) return
+  const now = audioCtx.currentTime
+  const noise = _noise()
+  const hp = audioCtx.createBiquadFilter()
+  hp.type = 'highpass'; hp.frequency.value = 1800
+  const g = audioCtx.createGain()
+  g.gain.setValueAtTime(0.06 * globalSfxVolume, now)
+  g.gain.exponentialRampToValueAtTime(0.001, now + 0.12)
+  noise.connect(hp); hp.connect(g); g.connect(audioCtx.destination)
+  noise.start(now); noise.stop(now + 0.14)
+  _tone(1245, { type: 'triangle', vol: 0.035, dur: 0.6 })
+  _tone(2490, { type: 'sine', vol: 0.012, at: 0.02, dur: 0.8 })
+}
+
+// Evolution chosen: a rising arcane surge.
+export function playEvolveSurge() {
+  if (!_ready()) return
+  _tone(262, { vol: 0.03, dur: 0.5, slideTo: 523 })
+  _tone(523, { vol: 0.04, at: 0.35, dur: 0.5, slideTo: 1046 })
+  _tone(2093, { type: 'triangle', vol: 0.015, at: 0.6, dur: 0.8 })
+}
+
 let bgmAudio = null
 
 function stopBgm() {

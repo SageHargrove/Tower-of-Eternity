@@ -14,19 +14,37 @@ SHOP_CATALOG = {
     "materials_small": {"name": "Raw Material Crate", "currency": "gold", "cost": 300, "grants": {"material_random_d": 5}},
 }
 
+def _smuggler_discount(conn=None) -> int:
+    """Merchant · Smuggler (Black Market): % off every shop purchase."""
+    try:
+        from services.support_service import get_support_effects
+        return int(get_support_effects(conn).get("smuggler_discount_pct", 0))
+    except Exception:
+        return 0
+
+
 def get_shop_catalog() -> dict:
-    return SHOP_CATALOG
+    disc = _smuggler_discount()
+    if not disc:
+        return SHOP_CATALOG
+    # Smuggler prices — same items, contraband rates (display matches purchase).
+    return {k: {**v, "cost": max(1, int(v["cost"] * (1 - disc / 100.0))), "smuggler": True}
+            for k, v in SHOP_CATALOG.items()}
 
 def purchase_item(conn, item_id: str) -> dict:
     item = SHOP_CATALOG.get(item_id)
     if not item:
         raise ValueError("Unknown shop item.")
 
+    cost = item["cost"]
+    disc = _smuggler_discount(conn)
+    if disc:
+        cost = max(1, int(cost * (1 - disc / 100.0)))
     col = "gold" if item["currency"] == "gold" else "gems"
     base = conn.execute(f"SELECT {col}, materials FROM base WHERE id = 1").fetchone()
-    if base[col] < item["cost"]:
+    if base[col] < cost:
         raise ValueError(f"Not enough {col}.")
-    conn.execute(f"UPDATE base SET {col} = {col} - ? WHERE id = 1", (item["cost"],))
+    conn.execute(f"UPDATE base SET {col} = {col} - ? WHERE id = 1", (cost,))
 
     grants = item["grants"]
     result = {"item": item["name"]}

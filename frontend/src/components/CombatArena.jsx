@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react'
-import { playHitSound } from '../audio'
+import { playHitSound, playPhaseHorn } from '../audio'
 import Sigil from './Sigil'
 
 // Status-chip palette for the combat rails. Backend emits per-turn labels
@@ -18,13 +18,12 @@ const STATUS_STYLE = {
   SHIELD:        { c: '#8fbf9f', b: 'rgba(74,154,106,.5)',  icon: 'DMG_SHIELD' },
   ENRAGED:       { c: '#e08585', b: 'rgba(192,64,64,.5)',   icon: 'ENRAGED' },
   HASTE:         { c: '#8fbf9f', b: 'rgba(74,154,106,.5)',  icon: 'HASTE' },
-  // set beyond the sheet — text-only (no custom art)
-  BLIND:   { c: '#c8a9f5', b: 'rgba(150,110,230,.5)' },
-  SILENCE: { c: '#c8a9f5', b: 'rgba(150,110,230,.5)' },
-  REGEN:   { c: '#8fbf9f', b: 'rgba(74,154,106,.5)' },
-  EVASION: { c: '#7ecfd8', b: 'rgba(126,207,216,.5)' },
+  BLIND:   { c: '#c8a9f5', b: 'rgba(150,110,230,.5)', icon: 'BLIND' },
+  SILENCE: { c: '#c8a9f5', b: 'rgba(150,110,230,.5)', icon: 'SILENCE' },
+  REGEN:   { c: '#8fbf9f', b: 'rgba(74,154,106,.5)',  icon: 'REGEN' },
+  EVASION: { c: '#7ecfd8', b: 'rgba(126,207,216,.5)', icon: 'EVASION' },
   BUFF:    { c: '#8fbf9f', b: 'rgba(74,154,106,.5)' },
-  WEAK:    { c: '#d98a8a', b: 'rgba(192,64,64,.4)' },
+  WEAK:    { c: '#d98a8a', b: 'rgba(192,64,64,.4)',   icon: 'WEAK' },
 }
 function StatusChips({ list }) {
   if (!list || list.length === 0) return null
@@ -225,7 +224,7 @@ function CombatUnitSprite({ unit, team, position, teamCount = 1, pos: posOverrid
           <img src={`/${unit.portrait_path}`} style={{ width: '100%', height: '100%', objectFit: 'contain', objectPosition: 'center top' }} alt={unit.name} onError={() => setImgError(true)} />
         ) : (
           <div style={{ width: '100%', height: '100%', background: '#333', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: size.icon }}>
-            {team === 'hero' ? '⚔' : '💀'}
+            {team === 'hero' ? '✦' : '◆'}
           </div>
         )}
       </div>
@@ -416,12 +415,22 @@ export default function CombatArena({ combatData, onComplete, turnNarrations, in
   // seeing the current turn's line before it's replaced by the next one.
   const revealedLines = []
   for (let i = 0; i <= currentTurnIndex && i < turns.length; i++) {
-    revealedLines.push({ key: i, text: turnNarrations?.[i] || turns[i].log })
+    revealedLines.push({ key: i, text: turnNarrations?.[i] || turns[i].log, event: turns[i].event })
   }
 
   useEffect(() => {
     logEndRef.current?.scrollIntoView({ block: 'end' })
   }, [revealedLines.length])
+
+  // The phase horn sounds the moment a PHASE event turn reveals in the replay.
+  const hornAt = useRef(-1)
+  useEffect(() => {
+    const t = currentTurnIndex >= 0 && currentTurnIndex < turns.length ? turns[currentTurnIndex] : null
+    if ((t?.event === 'phase' || t?.event === 'wall') && currentTurnIndex > hornAt.current) {
+      hornAt.current = currentTurnIndex
+      playPhaseHorn()
+    }
+  }, [currentTurnIndex])
 
   if (!combatData || combatData.awaiting_choice) return null
 
@@ -461,7 +470,7 @@ export default function CombatArena({ combatData, onComplete, turnNarrations, in
           return (
             <div key={hero.id} className={`ilm-unitrow ally ${isAtt ? 'act' : ''} ${isTgt ? 'hit' : ''} ${dead ? 'dead' : ''} ${critical ? 'low' : ''}`}>
               <span className="ilm-unitface ally">
-                {hero.portrait_path ? <img src={`/${hero.portrait_path}`} alt="" draggable={false} onError={e => { e.target.style.display = 'none' }} /> : <span className="ilm-unitface-ph">⚔</span>}
+                {hero.portrait_path ? <img src={`/${hero.portrait_path}`} alt="" draggable={false} onError={e => { e.target.style.display = 'none' }} /> : <span className="ilm-unitface-ph">✦</span>}
               </span>
               <div className="ilm-unitbars">
                 <div className="ilm-unitname">
@@ -538,7 +547,24 @@ export default function CombatArena({ combatData, onComplete, turnNarrations, in
       </div>
       <div className="ilm-chronicle-lines">
         {revealedLines.map(line => (
-          <div key={line.key} className="ilm-chronicle-line">{line.text}</div>
+          line.event ? (
+            // Typed EVENT beats — full-width banners so a boss phase or floor
+            // condition never reads with the same weight as a basic hit.
+            <div key={line.key} style={{
+              margin: '4px 0', padding: '5px 12px', textAlign: 'center',
+              fontFamily: "'Cinzel',serif", fontWeight: 700, letterSpacing: '.16em', fontSize: '0.72rem',
+              color: line.event === 'condition' ? 'var(--lavender)' : 'var(--gold-hi)',
+              background: line.event === 'condition'
+                ? 'linear-gradient(90deg, transparent, rgba(150,110,230,.16), transparent)'
+                : 'linear-gradient(90deg, transparent, rgba(216,187,132,.18), transparent)',
+              borderTop: `1px solid ${line.event === 'condition' ? 'rgba(150,110,230,.4)' : 'rgba(216,187,132,.45)'}`,
+              borderBottom: `1px solid ${line.event === 'condition' ? 'rgba(150,110,230,.4)' : 'rgba(216,187,132,.45)'}`,
+            }}>
+              {line.text.toUpperCase()}
+            </div>
+          ) : (
+            <div key={line.key} className="ilm-chronicle-line">{line.text}</div>
+          )
         ))}
         <div ref={logEndRef} />
       </div>

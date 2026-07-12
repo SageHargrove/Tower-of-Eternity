@@ -195,7 +195,19 @@ def process_shrine(conn):
 
     pulses = minutes // 30
     gain_per_pulse = sum(2 if c in ("Priest", "Acolyte", "Cleric", "High Priest", "Saint", "Oracle") else 1 for c in clergy)
-    total = min(10, gain_per_pulse * pulses)  # cap a long-offline catchup
+    # Priest · Confessor (Absolution): mastery-scaled extra loyalty per pulse;
+    # the High Confessor capstone also calms the whole roster's stress.
+    calm = 0
+    try:
+        from services.support_service import get_support_effects
+        sfx = get_support_effects(conn)
+        gain_per_pulse += sfx.get("priest_loyalty_bonus", 0)
+        calm = sfx.get("priest_calm_stress", 0)
+    except Exception:
+        pass
+    total = min(10 + gain_per_pulse, gain_per_pulse * pulses)  # cap a long-offline catchup
     if total > 0:
         conn.execute("UPDATE heroes SET affinity = MIN(100, COALESCE(affinity, 0) + ?) WHERE is_alive = 1", (total,))
+    if calm > 0:
+        conn.execute("UPDATE heroes SET stress = MAX(0, COALESCE(stress, 0) - ?) WHERE is_alive = 1", (min(6, calm * pulses),))
     conn.execute("UPDATE base SET last_shrine_tick = CURRENT_TIMESTAMP WHERE id = 1")

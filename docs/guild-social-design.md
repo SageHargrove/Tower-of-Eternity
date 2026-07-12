@@ -1,5 +1,7 @@
 # Guild + Social — design (SIGNED OFF 2026-07-06, with Liam's decisions)
 
+> **STATUS (2026-07-12): SHIPPED.** Fully implemented — arena_server/guilds.py (founding/registry/applications/check-in/daily boss/shop/perks/allies/weekly war) + frontend GuildHall (4 tabs incl. live guild chat). This doc is the historical design record.
+
 *Terminology: **GUILD** everywhere in the UI. The mockups' "Lodge"/"kin"
 flavor text is replaced on the frontend — backend names use `guild_*`.*
 

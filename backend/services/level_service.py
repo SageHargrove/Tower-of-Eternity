@@ -185,14 +185,27 @@ def apply_level_to_stats(hero: dict) -> dict:
 
     return h
 
+def evolution_gate_level(hero_class: str, level: int) -> int:
+    """FORCED EVOLUTION CHOICE (user rule): a hero standing at an evolution
+    milestone with an unmade choice cannot level past it — XP still banks,
+    but the level holds at 30/60 until they pick a path. Classes with no
+    options at a milestone (e.g. Magic Engineer) pass through untouched."""
+    from services.class_service import get_class_evolution_options
+    for milestone in (30, 60):
+        if level > milestone and get_class_evolution_options(hero_class, milestone):
+            return milestone
+    return level
+
+
 def recalculate_hero_level(hero: dict) -> int:
-    """Given a hero dict, return their current level."""
+    """Given a hero dict, return their current level (evolution-gated)."""
     hero_star = get_hero_star(hero)
-    return calculate_level(
+    level = calculate_level(
         hero.get("xp", 0),
         hero_star,
         hero.get("ascension_star", 0),
     )
+    return evolution_gate_level(hero.get("hero_class", ""), level)
 
 def kill_xp_reward(floor_number: int, is_boss: bool = False, is_miniboss: bool = False) -> int:
     """XP for one enemy kill, scaled by how deep the floor is. Bosses count

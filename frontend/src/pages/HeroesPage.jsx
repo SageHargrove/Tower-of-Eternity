@@ -1063,13 +1063,25 @@ export default function HeroesPage({ onNavigate }) {
                       <div className="text-dim" style={{ fontSize: '0.6rem', marginTop: '0.2rem' }}>{(heroes.find(h => h.id === expandedId)?.birth_star || 1) * 1000} Gold</div>
                     </div>
                   )}
-                  {heroes.find(h => h.id === expandedId)?.evolution_options?.length > 0 && (
-                    <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', justifyContent: 'flex-end', marginLeft: '1rem' }}>
-                      <button className="btn" style={{ border: '1px solid #9d4edd', color: '#e0aaff', background: 'rgba(157, 78, 221, 0.1)', fontFamily: 'Cinzel, serif', padding: '0.4rem 1rem', fontSize: '0.85rem', borderRadius: 4, boxShadow: '0 0 8px rgba(157,78,221,0.5)' }} onClick={(e) => { e.preventDefault(); e.stopPropagation(); setEvoModal({ hero: heroes.find(h => h.id === expandedId) }); }} disabled={evolving || ascending || promoting}>
-                        ✨ Class Advancement Available! ✨
-                      </button>
-                    </div>
-                  )}
+                  {heroes.find(h => h.id === expandedId)?.evolution_options?.length > 0 && (() => {
+                    const h = heroes.find(x => x.id === expandedId)
+                    // Level holds at 30/60 until a path is chosen (backend
+                    // evolution gate) — XP banks, so say so.
+                    const gated = h.level === 30 || h.level === 60
+                    if (gated) import('../codexBus').then(c => c.unlockCodex('crossroads', 'THE CROSSROADS')).catch(() => {})
+                    return (
+                      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', marginLeft: '1rem' }}>
+                        <button className="btn" style={{ border: '1px solid #9d4edd', color: '#e0aaff', background: 'rgba(157, 78, 221, 0.1)', fontFamily: 'Cinzel, serif', padding: '0.4rem 1rem', fontSize: '0.85rem', borderRadius: 4, boxShadow: '0 0 8px rgba(157,78,221,0.5)' }} onClick={(e) => { e.preventDefault(); e.stopPropagation(); setEvoModal({ hero: h }); }} disabled={evolving || ascending || promoting}>
+                          Class Advancement Available
+                        </button>
+                        {gated && (
+                          <div style={{ fontSize: '0.6rem', marginTop: '0.2rem', color: '#e0aaff', fontFamily: 'Cinzel, serif', letterSpacing: '.08em' }}>
+                            LEVEL HELD AT {h.level} — XP BANKS UNTIL A PATH IS CHOSEN
+                          </div>
+                        )}
+                      </div>
+                    )
+                  })()}
                   {heroes.find(h => h.id === expandedId)?.level >= STAR_CAPS[heroes.find(h => h.id === expandedId)?.current_star || heroes.find(h => h.id === expandedId)?.birth_star] && (heroes.find(h => h.id === expandedId)?.current_star || heroes.find(h => h.id === expandedId)?.birth_star) < 7 && (
                     <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end' }}>
                       <button className="btn" style={{ border: '1px solid var(--star5)', color: 'var(--star5)', background: 'rgba(201,168,76,0.1)', fontFamily: 'Cinzel, serif', padding: '0.3rem 0.8rem', fontSize: '0.75rem', boxShadow: '0 0 5px var(--star5)', borderRadius: 4 }} onClick={(e) => handlePromote(expandedId, e)} disabled={ascending || promoting}>
@@ -1210,6 +1222,7 @@ export default function HeroesPage({ onNavigate }) {
           onClose={() => setEvoModal(null)}
           onEvolve={(newClass) => {
             setMsg(`Hero evolved to ${newClass}!`)
+            import('../audio').then(a => a.playEvolveSurge()).catch(() => {})
             load()
           }}
         />

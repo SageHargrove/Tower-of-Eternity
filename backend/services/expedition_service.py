@@ -85,6 +85,20 @@ def _roll_reward(lane_key: str, ship_tier: int, crew_count: int) -> dict:
     return {"kind": "materials", "drops": drops}
 
 
+def _scale_reward(reward: dict, mult: float) -> dict:
+    """THE HELM minigame multiplier applied to a rolled reward. mult<=0.05 is
+    the DAMAGED-HULL sentinel — the run comes home at half spoils regardless."""
+    if mult <= 0.05:
+        mult = 0.5
+    mult = max(0.3, min(3.0, mult))
+    out = dict(reward)
+    if "amount" in out:
+        out["amount"] = int(out["amount"] * mult)
+    if "drops" in out:
+        out["drops"] = {k: max(1, int(v * mult)) for k, v in out["drops"].items()}
+    return out
+
+
 def _apply_reward(conn, reward: dict, half: bool = False):
     if reward["kind"] == "gold":
         amt = reward["amount"] // 2 if half else reward["amount"]
@@ -148,7 +162,7 @@ def expeditions_status() -> dict:
         }
 
 
-def dispatch(lane_key: str, hero_ids: list) -> dict:
+def dispatch(lane_key: str, hero_ids: list, quality_mult: float = 1.0) -> dict:
     if lane_key not in LANES:
         raise HTTPException(status_code=400, detail="No such lane on the charts.")
     with db() as conn:
@@ -183,6 +197,7 @@ def dispatch(lane_key: str, hero_ids: list) -> dict:
             "crew_names": [r["name"] for r in rows],
             "departed_at": now.isoformat(),
             "returns_at": returns_at.isoformat(),
+            "quality": max(0.0, min(3.0, quality_mult or 1.0)),  # THE HELM result
         })
         return {"ok": True, "lane": lane_key, "returns_in_seconds": int(cfg["hours"] * 3600),
                 "message": f"{cfg['name']} — the hull slips its moorings. Returns in {cfg['hours']} hours."}
@@ -197,11 +212,15 @@ def collect(lane_key: str) -> dict:
         returns_at = datetime.fromisoformat(state["returns_at"])
         if now < returns_at:
             raise HTTPException(status_code=400, detail="The hull is still out — recall it early for half spoils, or wait.")
-        reward = _roll_reward(lane_key, state.get("ship_tier", 1), len(state.get("crew", [])))
+        reward = _scale_reward(
+            _roll_reward(lane_key, state.get("ship_tier", 1), len(state.get("crew", []))),
+            state.get("quality", 1.0))
         applied = _apply_reward(conn, reward)
         _save(conn, {})
-        return {"ok": True, "lane": lane_key, "reward": applied,
-                "message": f"{LANES[lane_key]['name']} — the hull returns heavy with spoils."}
+        damaged = state.get("quality", 1.0) <= 0.05
+        return {"ok": True, "lane": lane_key, "reward": applied, "damaged": damaged,
+                "message": (f"{LANES[lane_key]['name']} — the hull limps home scorched; half the hold was lost to the storm."
+                            if damaged else f"{LANES[lane_key]['name']} — the hull returns heavy with spoils.")}
 
 
 def recall(lane_key: str) -> dict:
@@ -209,7 +228,9 @@ def recall(lane_key: str) -> dict:
         state = _state(conn)
         if state.get("lane") != lane_key:
             raise HTTPException(status_code=400, detail="No hull is out on that lane.")
-        reward = _roll_reward(lane_key, state.get("ship_tier", 1), len(state.get("crew", [])))
+        reward = _scale_reward(
+            _roll_reward(lane_key, state.get("ship_tier", 1), len(state.get("crew", []))),
+            state.get("quality", 1.0))
         applied = _apply_reward(conn, reward, half=True)
         _save(conn, {})
         return {"ok": True, "lane": lane_key, "reward": applied,

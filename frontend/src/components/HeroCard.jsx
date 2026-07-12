@@ -629,7 +629,7 @@ export default function HeroCard({ hero, onAssign, onManageEquipment, onManageCo
             padding: '1px 6px', fontSize: '0.7em',
             fontFamily: 'Cinzel, serif', marginTop: '0.3em', cursor: 'help'
           }}>
-            {hero.condition === 'Depressed' ? '🌧️ Depressed' : '👴 Retired'}
+            {hero.condition === 'Depressed' ? '◆️ Depressed' : '✦ Retired'}
           </span>
         )}
         {!showFull && (hero.is_team_leader || (hero.ego_type && hero.ego_type.toLowerCase() !== 'null')) && (
@@ -640,7 +640,7 @@ export default function HeroCard({ hero, onAssign, onManageEquipment, onManageCo
             padding: '1px 6px', fontSize: '0.7em',
             fontFamily: 'Cinzel, serif', marginTop: '0.3em', cursor: 'help'
           }}>
-            {hero.is_team_leader ? '👑' : '⚡'} more...
+            {hero.is_team_leader ? '♛' : '✦'} more...
           </span>
         )}
       </div>
@@ -664,7 +664,7 @@ export default function HeroCard({ hero, onAssign, onManageEquipment, onManageCo
               marginTop: '0.3em',
               cursor: 'help'
             }}>
-            ⚡ Ego: {hero.ego_type}
+            ✦ Ego: {hero.ego_type}
             <span style={{ display: 'inline-block', width: '28px', height: '4px', background: 'rgba(255,255,255,0.15)', borderRadius: 2, overflow: 'hidden' }}>
               <span style={{
                 display: 'block', height: '100%',
@@ -684,7 +684,7 @@ export default function HeroCard({ hero, onAssign, onManageEquipment, onManageCo
             padding: '1px 6px', fontSize: '0.7em',
             fontFamily: 'Cinzel, serif', marginTop: '0.3em', cursor: 'help'
           }}>
-            👑 Leader
+            ♛ Leader
           </span>
         )}
         {hero.battle_tendency && (
@@ -718,7 +718,7 @@ export default function HeroCard({ hero, onAssign, onManageEquipment, onManageCo
                 padding: '1px 6px', fontSize: '0.7em',
                 fontFamily: 'Cinzel, serif', marginTop: '0.3em', cursor: 'help'
               }}>
-              ❤️ {hero.bonds.length} (+{totalBondLevel}%)
+              ♥ {hero.bonds.length} (+{totalBondLevel}%)
             </span>
           )
         })()}
@@ -732,7 +732,7 @@ export default function HeroCard({ hero, onAssign, onManageEquipment, onManageCo
             padding: '1px 6px', fontSize: '0.7em',
             fontFamily: 'Cinzel, serif', marginTop: '0.3em', cursor: 'help'
           }}>
-            🕯️ {hero.legacies.length}
+            ✦️ {hero.legacies.length}
           </span>
         )}
       </div>
@@ -990,7 +990,7 @@ export default function HeroCard({ hero, onAssign, onManageEquipment, onManageCo
                     display: 'flex', alignItems: 'center', gap: '0.5em',
                     marginTop: '0.5em', fontSize: '0.8em', color: 'var(--text-dim)',
                   }}>
-                    <span style={{ opacity: 0.7 }}>🔒</span>
+                    <span style={{ opacity: 0.7 }}>?</span>
                     <span>
                       {lockedSentences} more {lockedSentences === 1 ? 'passage' : 'passages'} of their legend
                       unlock{lockedSentences === 1 ? 's' : ''} with promotion (fully told at 6★)

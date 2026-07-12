@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react'
 import { StackedTitle, Panel, Meter, SectionHeader } from '../components/ilm/Ilm'
-import { getBase, getFacilities, buildFacility, upgradeFacility, assignFacility, removeFacility, restHeroes, listHeroes, configTraining, getMageTowerUpgrades, buyResearchUpgrade, craftMaterialEquipment, craftBandages, getBaseFloors, assignBaseFloor, getLegacies, getHearth, renameBase, upgradeBase, getMarketCatalog, purchaseMarketItem, getBaseUpgrades, buyBaseUpgrade, getMailList, claimMail, getShip, buildShip, renameShip, refitShip, buyRefitPoint } from '../api/client'
+import { getBase, getFacilities, buildFacility, upgradeFacility, assignFacility, removeFacility, restHeroes, listHeroes, configTraining, getMageTowerUpgrades, buyResearchUpgrade, craftMaterialEquipment, craftBandages, getBaseFloors, assignBaseFloor, getLegacies, getHearth, renameBase, upgradeBase, getMarketCatalog, purchaseMarketItem, getBaseUpgrades, buyBaseUpgrade, getMailList, claimMail, getShip, buildShip, renameShip, refitShip, buyRefitPoint, getSupportBoons } from '../api/client'
 import MirrorOfFate from '../components/MirrorOfFate'
 import ItemIcon from '../components/ItemIcon'
 import TeamBanner from '../components/TeamBanner'
@@ -12,7 +12,7 @@ import { DiamondPortrait } from '../components/HearthDrawer'
 import BannerStudio from '../components/BannerStudio'
 import Expeditions from '../components/Expeditions'
 import { getBanner } from '../api/client'
-import { CookingPanel, RefineAetherPanel, BestiaryPanel, ReliquaryPanel, ChronospherePanel, TranscendencePanel } from '../components/EndgamePanels'
+import { CookingPanel, RefineAetherPanel, BestiaryPanel, ReliquaryPanel, ChronospherePanel, TranscendencePanel, ShrineRitePanel } from '../components/EndgamePanels'
 import LoreJournal from '../components/LoreJournal'
 import Memorial from '../components/Memorial'
 import GameIcon from '../components/GameIcon'
@@ -64,23 +64,23 @@ function parseUtcTimestamp(ts) {
 // infirmary/alchemist/research/sanctum services, get_workshop_discount) —
 // each names the real mechanic and the classes the code actually favors.
 const FACILITY_TOOLTIPS = {
-  "Market": "Generates passive gold (scales with level) and stocks a small shop for ingredients, materials, and bandages. Merchants and Quartermasters give the biggest generation bonus; anyone assigned helps a little and earns passive XP.",
-  "Farm": "Grows alchemy INGREDIENTS passively (scales with level) — cook them into consumables at the Dining Hall, or brew them into potions at the Alchemist Lab. Farmers and Druids give the biggest generation bonus.",
-  "Training Grounds": "Where the bench gets stronger without risking the Tower. Each assigned hero runs a solo DRILL — Focus (XP), Conditioning (permanently raise a stat, capped by this facility's level), Meditation (Mental aptitude + reveal hidden ones), or Weapon Drills (grind a specific skill). Set an intensity to trade faster gains for fatigue & stress. Two heroes can also SPAR: peers (similar level) both gain, or a veteran can MENTOR a rookie — pouring in XP, teaching a skill, and building a combat bond.",
-  "Dining Hall": "Assigned cooks passively restore MORALE for the entire living roster, and the kitchen COOKS Farm ingredients into early consumables (rations, stews) heroes can carry into the Tower. Chefs are worth triple anyone else in the kitchen.",
-  "Forge": "Crafts weapons, armor, and accessories. Craft quality is capped by your single best Blacksmith — extra smiths of the same tier add a smaller bonus on top.",
-  "Infirmary": "Passively heals TRAUMA over time and crafts Bandages (auto-used on your most injured heroes before the next floor). Medics and Priests heal fastest.",
-  "Vault": "Each upgrade expands equipment storage capacity. Assigned caretakers don't affect capacity — they just earn passive XP while minding the shelves.",
-  "Alchemist Lab": "Brews potions passively over time. Alchemists and Mages brew dramatically faster; high Mental aptitude helps too.",
+  "Market": "Generates passive gold (scales with level) and stocks a small shop. A stationed MERCHANT powers it by branch: Traders swell the gold (up to +140%), Smugglers open black-market prices on the shop instead. Anyone assigned helps a little and earns passive XP.",
+  "Farm": "Grows alchemy INGREDIENTS passively (scales with level) — cook them at the Dining Hall or brew them at the Lab. A stationed FARMER (Master Farmer line) swells the harvest; a Forager-line Chef in the Dining Hall adds a Full Larder bonus on top. Beast Tamers instead empower the Bestiary's guardians.",
+  "Training Grounds": "Where the bench gets stronger without risking the Tower — drills, sparring, and mentorship. A stationed TACTICIAN also commands every climb by branch: Strategists open with a guaranteed first strike + bonus mana, Commanders hold a Battle Formation (+% all stats), Advisors convene a War Council (Strength + crit; Warlords snowball off kills).",
+  "Dining Hall": "Assigned cooks passively restore MORALE for the roster and COOK Farm ingredients into consumables. A stationed CHEF feeds the whole climbing team by branch: Sous Chefs lay a Grand Feast (+% ALL stats), Butchers serve War Rations (Strength + crit), Foragers keep a Full Larder (more Farm ingredients). Power scales with star AND evolution.",
+  "Forge": "Crafts weapons, armor, and accessories. A stationed BLACKSMITH works by branch: Weaponsmiths cut crafting gold costs (never free — Master Smiths can even forge a cut above), Armorers temper the whole team's plate (−% damage taken), Artificers' runework speeds Athenaeum research.",
+  "Infirmary": "Passively heals TRAUMA and crafts Bandages (auto-used before the next floor). A stationed MEDIC guards the climb by branch: Surgeons raise max HP entering fights, Herbalists brew regen salves (per-round healing), Field Medics coat the party's blades in toxins.",
+  "Vault": "Each upgrade expands equipment storage. A stationed QUARTERMASTER makes the stores fight by branch: Scavengers armor the party with an opening damage barrier, Logistics Officers dispatch emergency field kits mid-fight, Merchants run a War Chest (the Vault generates gold).",
+  "Alchemist Lab": "Brews potions passively over time. A stationed ALCHEMIST works by branch: Apothecaries brew dramatically faster, Poisoners issue combat draughts (+Strength/Intelligence in fights), Transmuters transmute lead into passive gold.",
   "Tavern": "Assigned hosts take the edge off — passively reduces STRESS for the entire living roster. Bards and Chefs make the best hosts.",
   "Skydock": "Discounts the gold cost of upgrading every OTHER facility (up to 50% off), scaling with Skydock level — Magic Engineers triple their contribution. This is where magic battleships will be built: Magic Engineers craft the greatest hulls, but any high-Mental hero can apprentice here for a basic vessel.",
   "Wall": "The base's FOUNDATION — no other facility can be upgraded above the Wall's level, so raise it first. Every level also adds flat defense rating for the coming Raid system (opt-in): raiders must breach the Wall before the Bastion's garrison ever engages.",
   "Bastion": "Your garrison for the coming Raid system (raiding is opt-in). Stationed heroes contribute their strength behind the Wall's cover — and a Magic Engineer's arcane cannons DOUBLE the whole garrison, letting even 1★ heroes hold the line.",
-  "Shrine": "Assigned clergy slowly deepen the whole roster's LOYALTY (affinity) — the same track gifts raise, and the one that decides whether a captured hero stays yours. Priests and Acolytes are twice as effective.",
+  "Shrine": "Assigned clergy slowly deepen the whole roster's LOYALTY (affinity). A stationed PRIEST blesses the climb by branch: Oracles grant death-saves (a hero refuses a fatal blow — 6★+ only), Chaplains lend physical & magic resistance, Confessors deepen loyalty fastest and calm the roster's stress.",
   "Mage Tower": "Conducts magical research for permanent upgrades. Magic Engineers are the most effective researchers, then Mages, then Spellswords.",
   "Athenaeum": "The company's research hall. Assigned scholars generate INSIGHT that flows into whichever study is active on the research map — five disciplines, plus emergent confluences where two mastered schools weave together. Mages and Magic Engineers study fastest.",
   "Mirror of Fate": "Pay gold to instantly reveal a hero's hidden Talent. The Mirror's level sets the detail: a vague tier at first, a numeric range at Lv.5, the exact number at Lv.10.",
-  "Bestiary": "Houses beasts captured in the Tower. Kept beasts add their menace to your base's defense rating; higher levels hold more (and bigger) monsters.",
+  "Bestiary": "Houses beasts captured in the Tower — kept beasts add their menace to your base's defense. A stationed SCOUT hunts by branch: Pathfinders master the hunt (better capture odds, bigger catches, Rangers take Alphas), Trackers mark the strongest enemy each fight (shredded defenses), Spies sabotage enemy camps (they enter weakened).",
   "Reliquary": "A museum of your conquests — mount the Trophies major Bosses drop (every 10th floor) to grant permanent, roster-wide passive buffs.",
   "Chronosphere": "Bend time once per day: instantly simulate hours of passive base generation (gold, ingredients, XP, fatigue recovery). Upgrades increase the hours skipped.",
   "Transcendence Core": "The endgame furnace — feed it staggering amounts of gold to permanently empower your entire roster, one infusion at a time. Each infusion costs more than the last.",
@@ -99,6 +99,80 @@ const FACILITY_CATEGORY = {
 }
 const FACILITY_CATEGORIES = ["All", "Economy", "Support", "Military", "Endgame"]
 function facilityCategory(type) { return FACILITY_CATEGORY[type] || "Economy" }
+
+// Which support lineage draws power from each facility (mirrors backend
+// support_service.SUPPORT_FACILITY) — for the boon banner in the facility modal.
+const FACILITY_SUPPORT_CLASS = {
+  'Dining Hall': 'Chef', 'Infirmary': 'Medic', 'Bestiary': 'Scout', 'Forge': 'Blacksmith',
+  'Vault': 'Quartermaster', 'Training Grounds': 'Tactician', 'Shrine': 'Priest',
+  'Alchemist Lab': 'Alchemist', 'Market': 'Merchant', 'Farm': 'Farmer',
+}
+// Turn the raw /base/support payload into a readable boon for a facility.
+// null = facility has no support class. active=false = no specialist assigned
+// (or that branch's mechanic isn't wired yet).
+function facilityBoon(facType, boons) {
+  const cls = FACILITY_SUPPORT_CLASS[facType]
+  if (!cls || !boons) return null
+  const tiers = boons.tiers || {}, branches = boons.branches || {}, b = boons
+  const mastery = tiers[cls] || 0
+  const branch = branches[cls]            // undefined = unassigned, null = unevolved
+  const assigned = cls in tiers
+  const pct = v => `${Math.round((v || 0) * 100)}%`
+  let title = null, lines = []
+  if (cls === 'Chef') {
+    if (branch === 'Butcher') { title = 'War Rations'; lines = [`+${b.war_str_pct}% Strength`, `+${pct(b.war_crit)} crit chance`]; if (b.chef_morale_boost) lines.push(`Iron Chef: +${b.chef_morale_boost} morale entering fights`) }
+    else if (branch === 'Forager') { title = 'Full Larder'; lines = [`+${pct(b.chef_larder_ingredient_bonus)} Farm ingredients`] }
+    else if (b.feast_stat_pct) { title = branch === 'Sous Chef' ? 'Grand Feast' : 'Feast'; lines = [`+${b.feast_stat_pct}% ALL stats to deployed heroes`]; if (b.chef_wellfed_regen) lines.push(`Master Chef: well-fed regen (${pct(b.chef_wellfed_regen)}/round)`) }
+  } else if (cls === 'Medic') {
+    if (branch === 'Field Medic' && b.medic_poison_pct) { title = 'Toxin Kit'; lines = [`Deployed heroes poison on hit (${pct(b.medic_poison_pct)} max HP / turn)`]; if (b.alch_enemy_poison) lines.push('Plague Doctor: enemies start every fight afflicted') }
+    else if (branch === 'Herbalist') { title = 'Regen Salves'; lines = [`Heal ${pct(b.medic_regen_pct)} max HP every combat round`]; if (b.medic_cleanse) lines.push('Miracle Worker: afflictions burn off twice as fast') }
+    else if (b.medic_shield_pct) { title = branch === 'Surgeon' ? 'Field Surgery' : 'Field Dressing'; lines = [`+${b.medic_shield_pct}% max HP entering every fight`]; if (b.medic_stitch_pct) lines.push(`CMO: once/fight emergency stitch (${pct(b.medic_stitch_pct)} HP)`) }
+  } else if (cls === 'Priest') {
+    if (branch === 'Chaplain') { title = 'Blessing'; lines = [`+${pct(b.blessing_resist_pct)} physical & magic resistance`]; if (b.priest_blessing_heal) lines.push(`Saint: fight-start mending (${pct(b.priest_blessing_heal)} HP)`) }
+    else if (branch === 'Confessor' && b.priest_loyalty_bonus) { title = 'Absolution'; lines = [`+${b.priest_loyalty_bonus} loyalty per Shrine pulse`]; if (b.priest_calm_stress) lines.push(`High Confessor: −${b.priest_calm_stress} roster stress per pulse`) }
+    else if (b.priest_death_saves) { title = 'Guardian Fate'; lines = [`${b.priest_death_saves} death-save${b.priest_death_saves > 1 ? 's' : ''} per hero, per fight`]; if (b.priest_foresee) lines.push('Prophet: one fatal blow foreseen & dodged per fight') }
+  } else if (cls === 'Tactician') {
+    if (branch === 'Commander') { title = 'Battle Formation'; lines = [`+${b.formation_pct}% all combat stats`]; if (b.tact_laststand_pct) lines.push(`General: survivors +${pct(b.tact_laststand_pct)} per fallen ally`) }
+    else if (branch === 'Advisor' && b.advisor_crit) { title = 'War Council'; lines = [`+${b.advisor_str_pct}% Strength`, `+${pct(b.advisor_crit)} crit chance`]; if (b.tact_snowball_pct) lines.push(`Warlord: kills grant +${pct(b.tact_snowball_pct)} ATK (stacking)`) }
+    else if (b.tactician_bonus_mana) { title = b.tactician_first_strike ? 'Opening Gambit' : 'Field Orders'; lines = [b.tactician_first_strike ? `Guaranteed first strike + ${b.tactician_bonus_mana} opening mana` : `+${b.tactician_bonus_mana} opening mana`]; if (b.tact_haste_agi) lines.push('Grand Strategist: opening haste (2 rounds)') }
+  } else if (cls === 'Quartermaster') {
+    if (branch === 'Logistics Officer' && b.quartermaster_kit_charges) { title = 'Field Kits'; lines = [`${b.quartermaster_kit_charges} emergency heal${b.quartermaster_kit_charges > 1 ? 's' : ''} (${pct(b.quartermaster_kit_heal_pct)} HP) mid-fight`]; if (b.qm_kit_mana) lines.push('Guildmaster: kits also restore mana & purge afflictions') }
+    else if (branch === 'Merchant' && b.vault_gold_bonus) { title = 'War Chest'; lines = [`The Vault generates +${pct(b.vault_gold_bonus)} passive gold`]; if (b.qm_warchest_gold_pct) lines.push(`Tycoon: +${pct(b.qm_warchest_gold_pct)} gold from every floor`) }
+    else if (b.quartermaster_barrier_pct) { title = branch === 'Scavenger' ? 'Deep Stores' : 'Standing Orders'; lines = [`${pct(b.quartermaster_barrier_pct)} damage barrier for the first ${b.quartermaster_barrier_rounds} rounds`]; if (b.qm_hoard_loot_pct) lines.push(`Hoarder: +${pct(b.qm_hoard_loot_pct)} gold & materials from floors`) }
+  } else if (cls === 'Merchant' && b.merchant_income_bonus) {
+    title = 'Bull Market'; lines = [`+${pct(b.merchant_income_bonus)} passive gold`]
+  } else if (cls === 'Scout' && b.scout_capture_bonus) {
+    title = 'Master of the Hunt'; lines = [`+${pct(b.scout_capture_bonus)} beast capture chance`, `+${pct(b.scout_beast_power_pct)} power on beasts you catch`]
+    if (b.scout_elite_hunt) lines.push('Ranger: chance to capture ALPHA beasts')
+  } else if (cls === 'Scout' && b.scout_mark_pct) {
+    title = "Predator's Mark"; lines = [`The strongest enemy enters with −${pct(b.scout_mark_pct)} defenses`]
+    if (b.scout_mark_armor_pen) lines.push(`Infiltrator: team +${pct(b.scout_mark_armor_pen)} armor pen`)
+  } else if (cls === 'Scout' && b.scout_sabotage_pct) {
+    title = 'Sabotage'; lines = [`Enemies enter every fight at −${pct(b.scout_sabotage_pct)} stats & HP`]
+  } else if (cls === 'Blacksmith' && b.smith_dmg_reduction_pct) {
+    title = 'Tempered Plate'; lines = [`Deployed heroes take −${pct(b.smith_dmg_reduction_pct)} damage`]
+  } else if (cls === 'Blacksmith' && b.smith_research_pct) {
+    title = 'Runework'; lines = [`+${b.smith_research_pct}% Athenaeum insight rate`]
+  } else if (cls === 'Farmer' && b.farmer_beast_defense_mult) {
+    title = 'Menagerie'; lines = [`Guarding beasts contribute +${pct(b.farmer_beast_defense_mult)} base defense`]
+  } else if (cls === 'Farmer' && b.farmer_income_bonus) {
+    title = 'Bountiful Harvest'; lines = [`+${pct(b.farmer_income_bonus)} passive ingredients`]
+  } else if (cls === 'Blacksmith' && b.craft_discount_pct) {
+    title = 'Master Forge'; lines = [`−${b.craft_discount_pct}% crafting gold cost`]
+    if (b.smith_rarity_chance) lines.push(`Master Smith: ${pct(b.smith_rarity_chance)} chance crafts come out +1 rarity`)
+  } else if (cls === 'Alchemist' && b.alch_draught_pct) {
+    title = 'Combat Draughts'; lines = [`Deployed heroes +${b.alch_draught_pct}% Strength & Intelligence`]
+    if (b.alch_enemy_poison) lines.push('Brewmaster: enemies start every fight poisoned')
+  } else if (cls === 'Alchemist' && b.alch_transmute_gold) {
+    title = 'Transmutation'; lines = [`The Lab transmutes ~${b.alch_transmute_gold} gold per level over time`]
+  } else if (cls === 'Alchemist' && b.brew_bonus) {
+    title = 'Master Brewer'; lines = [`Faster passive brewing (+${pct(b.brew_bonus)}/tick)`]
+  } else if (cls === 'Merchant' && b.smuggler_discount_pct) {
+    title = 'Black Market'; lines = [`−${b.smuggler_discount_pct}% on every Market purchase`]
+    if (b.merchant_income_bonus) lines.push(`Contraband: +${pct(b.merchant_income_bonus)} passive gold`)
+  }
+  return { cls, mastery, branch, assigned, active: !!title && lines.length > 0, title, lines }
+}
 
 // Tiny inline sparkline showing the real diminishing-returns curve a
 // stationed floor follows: stat_bonus_pct = (total_lp / sqrt(headcount)) / 10
@@ -138,6 +212,7 @@ export default function BasePage({ onGoldChange, onSubTabChange, tourTargetSubTa
   // Which built facility's detail panel is expanded in the grid (mockup:
   // compact cards; clicking opens the facility's management panel inline).
   const [selFacId, setSelFacId] = useState(null)
+  const [boons, setBoons] = useState(null)  // /base/support — resolved support-class effects for display
   const [base, setBase] = useState(null)
   const [facilitiesData, setFacilitiesData] = useState(null)
   const [baseHeroes, setBaseHeroes] = useState([])
@@ -236,6 +311,7 @@ export default function BasePage({ onGoldChange, onSubTabChange, tourTargetSubTa
       setBaseUpgrades(upgrades)
       setMailList(mail)
       getShip().then(setShip).catch(() => {})
+      getSupportBoons().then(setBoons).catch(() => {})
       
       const hasMage = fac.built?.some(f => f.type === 'Mage Tower')
       if (hasMage) {
@@ -364,6 +440,7 @@ const handleRenameBase = async () => {
       await craftMaterialEquipment(heroId, slot)
       loadAll()
       if (onGoldChange) onGoldChange()
+      import('../audio').then(a => a.playCraftClang()).catch(() => {})
       alertDialog("Crafted successfully!")
     } catch (e) {
       alertDialog(e.message)
@@ -838,6 +915,7 @@ const getGenRate = (fac) => {
         {fac.type === 'Dining Hall' && <CookingPanel onResourceChange={() => { loadAll(); if (onGoldChange) onGoldChange() }} />}
         {fac.type === 'Alchemist Lab' && <RefineAetherPanel onResourceChange={() => { loadAll(); if (onGoldChange) onGoldChange() }} />}
         {fac.type === 'Bestiary' && <BestiaryPanel />}
+        {fac.type === 'Shrine' && <ShrineRitePanel onResourceChange={() => loadAll()} />}
         {fac.type === 'Reliquary' && <ReliquaryPanel />}
         {fac.type === 'Chronosphere' && <ChronospherePanel onResourceChange={() => { loadAll(); if (onGoldChange) onGoldChange() }} />}
         {fac.type === 'Transcendence Core' && <TranscendencePanel gold={base.gold} onResourceChange={() => { loadAll(); if (onGoldChange) onGoldChange() }} />}
@@ -1322,6 +1400,31 @@ const getGenRate = (fac) => {
                     <span title={FACILITY_TOOLTIPS[selFac.type] || 'Base facility.'} style={{ color: 'var(--gold)', cursor: 'help', fontSize: '0.8rem' }}>[?]</span>
                     <button className="ilm-close" style={{ marginLeft: 'auto' }} onClick={() => setSelFacId(null)}>✕</button>
                   </div>
+                  {(() => {
+                    const boon = facilityBoon(selFac.type, boons)
+                    if (!boon) return null
+                    if (boon.active) {
+                      import('../codexBus').then(c => c.unlockCodex('boons', 'COMPANY BOONS')).catch(() => {})
+                      return (
+                        <div className="ilm-boon-banner active">
+                          <div className="ilm-boon-eyebrow">◆ COMPANY BOON · ACTIVE</div>
+                          <div className="ilm-boon-title">{boon.title}</div>
+                          {boon.lines.map((l, i) => <div key={i} className="ilm-boon-line">{l}</div>)}
+                          <div className="ilm-boon-foot">via a mastery-{boon.mastery} {boon.branch || boon.cls} in the {selFac.type}</div>
+                        </div>
+                      )
+                    }
+                    return (
+                      <div className="ilm-boon-banner">
+                        <div className="ilm-boon-eyebrow" style={{ color: 'var(--muted)' }}>◇ COMPANY BOON · DORMANT</div>
+                        <div className="ilm-boon-line" style={{ marginTop: 4 }}>
+                          {boon.assigned
+                            ? `This ${boon.branch || boon.cls}'s boon grows with mastery and evolution — keep leveling them.`
+                            : `Assign a ${boon.cls} here to activate this facility's boon.`}
+                        </div>
+                      </div>
+                    )
+                  })()}
                   {renderFacilityDetail(selFac)}
                 </div>
               </div>

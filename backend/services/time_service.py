@@ -110,19 +110,37 @@ def process_passive_generation(conn):
         # Support revamp: a Merchant on the Market / Farmer on the Farm adds a
         # star-scaled bonus on top (support_service.INCOME_BONUS — up to +75%
         # at 7★), so a high-star economist is a real jackpot.
+        vault_gold_bonus = 0
         try:
             from services.support_service import get_support_effects
             fx = get_support_effects(conn)
             if f["type"] == 'Market':
                 multiplier += fx.get("merchant_income_bonus", 0)
             elif f["type"] == 'Farm':
+                # Farmer (Master Farmer) on the Farm + a Chef (Forager → Full
+                # Larder) working the kitchen both swell the harvest.
                 multiplier += fx.get("farmer_income_bonus", 0)
+                multiplier += fx.get("chef_larder_ingredient_bonus", 0)
+            elif f["type"] == 'Vault':
+                # Quartermaster (Merchant → War Chest) turns the Vault into a
+                # passive gold source it otherwise isn't.
+                vault_gold_bonus = fx.get("vault_gold_bonus", 0)
+            elif f["type"] == 'Alchemist Lab':
+                # Alchemist (Transmuter) — the Lab transmutes lead into gold.
+                transmute = fx.get("alch_transmute_gold", 0)
+                if transmute:
+                    gold_gen += int(transmute * f["level"] * 0.5) * ticks
         except Exception:
             pass
 
         if f["type"] == 'Market':
             base_amt = 100 * f["level"]
             gold_gen += int(base_amt * multiplier) * ticks
+        elif f["type"] == 'Vault' and vault_gold_bonus > 0:
+            # The Vault only earns with a War Chest Quartermaster stationed —
+            # otherwise it just stores. Base is modest vs the Market.
+            base_amt = 60 * f["level"]
+            gold_gen += int(base_amt * (multiplier + vault_gold_bonus)) * ticks
         elif f["type"] == 'Farm':
             # The Farm grows alchemy ingredients (replaced the retired
             # supplies currency) — cooked into consumables at the Dining

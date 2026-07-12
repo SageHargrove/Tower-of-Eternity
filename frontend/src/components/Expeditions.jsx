@@ -6,6 +6,8 @@
 import React, { useState, useEffect } from 'react'
 import { getExpeditions, dispatchExpedition, collectExpedition, recallExpedition, listHeroes } from '../api/client'
 import { emitToast } from '../toastBus'
+import MinigameShell, { AUTO_RESOLVE_MULT } from './minigames/MinigameShell'
+import HelmGates from './minigames/HelmGates'
 
 const TONE = { violet: 'rgba(150,110,230,.45)', gold: 'rgba(216,187,132,.45)', red: 'rgba(192,64,64,.45)' }
 const REWARD_LABEL = { gold: 'Gold · scales with the hull', aether: 'Aether · raid fuel', materials: 'Forge materials · embercores' }
@@ -52,10 +54,18 @@ export default function Expeditions({ onClose }) {
     } catch { setRoster([]) }
   }
 
-  async function launch() {
+  // Launch opens THE HELM — the steering minigame decides the voyage's
+  // spoils multiplier (skip = NOVICE baseline; a botched Legendary run
+  // means the hull limps home at half spoils).
+  const [showHelm, setShowHelm] = useState(false)
+
+  function launch() { setShowHelm(true) }
+
+  async function doLaunch(qualityMult) {
+    setShowHelm(false)
     setBusy(picking)
     try {
-      const res = await dispatchExpedition(picking, crew)
+      const res = await dispatchExpedition(picking, crew, qualityMult)
       emitToast(res.message, 'success')
       setPicking(null)
       await load()
@@ -165,6 +175,16 @@ export default function Expeditions({ onClose }) {
             </div>
           </div>
         </div>
+      )}
+
+      {showHelm && (
+        <MinigameShell
+          title="THE HELM"
+          flavor="The hull strains at its moorings. Take the wheel through the departure lanes yourself, or let the crew sail her out."
+          onSkip={() => doLaunch(AUTO_RESOLVE_MULT)}
+          onResolve={(mult) => doLaunch(mult)}
+          game={(difficulty, onDone) => <HelmGates difficulty={difficulty} onDone={onDone} />}
+        />
       )}
     </div>
   )

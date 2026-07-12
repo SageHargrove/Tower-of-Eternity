@@ -4,17 +4,33 @@
  * Rounds are a daily-capped gold sink: one per patron, one for the house.
  */
 import React, { useState, useEffect } from 'react'
-import { getTavern, buyTavernRound } from '../api/client'
+import { getTavern, buyTavernRound, tavernDice } from '../api/client'
 import { emitToast } from '../toastBus'
+import MinigameShell, { AUTO_RESOLVE_MULT } from './minigames/MinigameShell'
+import DiceKnuckle from './minigames/DiceKnuckle'
 
 export default function Tavern({ onClose }) {
   const [tav, setTav] = useState(null)
   const [busy, setBusy] = useState(null)
+  // Knuckle & Bone dice table
+  const [wager, setWager] = useState(100)
+  const [showDice, setShowDice] = useState(false)
+  const [diceMsg, setDiceMsg] = useState(null)
 
   async function load() {
     try { setTav(await getTavern()) } catch { /* backend older than /tavern */ }
   }
   useEffect(() => { load() }, [])
+
+  async function resolveDice(mult) {
+    setShowDice(false)
+    try {
+      const res = await tavernDice(wager, mult)
+      setDiceMsg({ text: `${res.message} (${res.delta >= 0 ? '+' : ''}${res.delta.toLocaleString()}g · ${res.throws_left} throw${res.throws_left === 1 ? '' : 's'} left tonight)` })
+    } catch (e) {
+      setDiceMsg({ text: e.message, err: true })
+    }
+  }
 
   async function round(heroId = null) {
     setBusy(heroId ?? 'house')
@@ -99,8 +115,33 @@ export default function Tavern({ onClose }) {
           {tav?.house_round_bought
             ? <button className="ilm-btn ilm-btn-ghost ilm-btn-block" style={{ marginTop: 16 }} disabled>THE HOUSE HAS DRUNK · UNTIL DAWN</button>
             : <button className="ilm-btn ilm-btn-gold ilm-btn-block" style={{ marginTop: 16 }} disabled={busy === 'house'} onClick={() => round(null)}>POUR THE ROUND · {(tav?.house_round_cost ?? 2000).toLocaleString()} g</button>}
+
+          {/* KNUCKLE & BONE — the dice table (5 throws a night, house limit) */}
+          <div style={{ marginTop: 18, borderTop: '1px solid rgba(184,151,98,.25)', paddingTop: 12 }}>
+            <div style={{ fontFamily: "'Cinzel',serif", fontWeight: 900, fontSize: '1.05rem', color: 'var(--text-hi)' }}>KNUCKLE &amp; BONE</div>
+            <div style={{ fontStyle: 'italic', color: '#c8b8dd', fontSize: '0.85rem', marginTop: 4 }}>Three bones against the house. The stake rides on your nerve.</div>
+            <div style={{ display: 'flex', gap: 8, marginTop: 10, alignItems: 'center' }}>
+              <span className="ilm-micro" style={{ color: 'var(--muted)' }}>STAKE</span>
+              {[100, 500, 2000].map(w => (
+                <button key={w} className={`ilm-fac-chip ${wager === w ? 'active' : ''}`} onClick={() => setWager(w)}>{w.toLocaleString()}g</button>
+              ))}
+              <span style={{ flex: 1 }} />
+              <button className="ilm-btn ilm-btn-gold" onClick={() => setShowDice(true)}>SIT AT THE TABLE</button>
+            </div>
+            {diceMsg && <div style={{ fontSize: 12.5, fontStyle: 'italic', color: diceMsg.err ? '#d98a8a' : '#a8dfb8', marginTop: 8 }}>{diceMsg.text}</div>}
+          </div>
         </div>
       </div>
+
+      {showDice && (
+        <MinigameShell
+          title="KNUCKLE & BONE"
+          flavor={`${wager.toLocaleString()}g rides on three bones. The tier sets how lucky the house gets to be.`}
+          onSkip={() => resolveDice(AUTO_RESOLVE_MULT)}
+          onResolve={(mult) => resolveDice(mult)}
+          game={(difficulty, onDone) => <DiceKnuckle difficulty={difficulty} onDone={onDone} />}
+        />
+      )}
     </div>
   )
 }

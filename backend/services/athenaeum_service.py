@@ -184,6 +184,12 @@ def get_insight_rate(conn):
     # Completed insight_pct research feeds back into the rate itself.
     bonuses = get_research_bonuses(conn)
     rate *= 1.0 + bonuses.get("insight_pct", 0) / 100.0
+    # Blacksmith · Artificer (Runework): runic instruments speed every study.
+    try:
+        from services.support_service import get_support_effects
+        rate *= 1.0 + get_support_effects(conn).get("smith_research_pct", 0) / 100.0
+    except Exception:
+        pass
     return round(rate, 2), len(scholars)
 
 

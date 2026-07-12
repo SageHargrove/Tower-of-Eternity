@@ -5,7 +5,8 @@
  * (active_bonuses — the same numbers apply_legacy_bonuses feeds combat).
  */
 import React, { useState, useEffect } from 'react'
-import { getLegacies } from '../api/client'
+import { getLegacies, getHeroDeeds } from '../api/client'
+import Sigil from './Sigil'
 
 const FILTERS = ['ALL WHO FELL', 'THE SACRIFICED', 'CLAIMED IN COMBAT']
 
@@ -25,10 +26,22 @@ export default function Memorial({ onClose }) {
   const [filter, setFilter] = useState('ALL WHO FELL')
   const [data, setData] = useState(null)
   const [err, setErr] = useState(null)
+  // Deeds persist after death — click a name to unfold what they DID.
+  const [openId, setOpenId] = useState(null)
+  const [deedsById, setDeedsById] = useState({})
 
   useEffect(() => {
     getLegacies().then(setData).catch(e => setErr(e.message))
   }, [])
+
+  function toggleDeeds(f) {
+    const hid = f.hero_id
+    if (!hid) return
+    setOpenId(o => (o === f.id ? null : f.id))
+    if (deedsById[hid] === undefined) {
+      getHeroDeeds(hid).then(d => setDeedsById(m => ({ ...m, [hid]: d || [] }))).catch(() => setDeedsById(m => ({ ...m, [hid]: [] })))
+    }
+  }
 
   const legacies = (data?.legacies || []).slice().sort((a, b) => (b.score || 0) - (a.score || 0))
   const rows = legacies.filter(f =>
@@ -89,25 +102,40 @@ export default function Memorial({ onClose }) {
           )}
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
             {rows.map((f, i) => (
-              <div key={f.id ?? `${f.hero_name}-${i}`} className="ilm-memorial-row">
-                <span className="ilm-memorial-rank">{i + 1}</span>
-                <span className="ilm-memorial-urn">⚱</span>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ display: 'flex', alignItems: 'baseline', gap: 10 }}>
-                    <span style={{ fontFamily: "'Cinzel',serif", fontWeight: 700, fontSize: '0.86rem', letterSpacing: '.06em', color: 'var(--text-hi)' }}>{(f.hero_name || 'UNKNOWN').toUpperCase()}</span>
-                    <span className="ilm-chip" style={{ padding: '1px 8px', color: f.is_sacrifice ? 'var(--lavender)' : 'var(--muted)', border: `1px solid ${f.is_sacrifice ? 'rgba(150,110,230,.4)' : 'rgba(150,110,230,.2)'}` }}>
-                      {f.is_sacrifice ? 'SACRIFICED' : 'FELL IN BATTLE'}
-                    </span>
-                    {f.hero_star > 0 && <span className="ilm-micro" style={{ color: 'var(--gold-dim)' }}>{'★'.repeat(f.hero_star)}</span>}
+              <div key={f.id ?? `${f.hero_name}-${i}`}>
+                <div className="ilm-memorial-row" onClick={() => toggleDeeds(f)} style={{ cursor: f.hero_id ? 'pointer' : 'default' }}>
+                  <span className="ilm-memorial-rank">{i + 1}</span>
+                  <span className="ilm-memorial-urn"><Sigil set="ui" name="urn" size={16} fallback={<span style={{ color: 'var(--gold-dim)' }}>◆</span>} /></span>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ display: 'flex', alignItems: 'baseline', gap: 10 }}>
+                      <span style={{ fontFamily: "'Cinzel',serif", fontWeight: 700, fontSize: '0.86rem', letterSpacing: '.06em', color: 'var(--text-hi)' }}>{(f.hero_name || 'UNKNOWN').toUpperCase()}</span>
+                      <span className="ilm-chip" style={{ padding: '1px 8px', color: f.is_sacrifice ? 'var(--lavender)' : 'var(--muted)', border: `1px solid ${f.is_sacrifice ? 'rgba(150,110,230,.4)' : 'rgba(150,110,230,.2)'}` }}>
+                        {f.is_sacrifice ? 'SACRIFICED' : 'FELL IN BATTLE'}
+                      </span>
+                      {f.hero_star > 0 && <span className="ilm-micro" style={{ color: 'var(--gold-dim)' }}>{'★'.repeat(f.hero_star)}</span>}
+                    </div>
+                    <div style={{ fontStyle: 'italic', color: 'var(--text-dim)', fontSize: '0.84rem' }}>
+                      “{f.title || 'They climbed, and the Tower remembers.'}”{!f.is_sacrifice && ' · leaves no bond'}
+                    </div>
                   </div>
-                  <div style={{ fontStyle: 'italic', color: 'var(--text-dim)', fontSize: '0.84rem' }}>
-                    “{f.title || 'They climbed, and the Tower remembers.'}”{!f.is_sacrifice && ' · leaves no bond'}
+                  <div style={{ textAlign: 'right' }}>
+                    <div className="ilm-micro">SCORE</div>
+                    <div style={{ fontFamily: "'Cormorant Garamond',serif", fontWeight: 700, color: 'var(--gold-hi)', fontSize: '1.1rem' }}>{(f.score || 0).toLocaleString()}</div>
                   </div>
                 </div>
-                <div style={{ textAlign: 'right' }}>
-                  <div className="ilm-micro">SCORE</div>
-                  <div style={{ fontFamily: "'Cormorant Garamond',serif", fontWeight: 700, color: 'var(--gold-hi)', fontSize: '1.1rem' }}>{(f.score || 0).toLocaleString()}</div>
-                </div>
+                {/* their deeds — what this hero actually did, kept past death */}
+                {openId === f.id && (
+                  <div style={{ margin: '2px 0 6px 46px', padding: '10px 14px', borderLeft: '2px solid rgba(184,151,98,.35)', background: 'rgba(12,7,24,.4)' }}>
+                    {deedsById[f.hero_id] === undefined && <span style={{ fontStyle: 'italic', color: 'var(--muted)', fontSize: '0.8rem' }}>Remembering…</span>}
+                    {deedsById[f.hero_id]?.length === 0 && <span style={{ fontStyle: 'italic', color: 'var(--muted)', fontSize: '0.8rem' }}>Their deeds went unrecorded — but not unwitnessed.</span>}
+                    {(deedsById[f.hero_id] || []).map((d, j) => (
+                      <div key={j} style={{ display: 'flex', alignItems: 'baseline', gap: 8, marginTop: j === 0 ? 0 : 4 }}>
+                        <span style={{ width: 5, height: 5, transform: 'rotate(45deg)', background: 'var(--gold-dim)', display: 'inline-block', flex: 'none' }} />
+                        <span style={{ fontSize: '0.86rem', fontStyle: 'italic', color: '#d8cbb0' }}>{d.deed}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             ))}
           </div>

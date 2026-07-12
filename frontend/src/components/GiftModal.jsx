@@ -67,7 +67,7 @@ export default function GiftModal({ hero, onClose, onGifted }) {
           <>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.3rem' }}>
               <div style={{ fontFamily: 'Cinzel, serif', fontSize: '1.2rem', color: 'var(--gold)' }}>
-                🎁 A Gift for {hero.name}
+                ✦ A Gift for {hero.name}
               </div>
               <button className="btn" onClick={onClose}>Close</button>
             </div>

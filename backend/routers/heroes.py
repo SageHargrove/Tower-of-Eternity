@@ -144,6 +144,67 @@ def _attachment_label(sessions: int) -> str:
     return "trained under"
 
 
+class ManagerSparReq(BaseModel):
+    mult: float = 1.0
+
+
+@router.post("/{hero_id}/manager-spar")
+def manager_spar(hero_id: int, req: ManagerSparReq):
+    """THE COMMANDER'S TABLE — the manager sits across the board from a hero
+    and plays them at stones (Training Grounds minigame). A won game pours XP
+    into the hero (scaled by the difficulty multiplier, server-clamped ×3);
+    a LEGENDARY humiliation (mult 0) stresses them instead. Once per day per
+    hero — there's no material cost to gate it, so the calendar does."""
+    from services.level_service import recalculate_hero_level
+    with db() as conn:
+        try:
+            conn.execute("ALTER TABLE heroes ADD COLUMN last_manager_spar TEXT")
+        except Exception:
+            pass
+        hero = conn.execute("SELECT * FROM heroes WHERE id = ? AND is_alive = 1", (hero_id,)).fetchone()
+        if not hero:
+            raise HTTPException(status_code=404, detail="Hero not found or dead")
+        hero = dict(hero)
+        today = conn.execute("SELECT DATE('now')").fetchone()[0]
+        if hero.get("last_manager_spar") == today:
+            raise HTTPException(status_code=400, detail=f"{hero['name']} has already sat at the board today.")
+
+        mult = max(0.0, min(3.0, req.mult or 0.0))
+        conn.execute("UPDATE heroes SET last_manager_spar = ? WHERE id = ?", (today, hero_id))
+
+        if mult <= 0.05:
+            # Crushed on the board — a bruised ego, nothing learned.
+            conn.execute("UPDATE heroes SET stress = MIN(100, COALESCE(stress,0) + 8) WHERE id = ?", (hero_id,))
+            return {"ok": True, "humiliated": True, "xp": 0,
+                    "message": f"{hero['name']} stares at the board a long moment, then leaves without a word."}
+
+        xp = int((120 + (hero.get("level") or 1) * 18) * mult)
+        new_xp = (hero.get("xp") or 0) + xp
+        hero["xp"] = new_xp
+        new_level = recalculate_hero_level(hero)
+        leveled = new_level > (hero.get("level") or 1)
+        conn.execute("UPDATE heroes SET xp = ?, level = ?, affinity = MIN(100, COALESCE(affinity,0) + 2) WHERE id = ?",
+                     (new_xp, new_level, hero_id))
+        apt_up = False
+        if mult >= 2.0:
+            # A hard-fought loss against a strong opponent teaches command.
+            conn.execute("UPDATE heroes SET apt_leadership = COALESCE(apt_leadership, 50) + 1 WHERE id = ?", (hero_id,))
+            apt_up = True
+        return {"ok": True, "xp": xp, "new_level": new_level, "leveled": leveled,
+                "leadership_up": apt_up,
+                "message": f"{hero['name']} resets the stones, eyes brighter than before."}
+
+
+@router.get("/{hero_id}/deeds")
+def hero_deeds(hero_id: int):
+    """Permanent accomplishment records for a hero — mined from real fights
+    (boss kills, death-saves, swarm stands…). Persists after death, so the
+    Memorial can tell a fallen hero's story."""
+    with db() as conn:
+        from services.deeds_service import get_hero_deeds
+        return get_hero_deeds(conn, hero_id)
+
+
 @router.get("/{hero_id}/relationships")
 def hero_relationships(hero_id: int):
     """Who this hero is bonded to — mentors they learned under, students
@@ -1020,9 +1081,19 @@ def evolve_hero(hero_id: int, req: EvolveRequest):
         options = get_class_evolution_options(hero["hero_class"], hero.get("level", 1))
         if req.target_class not in options:
             raise HTTPException(status_code=400, detail=f"Cannot evolve {hero['hero_class']} to {req.target_class}. Valid options: {options}")
-        
+
         conn.execute("UPDATE heroes SET hero_class = ? WHERE id = ?", (req.target_class, hero_id))
-    return {"ok": True, "new_class": req.target_class}
+        # The evolution gate (level_service.evolution_gate_level) held their
+        # level at the milestone while XP kept banking — recalculate now so
+        # the choice releases the dam immediately.
+        hero["hero_class"] = req.target_class
+        new_level = recalculate_hero_level(hero)
+        levels_released = new_level - (hero.get("level") or 1)
+        if levels_released > 0:
+            conn.execute("UPDATE heroes SET level = ? WHERE id = ?", (new_level, hero_id))
+    return {"ok": True, "new_class": req.target_class,
+            "new_level": max(new_level, hero.get("level") or 1),
+            "levels_released": max(0, levels_released)}
 
 class EquipRequest(BaseModel):
     equipment_id: int

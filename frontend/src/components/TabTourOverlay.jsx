@@ -21,7 +21,7 @@ export default function TabTourOverlay({ step, stepIndex, totalSteps, entered, f
         <div style={{ width: 56, height: 56, borderRadius: '50%', overflow: 'hidden', border: '1px solid #a88be0', background: '#222', flexShrink: 0 }}>
           <img src={fairyImg} style={{ width: '100%', height: '100%', objectFit: 'cover' }}
             onError={(e) => { e.target.style.display = 'none'; e.target.nextSibling.style.display = 'flex' }} />
-          <div style={{ width: '100%', height: '100%', display: 'none', alignItems: 'center', justifyContent: 'center', fontSize: '1.8rem' }}>🧚</div>
+          <div style={{ width: '100%', height: '100%', display: 'none', alignItems: 'center', justifyContent: 'center', fontSize: '1.8rem' }}>✦</div>
         </div>
         <div style={{ flex: 1 }}>
           <div style={{ fontFamily: 'Cinzel, serif', color: '#a88be0', fontWeight: 'bold', fontSize: '1.05rem', marginBottom: '0.3rem' }}>

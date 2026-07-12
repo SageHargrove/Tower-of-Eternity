@@ -78,7 +78,18 @@ def maybe_capture_beast(conn, floor_number: int, enemy_names: list[str], is_boss
     if held >= bestiary_capacity(level):
         return None
 
-    chance = 0.06 + 0.01 * (level // 5)
+    # Scout · Pathfinder (Master of the Hunt) sharpens the odds and fattens the catch.
+    capture_bonus = 0.0
+    beast_power_pct = 0.0
+    try:
+        from services.support_service import get_support_effects
+        sfx = get_support_effects(conn)
+        capture_bonus = sfx.get("scout_capture_bonus", 0)
+        beast_power_pct = sfx.get("scout_beast_power_pct", 0)
+    except Exception:
+        pass
+
+    chance = 0.06 + 0.01 * (level // 5) + capture_bonus
     if random.random() > chance:
         return None
 
@@ -87,7 +98,15 @@ def maybe_capture_beast(conn, floor_number: int, enemy_names: list[str], is_boss
         return None
     species = random.choice(candidates)
     name = f"{random.choice(BEAST_EPITHETS)} {species}"
-    power = 10 + floor_number * 2
+    power = int((10 + floor_number * 2) * (1.0 + beast_power_pct))
+    # Ranger capstone (Master of the Hunt): sometimes the ALPHA itself is taken.
+    try:
+        elite = sfx.get("scout_elite_hunt", 0)
+        if elite and random.random() < 0.25:
+            name = f"Alpha {species}"
+            power = int(power * (1.0 + elite))
+    except Exception:
+        pass
     cur = conn.execute(
         "INSERT INTO bestiary_beasts (name, species, floor_caught, power) VALUES (?,?,?,?)",
         (name, species, floor_number, power)
@@ -99,13 +118,24 @@ def get_bestiary(conn) -> dict:
     _ensure_schema(conn)
     level = _facility_level(conn, "Bestiary")
     beasts = [dict(r) for r in conn.execute("SELECT * FROM bestiary_beasts ORDER BY power DESC").fetchall()]
+    # Support boons: Scout·Pathfinder lifts capture odds; Farmer·Beast Tamer
+    # (Menagerie) multiplies the defense guarding beasts contribute.
+    capture_bonus, def_mult = 0.0, 0.0
+    try:
+        from services.support_service import get_support_effects
+        sfx = get_support_effects(conn)
+        capture_bonus = sfx.get("scout_capture_bonus", 0)
+        def_mult = sfx.get("farmer_beast_defense_mult", 0)
+    except Exception:
+        pass
+    raw_def = sum(b["power"] for b in beasts if b["is_guarding"])
     return {
         "built": level > 0,
         "level": level,
         "capacity": bestiary_capacity(level),
         "beasts": beasts,
-        "defense_bonus": sum(b["power"] for b in beasts if b["is_guarding"]),
-        "capture_chance_pct": round((0.06 + 0.01 * (level // 5)) * 100, 1) if level else 0,
+        "defense_bonus": int(raw_def * (1.0 + def_mult)),
+        "capture_chance_pct": round((0.06 + 0.01 * (level // 5) + capture_bonus) * 100, 1) if level else 0,
     }
 
 
@@ -121,8 +151,17 @@ def release_beast(conn, beast_id: int) -> dict:
 def bestiary_defense(conn) -> int:
     try:
         _ensure_schema(conn)
+        if _facility_level(conn, "Bestiary") <= 0:
+            return 0
         row = conn.execute("SELECT COALESCE(SUM(power), 0) AS p FROM bestiary_beasts WHERE is_guarding = 1").fetchone()
-        return row["p"] if _facility_level(conn, "Bestiary") > 0 else 0
+        raw = row["p"]
+        # Farmer · Beast Tamer (Menagerie) makes the pen's beasts guard harder.
+        try:
+            from services.support_service import get_support_effects
+            raw = int(raw * (1.0 + get_support_effects(conn).get("farmer_beast_defense_mult", 0)))
+        except Exception:
+            pass
+        return raw
     except Exception:
         return 0
 

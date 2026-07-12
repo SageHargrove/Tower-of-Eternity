@@ -1,8 +1,13 @@
 import React, { useState, useEffect } from 'react'
 import GameIcon from './GameIcon'
+import MinigameShell, { AUTO_RESOLVE_MULT } from './minigames/MinigameShell'
+import CookSequence from './minigames/CookSequence'
+import StillControl from './minigames/StillControl'
+import SigilTrace from './minigames/SigilTrace'
+import HuntGrid from './minigames/HuntGrid'
 import {
   getDiningCatalog, cookFood, refineAether,
-  getBestiary, releaseBeast,
+  getBestiary, releaseBeast, huntBeast, shrineRite,
   getReliquary, mountTrophy,
   getChronosphere, activateChronosphere,
   getTranscendence, infuseTranscendence,
@@ -25,14 +30,20 @@ export function CookingPanel({ onResourceChange }) {
   const [catalog, setCatalog] = useState([])
   const [busy, setBusy] = useState(false)
   const [msgEl, setMsg] = useMsg()
+  // SEASON THE POT minigame — the cook button opens it; skip = NOVICE baseline.
+  const [minigameId, setMinigameId] = useState(null)
 
   useEffect(() => { getDiningCatalog().then(setCatalog).catch(() => {}) }, [])
 
-  async function handleCook(id) {
+  function handleCook(id) { setMinigameId(id) }
+
+  async function doCook(id, qualityMult) {
+    setMinigameId(null)
     setBusy(true)
     try {
-      const res = await cookFood(id, 1)
-      setMsg(`Cooked ${res.cooked}x ${res.item} (${res.ingredients_spent} ingredients${res.chef_discount ? ', Chef discount!' : ''})`)
+      const res = await cookFood(id, 1, qualityMult)
+      if (res.ruined) setMsg(res.message || 'The pot is scorched — nothing served.', true)
+      else setMsg(`Cooked ${res.cooked}x ${res.item} (${res.ingredients_spent} ingredients${res.chef_discount ? ', Chef discount!' : ''}${res.cooked > 1 ? ' — the seasoning sang' : ''})`)
       if (onResourceChange) onResourceChange()
     } catch (e) { setMsg(e.message, true) } finally { setBusy(false) }
   }
@@ -55,11 +66,21 @@ export function CookingPanel({ onResourceChange }) {
             <div style={{ fontSize: '0.7rem', color: 'var(--text-dim)', margin: '0.2rem 0 0.5rem' }}>{f.desc}</div>
             <button className="btn" onClick={() => handleCook(f.id)} disabled={busy || !f.unlocked}
               style={{ width: '100%', fontSize: '0.75rem', padding: '0.2rem' }}>
-              {f.unlocked ? `Cook (${f.ingredients} 🌿)` : `Dining Hall Lv.${f.min_level}`}
+              {f.unlocked ? `Cook (${f.ingredients} ✦)` : `Dining Hall Lv.${f.min_level}`}
             </button>
           </div>
         ))}
       </div>
+
+      {minigameId && (
+        <MinigameShell
+          title="SEASON THE POT"
+          flavor="The recipe is old and exact. Take the ladle yourself, or let the kitchen keep its rhythm."
+          onSkip={() => doCook(minigameId, AUTO_RESOLVE_MULT)}
+          onResolve={(mult) => doCook(minigameId, mult)}
+          game={(difficulty, onDone) => <CookSequence difficulty={difficulty} onDone={onDone} />}
+        />
+      )}
     </div>
   )
 }
@@ -69,12 +90,18 @@ export function CookingPanel({ onResourceChange }) {
 export function RefineAetherPanel({ onResourceChange }) {
   const [busy, setBusy] = useState(false)
   const [msgEl, setMsg] = useMsg()
+  // THE STILL minigame — refining opens it; skip = NOVICE baseline yield.
+  const [minigameBatches, setMinigameBatches] = useState(null)
 
-  async function handleRefine(batches) {
+  function handleRefine(batches) { setMinigameBatches(batches) }
+
+  async function doRefine(batches, qualityMult) {
+    setMinigameBatches(null)
     setBusy(true)
     try {
-      const res = await refineAether(batches)
-      setMsg(`Distilled ${res.refined} Aether (${res.gold_spent}g + ${res.ingredients_spent} ingredients)`)
+      const res = await refineAether(batches, qualityMult)
+      if (res.ruined) setMsg(res.message || 'The condenser ruptures — nothing is kept.', true)
+      else setMsg(`Distilled ${res.refined} Aether (${res.gold_spent}g + ${res.ingredients_spent} ingredients${res.quality && res.quality !== 1 ? `, distillate ×${res.quality.toFixed(2)}` : ''})`)
       if (onResourceChange) onResourceChange()
     } catch (e) { setMsg(e.message, true) } finally { setBusy(false) }
   }
@@ -92,6 +119,53 @@ export function RefineAetherPanel({ onResourceChange }) {
         <button className="btn" disabled={busy} onClick={() => handleRefine(1)} style={{ fontSize: '0.8rem' }}>Refine x1</button>
         <button className="btn" disabled={busy} onClick={() => handleRefine(5)} style={{ fontSize: '0.8rem' }}>Refine x5</button>
       </div>
+
+      {minigameBatches != null && (
+        <MinigameShell
+          title="THE STILL"
+          flavor="Raw mana wants to be anything but Aether. Take the valves yourself, or trust the Lab's steady simmer."
+          onSkip={() => doRefine(minigameBatches, AUTO_RESOLVE_MULT)}
+          onResolve={(mult) => doRefine(minigameBatches, mult)}
+          game={(difficulty, onDone) => <StillControl difficulty={difficulty} onDone={onDone} />}
+        />
+      )}
+    </div>
+  )
+}
+
+// ── Shrine: CONDUCT A RITE — daily ceremony (TRACE THE SIGIL minigame) ──
+
+export function ShrineRitePanel({ onResourceChange }) {
+  const [msgEl, setMsg] = useMsg()
+  const [showRite, setShowRite] = useState(false)
+
+  async function doRite(mult) {
+    setShowRite(false)
+    try {
+      const res = await shrineRite(mult)
+      setMsg(res.message, !!res.soured)
+      if (onResourceChange) onResourceChange()
+    } catch (e) { setMsg(e.message, true) }
+  }
+
+  return (
+    <div style={panelStyle}>
+      <div style={{ color: 'var(--gold)', marginBottom: '0.5rem', fontFamily: 'Cinzel, serif' }}>Conduct a Rite</div>
+      <div className="text-dim text-sm" style={{ marginBottom: '0.5rem' }}>
+        Once a day, the Shrine's sigil can be traced by the manager's own hand — a clean rite floods the whole roster with loyalty and eases their minds. A soured one unsettles everyone.
+      </div>
+      {msgEl}
+      <button className="btn" onClick={() => setShowRite(true)} style={{ fontSize: '0.8rem' }}>Light the Candles</button>
+
+      {showRite && (
+        <MinigameShell
+          title="TRACE THE SIGIL"
+          flavor="The old pattern waits in the dark. Trace it true, or let the clergy murmur through the standard observance."
+          onSkip={() => doRite(AUTO_RESOLVE_MULT)}
+          onResolve={(mult) => doRite(mult)}
+          game={(difficulty, onDone) => <SigilTrace difficulty={difficulty} onDone={onDone} />}
+        />
+      )}
     </div>
   )
 }
@@ -101,6 +175,7 @@ export function RefineAetherPanel({ onResourceChange }) {
 export function BestiaryPanel() {
   const [data, setData] = useState(null)
   const [msgEl, setMsg] = useMsg()
+  const [showHunt, setShowHunt] = useState(false)
 
   const refresh = () => getBestiary().then(setData).catch(() => {})
   useEffect(() => { refresh() }, [])
@@ -109,6 +184,15 @@ export function BestiaryPanel() {
     try {
       await releaseBeast(b.id)
       setMsg(`${b.name} bounds off into the dark of the Tower.`)
+      refresh()
+    } catch (e) { setMsg(e.message, true) }
+  }
+
+  async function doHunt(mult) {
+    setShowHunt(false)
+    try {
+      const res = await huntBeast(mult)
+      setMsg(res.message, !!res.escaped)
       refresh()
     } catch (e) { setMsg(e.message, true) }
   }
@@ -124,6 +208,16 @@ export function BestiaryPanel() {
         Every won fight has a {data.capture_chance_pct}% chance to drag a beaten beast home (bosses and humanoids excepted). Penned beasts add their power to your base's defense rating; release one to free a pen.
       </div>
       {msgEl}
+      <button className="btn" onClick={() => setShowHunt(true)} style={{ fontSize: '0.8rem', marginBottom: '0.5rem' }}>Mount a Hunt (daily)</button>
+      {showHunt && (
+        <MinigameShell
+          title="THE HUNT"
+          flavor="Something big has been leaving tracks near the base. Read the brush yourself, or let the keepers set the ordinary snares."
+          onSkip={() => doHunt(AUTO_RESOLVE_MULT)}
+          onResolve={(mult) => doHunt(mult)}
+          game={(difficulty, onDone) => <HuntGrid difficulty={difficulty} onDone={onDone} />}
+        />
+      )}
       {data.beasts.length === 0 && <div className="text-dim text-sm" style={{ fontStyle: 'italic' }}>The pens stand empty — go pick a fight with something with claws.</div>}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: '0.5rem' }}>
         {data.beasts.map(b => (
@@ -253,7 +347,7 @@ export function TranscendencePanel({ gold, onResourceChange }) {
   const capped = data.infusions >= data.max_infusions
   return (
     <div style={panelStyle}>
-      <div style={{ color: '#e0d3ff', fontFamily: 'Cinzel, serif', marginBottom: '0.4rem' }}>🌌 The Core</div>
+      <div style={{ color: '#e0d3ff', fontFamily: 'Cinzel, serif', marginBottom: '0.4rem' }}>✦ The Core</div>
       <div className="text-dim text-sm" style={{ marginBottom: '0.5rem' }}>
         Feed the Core gold; it feeds your heroes power. Each infusion permanently grants <span style={{ color: 'var(--text-hi)' }}>+1% to ALL stats, roster-wide</span> — and each costs more than the last. The facility's level caps how many infusions it can channel.
       </div>

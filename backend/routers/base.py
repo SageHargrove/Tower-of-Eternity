@@ -404,25 +404,144 @@ def dining_catalog():
 class CookRequest(BaseModel):
     recipe_id: str
     quantity: int = 1
+    quality_mult: float = 1.0  # SEASON THE POT minigame result (server-clamped)
 
 @router.post("/dining/cook")
 def dining_cook(req: CookRequest):
     from services.cooking_service import cook_food
     with db() as conn:
         try:
-            return cook_food(conn, req.recipe_id, req.quantity)
+            return cook_food(conn, req.recipe_id, req.quantity, req.quality_mult)
         except ValueError as e:
             raise HTTPException(status_code=400, detail=str(e))
 
+class TavernDiceRequest(BaseModel):
+    wager: int = 100
+    mult: float = 1.0   # KNUCKLE & BONE result: 0 = lost the throw, up to x3
+    hero_id: int | None = None  # drinking partner — takes +1 affinity win or lose
+
+@router.post("/tavern/dice")
+def tavern_dice(req: TavernDiceRequest):
+    """The Tavern's dice table. The wager is the resource gate (gold up
+    front); the minigame multiplier decides the payout — mult 0 loses the
+    stake, x3 triples it. Capped at 5 throws a night so the table can't
+    become a printing press."""
+    with db() as conn:
+        try:
+            conn.execute("ALTER TABLE base ADD COLUMN dice_date TEXT")
+            conn.execute("ALTER TABLE base ADD COLUMN dice_count INTEGER DEFAULT 0")
+        except Exception:
+            pass
+        base = conn.execute("SELECT gold, dice_date, dice_count FROM base WHERE id = 1").fetchone()
+        today = conn.execute("SELECT DATE('now')").fetchone()[0]
+        count = (base["dice_count"] or 0) if base["dice_date"] == today else 0
+        if count >= 5:
+            raise HTTPException(status_code=400, detail="The table's closed for the night — five throws is the house limit.")
+        wager = max(50, min(5000, int(req.wager or 0)))
+        if base["gold"] < wager:
+            raise HTTPException(status_code=400, detail=f"Not enough gold to cover the {wager}g stake.")
+        mult = max(0.0, min(3.0, req.mult or 0.0))
+        delta = int(wager * mult) - wager
+        conn.execute("UPDATE base SET gold = gold + ?, dice_date = ?, dice_count = ? WHERE id = 1",
+                     (delta, today, count + 1))
+        if req.hero_id:
+            conn.execute("UPDATE heroes SET affinity = MIN(100, COALESCE(affinity,0) + 1) WHERE id = ? AND is_alive = 1", (req.hero_id,))
+        return {"ok": True, "delta": delta, "throws_left": 4 - count,
+                "message": ("The table erupts — the pot slides your way." if delta > 0
+                            else "Bones scatter, coin follows." if delta < 0
+                            else "Even bones. The drinks are the only cost.")}
+
+
+class HuntRequest(BaseModel):
+    mult: float = 1.0   # THE HUNT minigame result
+
+@router.post("/bestiary/hunt")
+def bestiary_hunt(req: HuntRequest):
+    """MOUNT A HUNT — the Bestiary's daily tracking expedition. The minigame
+    multiplier scales the caught beast's power; a strong showing (x2.4+) bags
+    an ALPHA; mult 0 = the trail went cold and the quarry escaped."""
+    import random as _r
+    with db() as conn:
+        try:
+            conn.execute("ALTER TABLE base ADD COLUMN hunt_date TEXT")
+        except Exception:
+            pass
+        row = conn.execute("SELECT hunt_date, highest_floor FROM base WHERE id = 1").fetchone()
+        today = conn.execute("SELECT DATE('now')").fetchone()[0]
+        if row["hunt_date"] == today:
+            raise HTTPException(status_code=400, detail="The trails are cold — one hunt a day.")
+        from services.endgame_service import _facility_level, _ensure_schema, bestiary_capacity, BEAST_EPITHETS, UNCAPTURABLE
+        level = _facility_level(conn, "Bestiary")
+        if level <= 0:
+            raise HTTPException(status_code=400, detail="Build the Bestiary first — a hunt needs a pen to bring things back to.")
+        _ensure_schema(conn)
+        held = conn.execute("SELECT COUNT(*) AS c FROM bestiary_beasts").fetchone()["c"]
+        if held >= bestiary_capacity(level):
+            raise HTTPException(status_code=400, detail="The pens are full — release something first.")
+        conn.execute("UPDATE base SET hunt_date = ? WHERE id = 1", (today,))
+        mult = max(0.0, min(3.0, req.mult or 0.0))
+        if mult <= 0.05:
+            return {"ok": True, "escaped": True,
+                    "message": "The trail doubles back on itself and dies at a riverbank. The quarry is gone."}
+        floor = max(1, row["highest_floor"] or 1)
+        from services.combat_service import _enemy_pool_for_floor
+        pool = [e[0] for e in _enemy_pool_for_floor(floor) if e[0] not in UNCAPTURABLE]
+        if not pool:
+            raise HTTPException(status_code=400, detail="Nothing worth hunting at this depth.")
+        species = _r.choice(pool)
+        is_alpha = mult >= 2.4
+        power = int((10 + floor * 2) * (0.6 + mult * 0.5) * (1.5 if is_alpha else 1.0))
+        name = (f"Alpha {species}" if is_alpha else f"{_r.choice(BEAST_EPITHETS)} {species}")
+        cur = conn.execute("INSERT INTO bestiary_beasts (name, species, floor_caught, power) VALUES (?,?,?,?)",
+                           (name, species, floor, power))
+        return {"ok": True, "beast": {"id": cur.lastrowid, "name": name, "power": power, "alpha": is_alpha},
+                "message": f"The snare sings — {name} is dragged back to the pens (power {power})."}
+
+
+class RiteRequest(BaseModel):
+    mult: float = 1.0   # TRACE THE SIGIL minigame result
+
+@router.post("/shrine/rite")
+def shrine_rite(req: RiteRequest):
+    """CONDUCT A RITE — the Shrine's daily ceremony. A clean tracing floods
+    the roster with loyalty and eases stress (scaled by the multiplier);
+    a soured rite (mult 0) unsettles everyone instead."""
+    with db() as conn:
+        try:
+            conn.execute("ALTER TABLE base ADD COLUMN rite_date TEXT")
+        except Exception:
+            pass
+        shrine = conn.execute("SELECT 1 FROM facilities WHERE type = 'Shrine' AND base_id = 1").fetchone()
+        if not shrine:
+            raise HTTPException(status_code=400, detail="No Shrine stands — raise one before conducting rites.")
+        row = conn.execute("SELECT rite_date FROM base WHERE id = 1").fetchone()
+        today = conn.execute("SELECT DATE('now')").fetchone()[0]
+        if row["rite_date"] == today:
+            raise HTTPException(status_code=400, detail="The candles are already spent — one rite a day.")
+        conn.execute("UPDATE base SET rite_date = ? WHERE id = 1", (today,))
+        mult = max(0.0, min(3.0, req.mult or 0.0))
+        if mult <= 0.05:
+            conn.execute("UPDATE heroes SET stress = MIN(100, COALESCE(stress,0) + 4) WHERE is_alive = 1")
+            return {"ok": True, "soured": True,
+                    "message": "The tracing falters mid-line — the flame gutters, and the roster feels it."}
+        loyalty = max(1, int(3 * mult))
+        calm = max(1, int(3 * mult))
+        conn.execute("UPDATE heroes SET affinity = MIN(100, COALESCE(affinity,0) + ?), stress = MAX(0, COALESCE(stress,0) - ?) WHERE is_alive = 1",
+                     (loyalty, calm))
+        return {"ok": True, "loyalty": loyalty, "calm": calm,
+                "message": f"The sigil holds its light — the whole company stands a little taller (+{loyalty} loyalty, −{calm} stress)."}
+
+
 class RefineAetherRequest(BaseModel):
     batches: int = 1
+    quality_mult: float = 1.0  # THE STILL minigame result (server-clamped)
 
 @router.post("/alchemist/refine-aether")
 def alchemist_refine_aether(req: RefineAetherRequest):
     from services.cooking_service import refine_aether
     with db() as conn:
         try:
-            return refine_aether(conn, req.batches)
+            return refine_aether(conn, req.batches, req.quality_mult)
         except ValueError as e:
             raise HTTPException(status_code=400, detail=str(e))
 
@@ -639,6 +758,7 @@ def tavern_round(req: RoundRequest):
 class DispatchRequest(BaseModel):
     lane: str
     hero_ids: list[int]
+    quality_mult: float = 1.0  # THE HELM minigame result (server-clamped)
 
 class LaneRequest(BaseModel):
     lane: str
@@ -651,7 +771,7 @@ def get_expeditions():
 @router.post("/expeditions/dispatch")
 def dispatch_expedition(req: DispatchRequest):
     from services.expedition_service import dispatch
-    return dispatch(req.lane, req.hero_ids)
+    return dispatch(req.lane, req.hero_ids, getattr(req, "quality_mult", 1.0) or 1.0)
 
 @router.post("/expeditions/collect")
 def collect_expedition(req: LaneRequest):
@@ -1056,6 +1176,11 @@ def buy_upgrade(data: UpgradeRequest):
 
 class TalentRevealRequest(BaseModel):
     hero_id: int
+    # READ THE GLASS minigame result: a clean reading DISCOUNTS the Mirror's
+    # price (final cost = base / mult, so x3 pays a third); a sloppy one
+    # overpays; 0 = the glass CLOUDS — a fifth of the price is spent as a
+    # wasted offering and nothing is revealed. Server-clamped.
+    quality_mult: float = 1.0
 
 @router.post("/talent-observatory/reveal")
 def reveal_hero_talent(data: TalentRevealRequest):
@@ -1078,18 +1203,29 @@ def reveal_hero_talent(data: TalentRevealRequest):
 
         cost = get_mirror_of_fate_cost(hero)
         base = conn.execute("SELECT gold FROM base WHERE id = 1").fetchone()
-        if base["gold"] < cost:
-            raise HTTPException(status_code=400, detail=f"Not enough gold. Need {cost}, have {base['gold']}.")
+
+        # READ THE GLASS — the reading sets the price actually paid.
+        raw_mult = data.quality_mult or 1.0
+        if raw_mult <= 0.05:
+            offering = max(1, cost // 5)
+            if base["gold"] < offering:
+                raise HTTPException(status_code=400, detail=f"Not enough gold even for the offering ({offering}).")
+            conn.execute("UPDATE base SET gold = gold - ? WHERE id = 1", (offering,))
+            return {"ok": True, "clouded": True, "gold_spent": offering,
+                    "message": "The glass clouds over — whatever it saw, it keeps. The offering is spent."}
+        final_cost = max(1, int(cost / max(0.3, min(3.0, raw_mult))))
+        if base["gold"] < final_cost:
+            raise HTTPException(status_code=400, detail=f"Not enough gold. Need {final_cost}, have {base['gold']}.")
 
         # Facility level -> reveal-detail tier: Lv1-4 vague, Lv5-9 the
         # aptitude's category, Lv10+ the exact aptitude.
         mirror_level = min(3, 1 + mirror["level"] // 5)
         revealed = reveal_mirror_of_fate(hero, mirror_level)
 
-        conn.execute("UPDATE base SET gold = gold - ? WHERE id = 1", (cost,))
+        conn.execute("UPDATE base SET gold = gold - ? WHERE id = 1", (final_cost,))
         conn.execute("UPDATE heroes SET talent_reveal = ? WHERE id = ?", (revealed, data.hero_id))
 
-    return {"ok": True, "hero_id": data.hero_id, "gold_spent": cost, "talent_reveal": revealed}
+    return {"ok": True, "hero_id": data.hero_id, "gold_spent": final_cost, "base_cost": cost, "talent_reveal": revealed}
 
 
 # ─── Equipment endpoints ────────────────────────────────────────────

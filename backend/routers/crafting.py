@@ -13,6 +13,13 @@ router = APIRouter()
 class PremadeCraftReq(BaseModel):
     crafter_id: int
     recipe_id: int
+    # Forge minigame result — the STRIKE THE STEEL timing game's quality
+    # multiplier. 1.0 = auto-resolve baseline (skipping is never punished,
+    # it's a clean NOVICE run); higher tiers push toward ×3 on LEGENDARY.
+    # 0 is the CATASTROPHE sentinel: a botched Legendary attempt — the gold
+    # and materials are consumed and NOTHING is made. Server-clamped so a
+    # modified client can't mint god-gear.
+    quality_mult: float = 1.0
 
 class CreativeCraftReq(BaseModel):
     crafter_id: int
@@ -44,9 +51,12 @@ def craft_premade(req: PremadeCraftReq):
         # gold costs by star (support_service.CRAFT_DISCOUNT, up to 45% at 7★).
         # Cheaper, never free — materials are always paid in full.
         gold_cost = recipe["gold_cost"]
+        smith_rarity_chance = 0.0
         try:
             from services.support_service import get_support_effects
-            disc = get_support_effects(conn).get("craft_discount_pct", 0)
+            _sfx = get_support_effects(conn)
+            disc = _sfx.get("craft_discount_pct", 0)
+            smith_rarity_chance = _sfx.get("smith_rarity_chance", 0)
             if disc:
                 gold_cost = max(1, int(gold_cost * (1 - disc / 100.0)))
         except Exception:
@@ -67,9 +77,18 @@ def craft_premade(req: PremadeCraftReq):
 
         conn.execute("UPDATE base SET gold = ?, materials = ? WHERE id = 1", (new_gold, json.dumps(inv_mats)))
         
+        # Forge minigame CATASTROPHE (quality 0, Legendary botch): the gold
+        # and materials above are already spent — the piece is slag. No item.
+        if (req.quality_mult or 1.0) <= 0.05:
+            return {"success": False, "ruined": True, "quality": 0,
+                    "message": "The final strike lands wrong — the steel shears, and the work is ruined."}
+
         # Craft it! The power of the equipment is based on the crafter's level/aptitude AND the recipe's base_stat_mult
         power_pool = (crafter["level"] * 5) + int(crafter["apt_tactical"] * 0.5)
         power_pool = int(power_pool * recipe["base_stat_mult"])
+        # Forge minigame quality — clamped hard server-side (see PremadeCraftReq).
+        quality = max(0.3, min(3.0, req.quality_mult or 1.0))
+        power_pool = int(power_pool * quality)
         
         # Allocate power randomly but weighted
         stats = {"base_str": 0, "base_int": 0, "base_hlt": 0, "base_end": 0, "base_wil": 0, "base_luck": 0, "base_agi": 0}
@@ -91,10 +110,17 @@ def craft_premade(req: PremadeCraftReq):
             stats["base_wil"] += int(power_pool * 0.3)
             stats["base_luck"] += int(power_pool * 0.4)
             
+        # Master Smith capstone: a chance the piece comes out a cut above —
+        # +1 rarity and 30% hotter stats (allocated pool bumped in place).
+        import random as _rand
+        crafted_rarity = "B" if (smith_rarity_chance and _rand.random() < smith_rarity_chance) else "C"
+        if crafted_rarity == "B":
+            for k in stats:
+                stats[k] = int(stats[k] * 1.3)
         equip = {
             "name": f"Crafted {recipe['name']}",
             "type": recipe["type"],
-            "rarity": "C", # Base crafted rarity
+            "rarity": crafted_rarity,
             "level": crafter["level"],
             **stats,
             "str_pct": 0.0, "int_pct": 0.0, "hlt_pct": 0.0, "agi_pct": 0.0, "def_pct": 0.0, "end_pct": 0.0, "wil_pct": 0.0, "luck_pct": 0.0, "regen_pct": 0.0
@@ -105,7 +131,7 @@ def craft_premade(req: PremadeCraftReq):
 
     from services.quests_service import bump as bump_rite
     bump_rite("craft")
-    return {"success": True, "equipment": equip}
+    return {"success": True, "equipment": equip, "quality": quality, "masterwork": crafted_rarity == "B"}
 
 @router.post("/craft/creative")
 def craft_creative(req: CreativeCraftReq):

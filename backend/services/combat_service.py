@@ -46,6 +46,8 @@ class CombatUnit:
     portrait_path: str = ""
     abilities: list = field(default_factory=list)
     used_abilities: set = field(default_factory=set)
+    phases: list = field(default_factory=list)   # boss phase triggers: [{"threshold": 0.66, "kind": "summon"}, ...]
+    phases_fired: set = field(default_factory=set)
     talent: float = 0.5
     regen_pct: float = 0.0
     hero_star: int = 1
@@ -89,6 +91,7 @@ ENEMY_TYPES = [
     ("Goblin", 0.8, 0.7, 1.1, "normal", "beginner"),
     ("Bandit", 0.9, 0.8, 1.2, "normal", "beginner"),
     ("Wolf", 0.9, 0.7, 1.5, "pack", "beginner"),
+    ("Giant Rat", 0.7, 0.6, 1.4, "swarm", "beginner"),  # variety add 2026-07-10
     # Elite variants of the floor 1-10 family (Goblin/Spider/Wolf) —
     # same species, better stats, one extra ability via
     # ENEMY_ABILITY_OVERRIDES below. See backend/services/enemy_families.py
@@ -101,6 +104,7 @@ ENEMY_TYPES = [
     # predate that checklist and stay as bonus extras, not removed ---
     ("Orc", 1.1, 1.0, 0.9, "normal", "intermediate"),
     ("Harpy", 0.8, 0.6, 1.8, "pack", "intermediate"),
+    ("Vile Corvid", 0.9, 0.6, 1.6, "pack", "intermediate"),  # ref add 2026-07-10
     ("Kobold", 0.7, 0.6, 1.3, "swarm", "intermediate"),
     ("Skeleton", 0.9, 0.9, 1.0, "normal", "intermediate"),
     ("Venomous Spider", 1.0, 0.7, 1.2, "pack", "intermediate"),
@@ -112,6 +116,8 @@ ENEMY_TYPES = [
     ("Hobgoblin", 1.0, 0.9, 1.0, "normal", "veteran"),
     ("Lizardman", 0.9, 0.8, 1.3, "normal", "veteran"),
     ("Feral Ghoul", 1.0, 0.8, 1.1, "normal", "veteran"),
+    ("Gnoll Marauder", 1.1, 0.9, 1.1, "normal", "veteran"),  # variety add 2026-07-10
+    ("Crawling Hand", 0.6, 0.5, 1.5, "swarm", "veteran"),    # variety add 2026-07-10
     ("Hobgoblin Berserker", 1.3, 1.0, 1.1, "elite", "veteran"),
     ("Lizardman Stalker", 1.1, 0.9, 1.5, "elite", "veteran"),
     # --- advanced (floor 31+) — checklist: "Ogres, Trolls, Gargoyles,
@@ -130,7 +136,12 @@ ENEMY_TYPES = [
     ("Wyvern", 1.1, 0.8, 1.6, "normal", "mighty"),
     ("Manticore", 1.3, 1.0, 1.2, "normal", "mighty"),
     ("Elemental", 1.2, 1.3, 0.8, "normal", "mighty"),
+    ("Chimera", 1.2, 1.0, 1.1, "normal", "mighty"),  # relocated from mythic (sea re-theme)
+    ("Griffon", 1.2, 0.9, 1.4, "normal", "mighty"),         # ref add 2026-07-10
+    ("Dire Sabertooth", 1.3, 0.8, 1.3, "normal", "mighty"), # ref add 2026-07-10
+    ("Elder Treant", 1.0, 1.7, 0.4, "normal", "mighty"),    # ref add 2026-07-10
     ("Minotaur Juggernaut", 1.7, 1.4, 0.6, "elite", "mighty"),
+    ("Phoenix", 1.4, 0.9, 1.3, "elite", "mighty"),          # ref add 2026-07-10 (rebirth = self_regen)
     ("Wyvern Stormrider", 1.4, 1.0, 1.8, "elite", "mighty"),
     # --- ascendant (floor 51+) — checklist: "Vampire Spawn, Chimeras,
     # Golems, Naga" (Golems covered by Stone Sentinel/Lesser Golem here;
@@ -139,36 +150,59 @@ ENEMY_TYPES = [
     ("Stone Sentinel", 1.3, 1.6, 0.5, "normal", "ascendant"),
     ("Lesser Golem", 1.1, 1.3, 0.5, "normal", "ascendant"),
     ("Vampire Spawn", 1.2, 0.9, 1.3, "normal", "ascendant"),
+    ("Blood Thrall", 1.0, 0.9, 1.1, "normal", "ascendant"),      # variety add 2026-07-10
+    ("Obsidian Tortoise", 0.8, 1.7, 0.5, "normal", "ascendant"), # variety add 2026-07-10
+    ("Magma Colossus", 1.3, 1.4, 0.6, "normal", "ascendant"),    # ref add 2026-07-10
     ("Stone Golem", 1.5, 1.8, 0.5, "elite", "ascendant"),
     ("Dread Brute", 1.8, 1.2, 0.7, "elite", "ascendant"),
     ("Obsidian Behemoth", 2.0, 1.6, 0.4, "elite", "ascendant"),
     ("Primordial Vampire", 1.5, 1.0, 1.5, "elite", "ascendant"),
-    # --- mythic (floor 61+) — Chimeras/Naga half of the 51-70 checklist
-    # range ---
-    ("Chimera", 1.2, 1.0, 1.1, "normal", "mythic"),
-    ("Naga", 1.1, 0.9, 1.2, "normal", "mythic"),
-    ("Abyssal Lurker", 1.3, 0.9, 1.8, "elite", "mythic"),
-    ("Frost Wight", 1.4, 1.1, 0.9, "elite", "mythic"),
-    ("Shrouded Reaper", 1.3, 1.0, 1.3, "elite", "mythic"),
+    ("Frost Wight", 1.4, 1.1, 0.9, "elite", "ascendant"),  # relocated from mythic (sea re-theme)
+    # --- mythic (floor 61+) — LEVIATHAN'S GRAVEYARD (sea-themed): a pitch-black
+    # ocean floor of glowing leviathan bones and shipwrecks. The old mythic
+    # roster (Chimera/Naga/Abyssal Lurker/Frost Wight/Shrouded Reaper) was
+    # relocated to adjacent bands for variety (see mighty/ascendant/apex/dread).
+    # See docs/leviathan-graveyard-design.md. ---
+    ("Drowned Deckhand", 1.0, 1.0, 1.0, "normal", "mythic"),
+    ("Bone-Crab Scavenger", 0.9, 1.7, 0.5, "normal", "mythic"),
+    ("Coral-Grown Husk", 0.8, 1.8, 0.5, "normal", "mythic"),
+    ("Abyssal Lamprey", 1.4, 0.6, 1.7, "pack", "mythic"),
+    ("Marrow-Worm", 0.9, 0.8, 1.6, "swarm", "mythic"),
+    ("Sunken Wisp", 1.1, 0.6, 1.5, "pack", "mythic"),
+    ("Abyssal Serpent", 1.1, 0.9, 1.3, "normal", "mythic"),  # ref add 2026-07-10 (giant_serpent)
+    ("Galleon Captain", 1.1, 1.4, 0.8, "elite", "mythic"),
+    ("Trench Stalker", 1.6, 0.8, 1.9, "elite", "mythic"),
+    ("Bone-Grafted Goliath", 1.7, 1.4, 0.7, "elite", "mythic"),
     # --- apex (floor 71+) — checklist: "Hydras, Giants, Death Knights,
     # Demon Lords" (Demon Lords land in dread below, same 71-90 split) ---
     ("Death Knight", 1.3, 1.2, 0.9, "normal", "apex"),
     ("Giant", 1.6, 1.1, 0.6, "normal", "apex"),
     ("Hydra", 1.8, 1.4, 0.7, "elite", "apex"),
     ("Hydra Spawn", 1.1, 0.8, 1.0, "pack", "apex"),
+    ("Naga", 1.1, 0.9, 1.2, "normal", "apex"),  # relocated from mythic (sea re-theme)
+    ("Dragonkin Warrior", 1.4, 1.1, 1.0, "normal", "apex"),  # ref add 2026-07-10 (humanoid_dragon)
     ("Black Knight Commander", 1.6, 1.4, 1.0, "elite", "apex"),
+    ("Abyssal Lurker", 1.3, 0.9, 1.8, "elite", "apex"),  # relocated from mythic (sea re-theme)
     # --- dread (floor 81+) — Demon Lords half of the 71-90 checklist range ---
     ("Demon", 1.3, 1.0, 1.2, "normal", "dread"),
     ("Imp", 0.8, 0.6, 1.8, "pack", "dread"),
+    ("Hellhound", 1.2, 0.8, 1.5, "pack", "dread"),    # variety add 2026-07-10
+    ("Cambion", 1.2, 0.9, 1.1, "normal", "dread"),    # variety add 2026-07-10
+    ("Succubus", 1.0, 0.7, 1.4, "normal", "dread"),   # variety add 2026-07-10
+    ("Carapace Fiend", 1.2, 1.3, 0.9, "normal", "dread"),  # ref add 2026-07-10 (carapace_demon)
+    ("Void Horror", 1.3, 1.1, 1.1, "elite", "dread"),      # ref add 2026-07-10 (eldritch_horror)
     ("Demon Lord", 1.7, 1.2, 1.1, "elite", "dread"),
     ("Pit Fiend", 1.7, 1.3, 1.0, "elite", "dread"),
     ("Wraith Sovereign", 1.4, 0.9, 1.5, "elite", "dread"),
+    ("Shrouded Reaper", 1.3, 1.0, 1.3, "elite", "dread"),  # relocated from mythic (sea re-theme)
     # --- ancient (floor 91+) — checklist: "Dragons, Liches, Archdemons,
     # Ancient Guardians" ---
     ("Lich Acolyte", 1.2, 0.9, 1.0, "normal", "ancient"),
     ("Young Dragon", 1.6, 1.2, 1.0, "normal", "ancient"),
     ("Archdemon", 1.5, 1.2, 1.0, "normal", "ancient"),
     ("Ancient Guardian", 1.4, 1.6, 0.6, "normal", "ancient"),
+    ("Drake", 1.4, 1.0, 1.3, "normal", "ancient"),           # ref add 2026-07-10 (drake)
+    ("Ancient Revenant", 1.3, 1.4, 0.8, "normal", "ancient"), # variety add 2026-07-10
     ("Adult Dragon", 2.0, 1.4, 1.2, "elite", "ancient"),
     ("Dracolich", 1.8, 1.3, 0.9, "elite", "ancient"),
     ("Archdemon Enforcer", 1.8, 1.5, 1.0, "elite", "ancient"),
@@ -187,18 +221,20 @@ ENEMY_TIER_UNLOCK_FLOOR = {
 # — that's still ENEMY_TIER_UNLOCK_FLOOR — this just keeps the art library
 # reviewable in the same batches you're already going through it in.
 ENEMY_WAVE = {
-    "Goblin": 1, "Giant Spider": 1, "Wolf": 1,
+    "Goblin": 1, "Giant Spider": 1, "Wolf": 1, "Giant Rat": 1,
     "Goblin Warrior": 1, "Goblin Shaman": 1, "Spider Queen": 1,
     "Bandit": 2, "Harpy": 2, "Orc": 2, "Ogre": 2, "Troll": 2,
-    "Kobold": 2, "Skeleton": 2, "Venomous Spider": 2,
-    "Hobgoblin": 3, "Lizardman": 3, "Feral Ghoul": 3, "Hobgoblin Berserker": 3, "Lizardman Stalker": 3,
+    "Kobold": 2, "Skeleton": 2, "Venomous Spider": 2, "Vile Corvid": 2,
+    "Hobgoblin": 3, "Lizardman": 3, "Feral Ghoul": 3, "Hobgoblin Berserker": 3, "Lizardman Stalker": 3, "Gnoll Marauder": 3, "Crawling Hand": 3,
     "Grave Scarab": 4, "Rotting Ghoul": 4, "Bone Warden": 4, "Gargoyle": 4, "Wraith": 4, "Scarab Swarmlord": 4, "Plague Harbinger": 4,
-    "Minotaur": 5, "Wyvern": 5, "Manticore": 5, "Elemental": 5, "Minotaur Juggernaut": 5, "Wyvern Stormrider": 5,
-    "Stone Sentinel": 6, "Lesser Golem": 6, "Vampire Spawn": 6, "Stone Golem": 6, "Obsidian Behemoth": 6, "Dread Brute": 6, "Primordial Vampire": 6,
-    "Chimera": 7, "Naga": 7, "Abyssal Lurker": 7, "Frost Wight": 7, "Shrouded Reaper": 7,
-    "Death Knight": 8, "Giant": 8, "Hydra": 8, "Hydra Spawn": 8, "Black Knight Commander": 8,
-    "Demon": 9, "Imp": 9, "Demon Lord": 9, "Pit Fiend": 9, "Wraith Sovereign": 9,
-    "Lich Acolyte": 10, "Young Dragon": 10, "Adult Dragon": 10, "Archdemon": 10, "Ancient Guardian": 10, "Dracolich": 10, "Archdemon Enforcer": 10,
+    "Minotaur": 5, "Wyvern": 5, "Manticore": 5, "Elemental": 5, "Minotaur Juggernaut": 5, "Wyvern Stormrider": 5, "Chimera": 5, "Griffon": 5, "Dire Sabertooth": 5, "Elder Treant": 5, "Phoenix": 5,
+    "Stone Sentinel": 6, "Lesser Golem": 6, "Vampire Spawn": 6, "Stone Golem": 6, "Obsidian Behemoth": 6, "Dread Brute": 6, "Primordial Vampire": 6, "Frost Wight": 6, "Blood Thrall": 6, "Obsidian Tortoise": 6, "Magma Colossus": 6,
+    "Abyssal Serpent": 7,
+    # wave 7 = Leviathan's Graveyard (sea band, floors 61-70)
+    "Drowned Deckhand": 7, "Bone-Crab Scavenger": 7, "Coral-Grown Husk": 7, "Abyssal Lamprey": 7, "Marrow-Worm": 7, "Sunken Wisp": 7, "Galleon Captain": 7, "Trench Stalker": 7, "Bone-Grafted Goliath": 7,
+    "Death Knight": 8, "Giant": 8, "Hydra": 8, "Hydra Spawn": 8, "Black Knight Commander": 8, "Naga": 8, "Abyssal Lurker": 8, "Dragonkin Warrior": 8,
+    "Demon": 9, "Imp": 9, "Demon Lord": 9, "Pit Fiend": 9, "Wraith Sovereign": 9, "Shrouded Reaper": 9, "Hellhound": 9, "Cambion": 9, "Succubus": 9, "Carapace Fiend": 9, "Void Horror": 9,
+    "Lich Acolyte": 10, "Young Dragon": 10, "Adult Dragon": 10, "Archdemon": 10, "Ancient Guardian": 10, "Dracolich": 10, "Archdemon Enforcer": 10, "Drake": 10, "Ancient Revenant": 10,
 }
 
 # Per-name ability overrides — lets a specific elite/miniboss/boss entry use
@@ -225,15 +261,27 @@ ENEMY_ABILITY_OVERRIDES = {
     "Adult Dragon": ["crushing_blow"],
     "Dracolich": ["self_regen"],
     "Archdemon Enforcer": ["crushing_blow"],
+    # Leviathan's Graveyard (sea band)
+    "Galleon Captain": ["team_buff_aura"],       # buffs the Drowned Deckhands
+    "Bone-Grafted Goliath": ["crushing_blow"],
+    "Bone-Crab Scavenger": ["shell_armor"],      # armored until its shell cracks
+    "Phoenix": ["self_regen"],                   # rebirth — regenerates each round
 }
 
 # Which weak swarm-type a "summon_add" user calls in as reinforcements.
 ENEMY_SPAWN_TEMPLATE = {
     "Spider Queen": "Giant Spider",
     "Scarab Swarmlord": "Grave Scarab",
+    "Thalassor, the Undead Leviathan": "Marrow-Worm",
+    "Captain Iron-Lung": "Drowned Deckhand",
 }
 
 SELF_REGEN_PCT = 0.06  # per-round Health regen granted by the "self_regen" ability
+# "shell_armor": heavily mitigates basic-attack damage until the shell cracks
+# after this many hits, then the unit takes normal damage (Bone-Crab Scavenger,
+# The Calcified Horror). Reusable by any future armored/carapace enemy.
+SHELL_ARMOR_REDUCTION = 0.7   # damage reduced by 70% while the shell holds
+SHELL_ARMOR_BREAK_HITS = 4    # basic-attack hits the shell absorbs before cracking
 REVIVE_ALLY_HP_PCT = 0.4  # Health a "revive_ally" user brings a fallen ally back at, once per battle
 
 # Potions/Scrolls are a shared base-wide "backpack," not a per-hero item
@@ -243,11 +291,53 @@ REVIVE_ALLY_HP_PCT = 0.4  # Health a "revive_ally" user brings a fallen ally bac
 CONSUMABLE_LOW_HP_THRESHOLD = 0.35
 CONSUMABLE_LOW_MANA_THRESHOLD = 0.20
 
+def _current_tier_for_floor(floor_number: int) -> str:
+    """The band a floor belongs to — the highest-unlock tier at or below it.
+    Floors 61-70 -> 'mythic' (Leviathan's Graveyard), 71-80 -> 'apex', etc."""
+    eligible = [(unlock, tier) for tier, unlock in ENEMY_TIER_UNLOCK_FLOOR.items() if unlock <= floor_number]
+    return max(eligible)[1] if eligible else "beginner"
+
 def _enemy_pool_for_floor(floor_number: int) -> list[tuple]:
-    """Every tier unlocked at or below this floor stays available — a
-    floor-80 fight can still roll a Goblin, it's just no longer ONLY
-    Goblins. Mirrors services/materials_service.py's tiered drop gating."""
-    return [e for e in ENEMY_TYPES if floor_number >= ENEMY_TIER_UNLOCK_FLOOR[e[5]]]
+    """Each floor pulls ONLY from its own band's roster, so every 10-floor
+    area feels distinct — floors 61-70 are all Leviathan's Graveyard sea
+    enemies rather than a grab-bag of everything unlocked. (Previously every
+    tier <= floor stayed in the pool; changed 2026-07-10 so areas read as
+    areas. Difficulty still scales purely by floor_number, so a band's
+    enemies are power-scaled to whatever floor of the band you're on.)"""
+    tier = _current_tier_for_floor(floor_number)
+    return [e for e in ENEMY_TYPES if e[5] == tier]
+
+def _primary_etype_for_floor(floor_number: int, pool: list[tuple]) -> tuple:
+    """Deal the band's roster across the band's floors so the WHOLE pool gets
+    used and neighbouring floors differ — instead of each floor independently
+    rng.choice()ing (which clustered onto 2-3 types and starved the rest). The
+    band's order is shuffled with a fixed per-band seed, then the floor's
+    position within the band indexes into it. Still fully seeded/deterministic
+    (a scout's report holds) and not hand-assigned — just evenly spread. The
+    mixed-encounter second type below stays a fresh rng.choice for extra
+    variety on top of this even primary spread."""
+    tier = _current_tier_for_floor(floor_number)
+    band_start = ENEMY_TIER_UNLOCK_FLOOR[tier]
+    order = list(pool)
+    random.Random(band_start * 104729).shuffle(order)
+    return order[(floor_number - band_start) % len(order)]
+
+# ═══ THE TOWER AWAKENS (difficulty rebalance, approved 2026-07-11) ═══
+# Player power COMPOUNDS (levels × stars × gear × boons × research) while the
+# old enemy scale was linear — so the game got EASIER deep down, the opposite
+# of the design goal (floor 100 must stay a near-mythical achievement; the
+# manhwa's record is ~80 after years). Past floor 40 the Tower answers with a
+# compounding curve of its own: +10% @50, +35% @70, +64% @90, +82% @100.
+AWAKENING_START_FLOOR = 40
+AWAKENING_RATE = 1.01
+
+def tower_scale(floor_number: int) -> float:
+    """The universal enemy stat scale — linear early, compounding past 40."""
+    base = 1 + (floor_number * 0.12)
+    if floor_number > AWAKENING_START_FLOOR:
+        base *= AWAKENING_RATE ** (floor_number - AWAKENING_START_FLOOR)
+    return base
+
 
 def _build_enemy_group(etype, floor_number: int, difficulty_mult: float, id_start: int, count_override: int = None, max_count_override: int = None, rng: random.Random = None) -> list[CombatUnit]:
     """Build one monster type's portion of an encounter. Pulled out of
@@ -255,7 +345,7 @@ def _build_enemy_group(etype, floor_number: int, difficulty_mult: float, id_star
     call this twice with a split difficulty_mult budget instead of duplicating
     the count/stat math. id_start offsets negative CombatUnit ids so two
     groups in the same encounter never collide."""
-    scale = 1 + (floor_number * 0.12)
+    scale = tower_scale(floor_number)
     name, hp_m, def_m, spd_m, archetype, _tier = etype
 
     # Apply archetype modifiers first — count/difficulty math below needs
@@ -347,7 +437,7 @@ def _make_swarm_add(name: str, floor_number: int, unit_id: int) -> CombatUnit:
     atk/hp, 0.3x def) but as a standalone unit rather than a whole group, and
     based off floor depth rather than the summoner's own (much stronger)
     stats, so reinforcements read as "more chip damage," not a second boss."""
-    scale = 1 + (floor_number * 0.12)
+    scale = tower_scale(floor_number)
     portrait_path = _enemy_portrait_path(name)
     return CombatUnit(
         id=-unit_id, name=name, level=max(1, floor_number),
@@ -383,7 +473,7 @@ def make_enemies(floor_number: int, count: int = None, difficulty_mult: float = 
     # and still uses the global random — only "what shows up" is seeded.
     rng = random.Random(floor_number * 7919 + 1)
     pool = _enemy_pool_for_floor(floor_number)
-    etype = rng.choice(pool)
+    etype = _primary_etype_for_floor(floor_number, pool)
 
     # Mixed encounters (two different monster types in one fight) are now
     # the default flavor for common floors — splits the same difficulty
@@ -396,9 +486,13 @@ def make_enemies(floor_number: int, count: int = None, difficulty_mult: float = 
         split = rng.uniform(0.35, 0.65)
         group1 = _build_enemy_group(etype, floor_number, difficulty_mult * split, id_start=0, rng=rng)
         group2 = _build_enemy_group(etype2, floor_number, difficulty_mult * (1 - split), id_start=len(group1), rng=rng)
-        return group1 + group2
+        # Elite promotion rides the same seeded rng — floor N's elite (or lack
+        # of one) is a stable fact of that floor, like its composition.
+        return maybe_elevate_elite(group1 + group2, floor_number, rng)
 
-    return _build_enemy_group(etype, floor_number, difficulty_mult, id_start=0, count_override=count, rng=rng)
+    return maybe_elevate_elite(
+        _build_enemy_group(etype, floor_number, difficulty_mult, id_start=0, count_override=count, rng=rng),
+        floor_number, rng)
 
 
 # Survival Floor (Boss Swarm) — an alternative to the typical single strong
@@ -508,7 +602,7 @@ def make_boss(floor_number: int, zone_theme: str = "", is_miniboss: bool = False
     deterministic named encounter (e.g. floor 5's "Goblin King") instead of
     the generic procedural LLM/fallback naming below — used for floor ranges
     that have a built-out family, skipped entirely otherwise."""
-    scale = 1 + (floor_number * 0.12)
+    scale = tower_scale(floor_number)
 
     if family_override:
         boss_title = family_override["name"]
@@ -640,7 +734,7 @@ def make_miniboss_variant(variant: str, floor_number: int, zone_theme: str, hero
     5th floor just being "a beefier guy": Behemoth tests raw DPS, Assassin
     tests having a real frontline, Twins tests a mixed-damage comp, Mirror
     tests against the team's own shape."""
-    scale = 1 + (floor_number * 0.12)
+    scale = tower_scale(floor_number)
     power = 1.5 + (floor_number / 40)
     from services.portrait_cache import get_random_boss_portrait
 
@@ -980,7 +1074,7 @@ def _try_use_ability(attacker: CombatUnit, alive_heroes: list, log: list, morale
         enemies.extend(new_adds)
         all_units.extend(new_adds)
         attacker.summons_used += 1
-        log.append(f"  📯 {attacker.log_name} calls for reinforcements! {len(new_adds)}x {spawn_name} joins the fight!")
+        log.append(f"  ✦ {attacker.log_name} calls for reinforcements! {len(new_adds)}x {spawn_name} joins the fight!")
         return True
 
     # "team_buff_aura" — a one-time rallying cry that empowers every other
@@ -993,7 +1087,7 @@ def _try_use_ability(attacker: CombatUnit, alive_heroes: list, log: list, morale
             if ally.alive and ally is not attacker:
                 ally.strength = int(ally.strength * TEAM_BUFF_AURA_ATK_MULT)
                 buffed += 1
-        log.append(f"  🔥 {attacker.log_name} channels power into the horde! {buffed} ally(s) hit harder now.")
+        log.append(f"  ▸ {attacker.log_name} channels power into the horde! {buffed} ally(s) hit harder now.")
         return True
 
     # "revive_ally" — once per battle, brings one fallen ally back at partial
@@ -1011,7 +1105,7 @@ def _try_use_ability(attacker: CombatUnit, alive_heroes: list, log: list, morale
         return True
 
     if "cleave" in attacker.abilities and random.random() < 0.20:
-        log.append(f"  ⚔ {attacker.log_name} cleaves at the whole party!")
+        log.append(f"  ✦ {attacker.log_name} cleaves at the whole party!")
         live_enemy_count = len([e for e in (enemies or []) if e.alive])
         for target in alive_heroes:
             damage, is_crit = calc_damage(attacker, target)
@@ -1034,7 +1128,7 @@ def _try_use_ability(attacker: CombatUnit, alive_heroes: list, log: list, morale
     if "enrage" in attacker.abilities and "enrage" not in attacker.used_abilities and hlt_pct < 0.5:
         attacker.used_abilities.add("enrage")
         attacker.strength = int(attacker.strength * 1.4)
-        log.append(f"  ⚡ {attacker.log_name} flies into a rage! Strength sharply rises!")
+        log.append(f"  ✦ {attacker.log_name} flies into a rage! Strength sharply rises!")
         return False  # still takes a normal strength this turn, just buffed first
 
     if "crushing_blow" in attacker.abilities and "crushing_blow" not in attacker.used_abilities and hlt_pct < 0.7 and alive_heroes:
@@ -1046,7 +1140,7 @@ def _try_use_ability(attacker: CombatUnit, alive_heroes: list, log: list, morale
         damage = apply_unimber(damage, stacks)
         unimber_tag = f"[Unimber ×{stacks}] " if stacks > 0 else ""
         target.health -= damage
-        log.append(f"  ☠ {unimber_tag}{attacker.log_name} unleashes a CRUSHING BLOW on {target.log_name} for {damage} damage! [{max(0,target.health)}/{target.max_health}]")
+        log.append(f"  ✦ {unimber_tag}{attacker.log_name} unleashes a CRUSHING BLOW on {target.log_name} for {damage} damage! [{max(0,target.health)}/{target.max_health}]")
         if target.health <= 0:
             target.alive = False
             log.append(f"    ✦ {target.log_name} has fallen.")
@@ -1060,6 +1154,209 @@ def _try_use_ability(attacker: CombatUnit, alive_heroes: list, log: list, morale
         return True
 
     return False
+
+
+# ═══ BOSS PHASES ══════════════════════════════════════════════════════
+# Every full boss is a staged fight, not a fat stat block: at 66% and 33%
+# HP it FIRES A PHASE — a structural change to the fight (adds, armor,
+# ritual, fury...). Which phases a given floor's boss has is seeded by
+# floor number, so a scouted boss's behavior is a fact, not a dice roll.
+PHASE_2_KINDS = ["summon", "harden", "ritual", "quicken"]
+PHASE_3_KINDS = ["fury", "shed_armor", "cataclysm", "second_summon"]
+# Tower Awakens: WALL floors — bosses the community remembers. A third phase
+# fires at 15% HP, and the full-party stat pad is doubled (see the Unimber
+# boss-pad block in _resolve_combat_from_processed).
+BOSS_WALL_FLOORS = {50, 70, 90}
+
+def roll_boss_phases(floor_number: int) -> list:
+    rng = random.Random(floor_number * 7919 + 5)
+    phases = [{"threshold": 0.66, "kind": rng.choice(PHASE_2_KINDS)},
+              {"threshold": 0.33, "kind": rng.choice(PHASE_3_KINDS)}]
+    if floor_number in BOSS_WALL_FLOORS:
+        third = rng.choice([k for k in PHASE_3_KINDS if k != phases[1]["kind"]])
+        phases.append({"threshold": 0.15, "kind": third})
+    return phases
+
+
+def _fire_boss_phase(boss: CombatUnit, kind: str, enemies: list, all_units: list,
+                     alive_heroes: list, log: list, floor_number: int,
+                     morale_changes: dict, stress_changes: dict, turns: list = None, round_num: int = 0):
+    log.append(f"  ═══ {boss.log_name} ENTERS A NEW PHASE ═══")
+    if turns is not None:
+        # Typed EVENT turn — the animated replay renders these as full-width
+        # banners (and the phase horn fires), instead of the beat being
+        # invisible outside the raw log.
+        turns.append({"round": round_num, "event": "phase", "log": f"{boss.name} ENTERS A NEW PHASE",
+                      "statuses": _status_snapshot(all_units)})
+    if kind in ("summon", "second_summon"):
+        count = 2 if kind == "summon" else 3
+        pool = _enemy_pool_for_floor(floor_number)
+        spawn_name = boss.spawn_template or (pool[0][0] if pool else "Goblin")
+        base_id = 3000 + len([u for u in all_units if not u.is_hero]) * 7
+        adds = [_make_swarm_add(spawn_name, floor_number, base_id + i) for i in range(count)]
+        enemies.extend(adds)
+        all_units.extend(adds)
+        log.append(f"  ✦ The walls answer its call — {count}x {spawn_name} pour into the chamber!")
+    elif kind == "harden":
+        boss.defense = int(boss.defense * 1.3)
+        boss.endurance = int(boss.endurance * 1.3)
+        apply_status_effect(boss, "dmg_shield", 4, magnitude=0.35)
+        log.append(f"  ◆ {boss.log_name}'s hide calcifies — blows glance off the new carapace.")
+    elif kind == "ritual":
+        healed = min(boss.max_health - boss.health, int(boss.max_health * 0.12))
+        boss.health += max(0, healed)
+        boss.status_effects = [e for e in boss.status_effects if e["type"] not in ("bleed", "poison", "burn")]
+        log.append(f"  ✦ {boss.log_name} completes a profane ritual — wounds knit shut (+{max(0, healed)} HP).")
+    elif kind == "quicken":
+        boss.agility = int(boss.agility * 1.45)
+        log.append(f"  ✦ {boss.log_name} sheds its slowness — it moves like something half its size.")
+    elif kind == "fury":
+        boss.strength = int(boss.strength * 1.35)
+        boss.crit_chance = min(0.6, boss.crit_chance + 0.15)
+        log.append(f"  ▸ {boss.log_name} abandons all defense of the mind — pure fury remains.")
+        for h in alive_heroes:
+            stress_changes[h.id] = stress_changes.get(h.id, 0) + random.randint(2, 5)
+    elif kind == "shed_armor":
+        boss.defense = max(1, int(boss.defense * 0.5))
+        boss.endurance = max(1, int(boss.endurance * 0.5))
+        boss.strength = int(boss.strength * 1.6)
+        boss.agility = int(boss.agility * 1.3)
+        log.append(f"  ✦ {boss.log_name} TEARS ITS OWN ARMOR AWAY — faster and deadlier, but exposed.")
+    elif kind == "cataclysm":
+        log.append(f"  ✦ {boss.log_name} unleashes a CATACLYSM upon the whole party!")
+        for target in alive_heroes:
+            damage, is_crit = calc_damage(boss, target)
+            damage = int(damage * 0.8)
+            damage = mitigate_special(target, damage, log)
+            target.health -= damage
+            log.append(f"    → {target.log_name} takes {damage} [{max(0, target.health)}/{target.max_health}]")
+            if target.health <= 0 and target.death_save > 0:
+                target.death_save -= 1
+                target.health = 1
+                log.append(f"  ✦ {target.log_name} refuses to fall! (Undying Will)")
+            elif target.health <= 0:
+                target.alive = False
+                log.append(f"    ✦ {target.log_name} has fallen.")
+                for h in alive_heroes:
+                    if h.alive and h is not target:
+                        morale_changes[h.id] = morale_changes.get(h.id, 0) - random.randint(8, 18)
+                        stress_changes[h.id] = stress_changes.get(h.id, 0) + random.randint(5, 12)
+
+
+def check_boss_phases(enemies: list, all_units: list, alive_heroes: list, log: list,
+                      floor_number: int, morale_changes: dict, stress_changes: dict,
+                      turns: list = None, round_num: int = 0):
+    """End-of-round phase check for any phased unit that crossed a threshold."""
+    for e in enemies:
+        if not e.alive or not e.phases or not e.max_health:
+            continue
+        frac = e.health / e.max_health
+        for ph in e.phases:
+            key = str(ph["threshold"])
+            if frac <= ph["threshold"] and key not in e.phases_fired:
+                e.phases_fired.add(key)
+                _fire_boss_phase(e, ph["kind"], enemies, all_units, alive_heroes, log,
+                                 floor_number, morale_changes, stress_changes, turns, round_num)
+
+
+# ═══ ELITE AFFIXES ════════════════════════════════════════════════════
+# A slice of ordinary floors promotes one enemy to an ELITE with a named
+# affix — the fight stops being homogeneous without needing a miniboss.
+# Seeded per floor (same guarantee as composition: scout intel is real).
+ELITE_AFFIXES = {
+    "Armored":      {"desc": "hardened plates",   "def_mult": 1.6, "dr": 0.25},
+    "Frenzied":     {"desc": "froth and speed",   "agi_mult": 1.5, "str_mult": 1.25},
+    "Colossal":     {"desc": "towering bulk",     "hp_mult": 1.8},
+    "Deadly":       {"desc": "hunts weak points", "crit": 0.25},
+    "Regenerating": {"desc": "flesh reknits",     "regen": 0.05},
+    "Warded":       {"desc": "spell-turning sigils", "mr": 0.4},
+}
+ELITE_HP_BONUS = 1.25  # every elite is also a bit tougher outright
+
+def _apply_affix(target: CombatUnit, affix: str):
+    a = ELITE_AFFIXES[affix]
+    target.max_health = int(target.max_health * a.get("hp_mult", 1.0) * ELITE_HP_BONUS)
+    target.health = target.max_health
+    target.strength = int(target.strength * a.get("str_mult", 1.0))
+    target.agility = int(target.agility * a.get("agi_mult", 1.0))
+    target.defense = int(target.defense * a.get("def_mult", 1.0))
+    target.endurance = int(target.endurance * a.get("def_mult", 1.0))
+    target.dmg_reduction_pct = min(0.7, target.dmg_reduction_pct + a.get("dr", 0.0))
+    target.crit_chance = min(0.6, target.crit_chance + a.get("crit", 0.0))
+    target.magic_resist_pct = min(0.8, target.magic_resist_pct + a.get("mr", 0.0))
+    if a.get("regen"):
+        target.status_effects.append({"type": "regen", "rounds": 999, "magnitude": a["regen"], "source_id": None})
+    target.name = f"{affix} {target.name}"
+    target.log_name = f"[{target.name}]"
+
+
+def maybe_elevate_elite(enemies: list, floor_number: int, rng: random.Random) -> list:
+    """Chance-gated (seeded) promotion of the biggest enemy in a normal
+    encounter to an affixed Elite. Tower Awakens: elite density climbs past
+    floor 50, and past 80 elites can carry TWO affixes ('Armored Frenzied…')."""
+    if not enemies:
+        return enemies
+    if floor_number > 50:
+        chance = 0.25 + min(0.20, (floor_number - 50) * 0.004)
+    else:
+        chance = 0.15 + min(0.20, floor_number * 0.002)
+    if rng.random() > chance:
+        return enemies
+    target = max(enemies, key=lambda e: e.max_health)
+    affixes = sorted(ELITE_AFFIXES.keys())
+    first = rng.choice(affixes)
+    _apply_affix(target, first)
+    if floor_number > 80 and rng.random() < 0.5:
+        _apply_affix(target, rng.choice([a for a in affixes if a != first]))
+    return enemies
+
+
+# ═══ ENVIRONMENTAL FLOOR CONDITIONS ═══════════════════════════════════
+# Some floors fight differently — a seeded, persistent condition that
+# changes the fight's texture (team choice starts to matter per floor).
+FLOOR_CONDITIONS = [
+    {"key": "hallowed",   "name": "HALLOWED GROUND",  "desc": "old blessings linger — the party slowly mends",
+     "hero_regen": 0.02},
+    {"key": "miasma",     "name": "CREEPING MIASMA",  "desc": "foul air saps the quick — agility dampened",
+     "hero_agi_mult": 0.88},
+    {"key": "dark",       "name": "SUFFOCATING DARK", "desc": "eyes strain and nerves fray — precision suffers",
+     "hero_crit_delta": -0.05, "hero_stress": 3},
+    {"key": "bloodhaze",  "name": "BLOODHAZE",        "desc": "something in the air wants violence — ALL blades bite deeper",
+     "both_str_mult": 1.15},
+    {"key": "nullfield",  "name": "NULL FIELD",       "desc": "the Tower drinks mana here — regeneration halved",
+     "hero_mana_regen_mult": 0.5},
+    {"key": "echoes",     "name": "SHARPENED ECHOES", "desc": "every sound betrays a weakness — crits come easier to all",
+     "both_crit_delta": 0.10},
+]
+FLOOR_CONDITION_CHANCE = 0.28
+
+# Tower Awakens: past floor 60 a rolled condition turns SEVERE — every
+# magnitude doubled (deltas doubled, multipliers pushed twice as far from 1.0).
+SEVERE_CONDITION_FLOOR = 60
+
+def _severify(cond: dict) -> dict:
+    sev = dict(cond)
+    sev["name"] = "SEVERE " + sev["name"]
+    sev["severe"] = True
+    for k, v in cond.items():
+        if k.endswith("_mult"):
+            sev[k] = round(1.0 + (v - 1.0) * 2, 3)      # 0.88 → 0.76, 1.15 → 1.30, 0.5 → 0.0-safe below
+            if sev[k] <= 0:
+                sev[k] = 0.25
+        elif k.endswith("_delta") or k in ("hero_regen", "hero_stress"):
+            sev[k] = v * 2
+    return sev
+
+
+def roll_floor_condition(floor_number: int) -> dict | None:
+    """Seeded: floor N either always has this condition or never does."""
+    rng = random.Random(floor_number * 7919 + 4)
+    if rng.random() > FLOOR_CONDITION_CHANCE:
+        return None
+    cond = rng.choice(FLOOR_CONDITIONS)
+    if floor_number > SEVERE_CONDITION_FLOOR:
+        cond = _severify(cond)
+    return cond
 
 # ─── Status effects (Bleed / Poison / Stun / Freeze / Burn / Taunt) ────────
 #
@@ -1089,8 +1386,17 @@ def mitigate_special(target: CombatUnit, damage: int, log: list) -> int:
     basic-attack hit lands. Returns the damage that actually gets through."""
     from services.skill_engine import has_status, absorb_with_shield
     if has_status(target, "invuln"):
-        log.append(f"  ✨ {target.log_name} is invulnerable — the blow does nothing.")
+        log.append(f"  ✦ {target.log_name} is invulnerable — the blow does nothing.")
         return 0
+    # shell_armor: soaks most of a basic-attack hit until the shell cracks
+    if "shell_armor" in getattr(target, "abilities", []) and "shell_armor" not in target.used_abilities:
+        target.shell_hits = getattr(target, "shell_hits", 0) + 1
+        damage = int(damage * (1 - SHELL_ARMOR_REDUCTION))
+        if target.shell_hits >= SHELL_ARMOR_BREAK_HITS:
+            target.used_abilities.add("shell_armor")
+            log.append(f"  ◆ {target.log_name}'s shell cracks apart — it's vulnerable now!")
+        else:
+            log.append(f"  ◆ {target.log_name}'s shell absorbs the brunt of the blow. [{target.shell_hits}/{SHELL_ARMOR_BREAK_HITS}]")
     return absorb_with_shield(target, damage)
 
 
@@ -1125,7 +1431,7 @@ _STATUS_DISPLAY = {
     # canonical Sigil-Library set (custom icons exist for these)
     "bleed": "BLEED", "poison": "POISON", "burn": "BURN", "freeze": "FREEZE",
     "frozen": "FREEZE", "stun": "STUN", "fear": "FEAR", "armor_break": "ARMOR BREAK",
-    "taunting": "TAUNT", "shield": "SHIELD", "enraged": "ENRAGED", "haste": "HASTE",
+    "taunting": "TAUNT", "shield": "SHIELD", "dmg_shield": "SHIELD", "enraged": "ENRAGED", "haste": "HASTE",
     # beyond the sheet — render as text chips
     "blind": "BLIND", "silence": "SILENCE", "regen": "REGEN", "dodge": "EVASION",
     "weaken": "WEAK",
@@ -1168,17 +1474,17 @@ def tick_status_effects(unit: CombatUnit, log: list) -> int:
             dmg = max(1, int(unit.max_health * BLEED_PCT_PER_ROUND))
             unit.health -= dmg
             total += dmg
-            log.append(f"  🩸 {unit.log_name} bleeds for {dmg} [{max(0, unit.health)}/{unit.max_health}]")
+            log.append(f"  ▸ {unit.log_name} bleeds for {dmg} [{max(0, unit.health)}/{unit.max_health}]")
         elif eff["type"] == "poison":
             dmg = max(1, int(eff["magnitude"]))
             unit.health -= dmg
             total += dmg
-            log.append(f"  ☠ {unit.log_name} takes {dmg} poison damage [{max(0, unit.health)}/{unit.max_health}]")
+            log.append(f"  ✦ {unit.log_name} takes {dmg} poison damage [{max(0, unit.health)}/{unit.max_health}]")
         elif eff["type"] == "burn":
             dmg = max(1, int(unit.max_health * BURN_PCT_PER_ROUND))
             unit.health -= dmg
             total += dmg
-            log.append(f"  🔥 {unit.log_name} burns for {dmg} [{max(0, unit.health)}/{unit.max_health}]")
+            log.append(f"  ▸ {unit.log_name} burns for {dmg} [{max(0, unit.health)}/{unit.max_health}]")
         elif eff["type"] == "regen":
             heal = max(1, int(unit.max_health * eff.get("magnitude", 0.05)))
             healed = apply_heal(unit, heal)
@@ -1330,13 +1636,13 @@ def _execute_active_skill_legacy(attacker: CombatUnit, skill: dict, targets: lis
 
     if "taunt_duration" in eff:
         apply_status_effect(attacker, "taunting", eff["taunt_duration"])
-        log.append(f"  🛡 {attacker.log_name} uses {skill['name']} — taunting all enemies!")
+        log.append(f"  ◆ {attacker.log_name} uses {skill['name']} — taunting all enemies!")
         return True
 
     if "team_dmg_reduce" in eff:
         for ally in [u for u in all_units if u.is_hero and u.alive and not u.is_npc]:
             apply_status_effect(ally, "dmg_shield", eff.get("duration", 2), magnitude=eff["team_dmg_reduce"])
-        log.append(f"  🛡 {attacker.log_name} casts {skill['name']} — the team braces!")
+        log.append(f"  ◆ {attacker.log_name} casts {skill['name']} — the team braces!")
         return True
 
     if "heal_pct" in eff:
@@ -1352,7 +1658,7 @@ def _execute_active_skill_legacy(attacker: CombatUnit, skill: dict, targets: lis
     if "enemy_stun" in eff:
         for target in targets:
             apply_status_effect(target, "stun", eff["enemy_stun"])
-        log.append(f"  ⚡ {attacker.log_name} uses {skill['name']} — enemies stunned!")
+        log.append(f"  ✦ {attacker.log_name} uses {skill['name']} — enemies stunned!")
         return True
 
     if "self_heal_pct" in eff:
@@ -1365,14 +1671,14 @@ def _execute_active_skill_legacy(attacker: CombatUnit, skill: dict, targets: lis
         allies = [u for u in all_units if u.is_hero and u.alive and not u.is_npc]
         for ally in allies:
             setattr(ally, stat, int(getattr(ally, stat) * (1 + eff["team_buff_pct"])))
-        log.append(f"  📯 {attacker.log_name} uses {skill['name']} — the team's {stat} surges for the rest of the fight!")
+        log.append(f"  ✦ {attacker.log_name} uses {skill['name']} — the team's {stat} surges for the rest of the fight!")
         return True
 
     if "cleanse_self" in eff:
         before = len(attacker.status_effects)
         attacker.status_effects = [s for s in attacker.status_effects if s["type"] not in ("bleed", "poison", "stun", "freeze", "burn")]
         cleared = before - len(attacker.status_effects)
-        log.append(f"  ✨ {attacker.log_name} uses {skill['name']}" + (f" — clears {cleared} affliction(s)." if cleared else ", but has nothing to cleanse."))
+        log.append(f"  ✦ {attacker.log_name} uses {skill['name']}" + (f" — clears {cleared} affliction(s)." if cleared else ", but has nothing to cleanse."))
         return True
 
     if "revive_pct" in eff:
@@ -1421,7 +1727,7 @@ def _execute_active_skill_legacy(attacker: CombatUnit, skill: dict, targets: lis
                         morale_changes[h.id] = morale_changes.get(h.id, 0) + random.randint(2, 5)
         if "lifesteal_pct" in eff and total_dealt > 0:
             healed = apply_heal(attacker, int(total_dealt * eff["lifesteal_pct"]))
-            log.append(f"    🩸 {attacker.log_name} drains {healed} Health from the kill.")
+            log.append(f"    ▸ {attacker.log_name} drains {healed} Health from the kill.")
         return True
 
     return False  # should be unreachable — is_skill_executable already filtered this out
@@ -1568,16 +1874,64 @@ def resolve_hero_stats(heroes: list[dict]) -> list[dict]:
         try:
             from services.support_service import get_support_effects
             fx = get_support_effects()
+            # Chef · Sous Chef (Grand Feast) / unevolved: +% ALL six stats.
             feast = fx.get("feast_stat_pct", 0)
             if feast:
                 f_mult = 1.0 + feast / 100.0
                 for k in ("strength", "intelligence", "agility", "endurance", "willpower", "luck"):
                     modified[k] = int(modified[k] * f_mult)
+            # Chef · Butcher (War Rations): offense-skewed — strength + crit only.
+            war_str = fx.get("war_str_pct", 0)
+            if war_str:
+                modified["strength"] = int(modified["strength"] * (1.0 + war_str / 100.0))
+            war_crit = fx.get("war_crit", 0)
+            if war_crit:
+                modified["crit_chance"] = modified.get("crit_chance", 0.05) + war_crit
+            # Tactician · Commander (Battle Formation): +% all six combat stats.
+            formation = fx.get("formation_pct", 0)
+            if formation:
+                fm = 1.0 + formation / 100.0
+                for k in ("strength", "intelligence", "agility", "endurance", "willpower", "luck"):
+                    modified[k] = int(modified[k] * fm)
+            # Tactician · Advisor (War Council): rage + crit — strength & crit chance.
+            adv_str = fx.get("advisor_str_pct", 0)
+            if adv_str:
+                modified["strength"] = int(modified["strength"] * (1.0 + adv_str / 100.0))
+            adv_crit = fx.get("advisor_crit", 0)
+            if adv_crit:
+                modified["crit_chance"] = modified.get("crit_chance", 0.05) + adv_crit
+            # Blacksmith · Armorer (Tempered Plate): team flat damage-reduction.
+            smith_dr = fx.get("smith_dmg_reduction_pct", 0)
+            if smith_dr:
+                modified["dmg_reduction_pct"] = min(0.85, modified.get("dmg_reduction_pct", 0.0) + smith_dr)
+            # Medic · Surgeon (Field Surgery) / unevolved: +% max HP entering fights.
             shield = fx.get("medic_shield_pct", 0)
             if shield and modified.get("max_health"):
                 bonus_hp = int(modified["max_health"] * shield / 100.0)
                 modified["max_health"] += bonus_hp
                 modified["health"] = min(modified["health"] + bonus_hp, modified["max_health"])
+            # Medic · Herbalist (Regen Salves): per-round % max-HP regen in combat.
+            # Master Chef's well-fed regen (capstone) rides the same stat.
+            regen = fx.get("medic_regen_pct", 0) + fx.get("chef_wellfed_regen", 0)
+            if regen:
+                modified["regen_pct"] = modified.get("regen_pct", 0.0) + regen
+            # Alchemist · Poisoner (Combat Draughts): a battle elixir in every pack.
+            draught = fx.get("alch_draught_pct", 0)
+            if draught:
+                dm = 1.0 + draught / 100.0
+                modified["strength"] = int(modified["strength"] * dm)
+                modified["intelligence"] = int(modified["intelligence"] * dm)
+            # Priest · Chaplain (Blessing): physical + magic resistance.
+            bless = fx.get("blessing_resist_pct", 0)
+            if bless:
+                modified["physical_resist_pct"] = modified.get("physical_resist_pct", 0.0) + bless
+                modified["magic_resist_pct"] = modified.get("magic_resist_pct", 0.0) + bless
+            # Priest · Oracle (Guardian Fate): death-save charges (Undying Will) —
+            # the hero refuses a fatal blow, dropping to 1 HP; the existing
+            # death_save revive path in the turn loop consumes them.
+            saves = fx.get("priest_death_saves", 0)
+            if saves:
+                modified["death_save"] = modified.get("death_save", 0) + saves
         except Exception:
             pass
 
@@ -1713,7 +2067,8 @@ def run_combat(heroes: list[dict], floor_number: int, is_boss: bool = False, is_
                                              morale_changes, kill_counts, stress_changes,
                                              family_override, is_survival_swarm, turn_limit, available_consumables,
                                              is_escort, is_ambush, is_blitz, cursed_debuff,
-                                             miniboss_variant, is_retrieval, runner_id)
+                                             miniboss_variant, is_retrieval, runner_id,
+                                             apply_support_boons=True)
     _apply_combat_drops(result, floor_number, is_boss, is_miniboss, outer_conn)
     return result
 
@@ -1725,7 +2080,8 @@ def _resolve_combat_from_processed(processed, floor_number, is_boss, is_miniboss
                                     family_override=None, is_survival_swarm=False, turn_limit=None,
                                     available_consumables=None, is_escort=False, is_ambush=False,
                                     is_blitz=False, cursed_debuff=None,
-                                    miniboss_variant=None, is_retrieval=False, runner_id=None):
+                                    miniboss_variant=None, is_retrieval=False, runner_id=None,
+                                    apply_support_boons=False):
     """The CombatUnit-construction-and-turn-loop core of run_combat, split out
     of the stat-resolution pipeline above it so a caller that already has
     fully-resolved hero dicts (no local DB to re-derive equipment/relic/bond/
@@ -1822,7 +2178,7 @@ def _resolve_combat_from_processed(processed, floor_number, is_boss, is_miniboss
             enemies = preset_enemies
         else:
             enemies = make_swarm_miniboss_encounter(floor_number)
-        log.append(f"🌊💀🌊 SURVIVAL FLOOR {floor_number} 🌊💀🌊")
+        log.append(f"═══ SURVIVAL FLOOR {floor_number} ═══")
         log.append(f"  An overwhelming swarm pours in. Survive {turn_limit or SURVIVAL_TURN_LIMIT} rounds!")
     elif is_boss or is_miniboss:
         if preset_enemies:
@@ -1838,15 +2194,21 @@ def _resolve_combat_from_processed(processed, floor_number, is_boss, is_miniboss
         real_hero_count = len([h for h in combatants_heroes if h.hero_class != "Construct"])
         if is_boss and real_hero_count > 1:
             pad_n = min(real_hero_count - 1, UNIMBER_BOSS_PAD_MAX_HEROES)
-            hp_mult = 1.0 + UNIMBER_BOSS_HP_PAD_PER_HERO * pad_n
-            def_mult = 1.0 + UNIMBER_BOSS_DEF_PAD_PER_HERO * pad_n
+            # WALL floors (Tower Awakens): the pad is doubled — these bosses
+            # are meant to stop climbs cold and be remembered by name.
+            wall_mult = 2.0 if floor_number in BOSS_WALL_FLOORS else 1.0
+            hp_mult = 1.0 + UNIMBER_BOSS_HP_PAD_PER_HERO * pad_n * wall_mult
+            def_mult = 1.0 + UNIMBER_BOSS_DEF_PAD_PER_HERO * pad_n * wall_mult
             for boss_unit in enemies:
                 boss_unit.max_health = int(boss_unit.max_health * hp_mult)
                 boss_unit.health = boss_unit.max_health
                 boss_unit.endurance = int(boss_unit.endurance * def_mult)
                 boss_unit.defense = int(boss_unit.defense * def_mult)
-            log.append(f"  💪 Boss Empowered: full party detected (+{int((hp_mult - 1) * 100)}% HP, +{int((def_mult - 1) * 100)}% DEF).")
-        log.append(f"🔥💀🔥 {'MINIBOSS' if is_miniboss else 'BOSS'} FLOOR {floor_number} 🔥💀🔥")
+            log.append(f"  ✦ Boss Empowered: full party detected (+{int((hp_mult - 1) * 100)}% HP, +{int((def_mult - 1) * 100)}% DEF).")
+            if wall_mult > 1.0:
+                log.append(f"  ═ THE TOWER'S WALL — floor {floor_number}'s warden does not intend to let anyone pass.")
+                turns.append({"round": 0, "event": "wall", "log": f"THE TOWER'S WALL — floor {floor_number}'s warden does not intend to let anyone pass"})
+        log.append(f"═══ {'MINIBOSS' if is_miniboss else 'BOSS'} FLOOR {floor_number} ═══")
         log.append(f"  {enemies[0].name} emerges from the darkness.")
     else:
         if preset_enemies:
@@ -1855,7 +2217,7 @@ def _resolve_combat_from_processed(processed, floor_number, is_boss, is_miniboss
             enemies = make_enemies(floor_number, count=enemy_count_override, difficulty_mult=difficulty_mult)
 
     if is_retrieval:
-        log.append(f"🎯 RETRIEVAL MISSION — floor {floor_number}")
+        log.append(f"✦ RETRIEVAL MISSION — floor {floor_number}")
         log.append(f"  {runner_unit.name} is the designated Runner: they will work the objective, not fight.")
         log.append(f"  Hold the line for {turn_limit or RETRIEVAL_TURN_LIMIT} rounds while the Runner finishes the job.")
 
@@ -1868,7 +2230,7 @@ def _resolve_combat_from_processed(processed, floor_number, is_boss, is_miniboss
             if cursed_debuff.get("hp_pct_loss"):
                 h.max_health = max(1, int(h.max_health * (1 - cursed_debuff["hp_pct_loss"])))
                 h.health = min(h.health, h.max_health)
-        log.append("🩸 CURSED GROUND — the team stumbled in already weakened.")
+        log.append("▸ CURSED GROUND — the team stumbled in already weakened.")
 
     initial_state = {
         "is_boss": is_boss,
@@ -1964,6 +2326,157 @@ def _resolve_combat_from_processed(processed, floor_number, is_boss, is_miniboss
     damage_dealt_stats = {h.id: 0 for h in combatants_heroes}
     consumables_used = {}
 
+    # ═══ Boss phases — every full boss is a staged fight (66% / 33% HP
+    # thresholds fire structural changes; seeded per floor).
+    if is_boss and enemies:
+        boss_unit = max(enemies, key=lambda e: e.max_health)
+        if not boss_unit.phases:
+            boss_unit.phases = roll_boss_phases(floor_number)
+
+    # ═══ Environmental floor condition (Tower path only) — a seeded,
+    # per-floor battlefield state that changes the fight's texture.
+    floor_condition = roll_floor_condition(floor_number) if apply_support_boons else None
+    if floor_condition:
+        fc = floor_condition
+        log.append(f"  ◆ FLOOR CONDITION — {fc['name']}: {fc['desc']}.")
+        turns.append({"round": 0, "event": "condition", "log": f"{fc['name']} — {fc['desc']}"})
+        for h in combatants_heroes:
+            if fc.get("hero_regen"):
+                h.status_effects.append({"type": "regen", "rounds": 999, "magnitude": fc["hero_regen"], "source_id": None})
+            if fc.get("hero_agi_mult"):
+                h.agility = max(1, int(h.agility * fc["hero_agi_mult"]))
+            if fc.get("hero_crit_delta"):
+                h.crit_chance = max(0.0, h.crit_chance + fc["hero_crit_delta"])
+            if fc.get("hero_stress"):
+                stress_changes[h.id] = stress_changes.get(h.id, 0) + fc["hero_stress"]
+            if fc.get("hero_mana_regen_mult"):
+                h.mana_regen_per_turn = max(0, int(h.mana_regen_per_turn * fc["hero_mana_regen_mult"]))
+            if fc.get("both_str_mult"):
+                h.strength = int(h.strength * fc["both_str_mult"])
+            if fc.get("both_crit_delta"):
+                h.crit_chance = min(0.8, h.crit_chance + fc["both_crit_delta"])
+        for e in enemies:
+            if fc.get("both_str_mult"):
+                e.strength = int(e.strength * fc["both_str_mult"])
+            if fc.get("both_crit_delta"):
+                e.crit_chance = min(0.8, e.crit_chance + fc["both_crit_delta"])
+
+    # Support-class combat boons (Tower path only — Arena passes
+    # apply_support_boons=False, matching the Chef/Medic stat pipeline it skips).
+    # Tactician: the plan seizes the initiative — guaranteed hero-first round 1
+    # (even vs an ambush) and every hero opens with bonus mana ready.
+    # Quartermaster: a light opening damage barrier (blunts the alpha strike) +
+    # a team pool of emergency field kits that fire mid-fight when a hero drops
+    # low (the kit-pool numbers are stashed for the round loop below).
+    tactician_first_strike = False
+    qm_kit_charges = 0
+    qm_kit_heal_pct = 0.0
+    qm_kit_threshold = 0.35
+    qm_kit_mana = False
+    medic_stitch_pct = 0.0     # CMO capstone: once/fight emergency stitch
+    medic_cleanse = False      # Miracle Worker capstone: DOTs burn off fast
+    priest_foresee = 0         # Prophet capstone: dodge N fatal blows outright
+    laststand_pct = 0.0        # General capstone
+    snowball_pct = 0.0         # Warlord capstone
+    if apply_support_boons:
+        try:
+            from services.support_service import get_support_effects
+            sfx = get_support_effects(outer_conn)
+            # First strike is a STRATEGIST-branch perk (fx flag), NOT every
+            # Tactician — the unevolved generic gives mana only.
+            tactician_first_strike = sfx.get("tactician_first_strike", False)
+            t_mana = sfx.get("tactician_bonus_mana", 0)
+            if t_mana:
+                for h in combatants_heroes:
+                    if h.hero_class != "Construct":
+                        h.mana = min(h.max_mana, h.mana + t_mana)
+                opener = "seizes the initiative" if tactician_first_strike else "readies the party"
+                log.append(f"  ✦ Your Tactician {opener} (+{t_mana} mana).")
+            qm_barrier = sfx.get("quartermaster_barrier_pct", 0)
+            if qm_barrier:
+                # +1 round: the DOT tick at the top of every round decrements the
+                # shield, so an R-round barrier must be stored as R+1 to actually
+                # cover R full rounds of attacks.
+                b_rounds = sfx.get("quartermaster_barrier_rounds", 2)
+                for h in combatants_heroes:
+                    if h.hero_class != "Construct":
+                        apply_status_effect(h, "dmg_shield", b_rounds + 1, magnitude=qm_barrier)
+                log.append(f"  ◆ The Quartermaster armors the party — incoming damage −{int(qm_barrier * 100)}% for {b_rounds} rounds.")
+            qm_kit_charges = sfx.get("quartermaster_kit_charges", 0)
+            qm_kit_heal_pct = sfx.get("quartermaster_kit_heal_pct", 0.0)
+            qm_kit_threshold = sfx.get("quartermaster_kit_threshold", 0.35)
+            # Medic · Field Medic (Toxin Kit): deployed heroes gain poison-on-hit
+            # (only where a skill hasn't already granted it).
+            medic_poison = sfx.get("medic_poison_pct", 0)
+            if medic_poison:
+                for h in combatants_heroes:
+                    if h.hero_class != "Construct" and not h.poison_on_hit:
+                        h.poison_on_hit = {"pct": medic_poison, "duration": 3}
+                log.append(f"  ✦ The Field Medic's toxins coat the party's blades ({int(medic_poison * 100)}% poison).")
+            # Scout · Spy (Sabotage): the enemy camp was hit — they start weakened.
+            sabotage = sfx.get("scout_sabotage_pct", 0)
+            if sabotage:
+                sm = 1.0 - sabotage
+                for e in enemies:
+                    e.strength = max(1, int(e.strength * sm))
+                    e.intelligence = max(1, int(e.intelligence * sm))
+                    e.agility = max(1, int(e.agility * sm))
+                    e.max_health = max(1, int(e.max_health * sm))
+                    e.health = min(e.health, e.max_health)
+                log.append(f"  ✦ Your Spy sabotaged the enemy — they enter at −{int(sabotage * 100)}% strength.")
+            # Scout · Tracker (Predator's Mark): the biggest threat is marked —
+            # its defenses shredded (Infiltrator capstone: team armor-pen too).
+            mark = sfx.get("scout_mark_pct", 0)
+            if mark and enemies:
+                prey = max(enemies, key=lambda e: e.max_health + e.strength)
+                prey.endurance = max(1, int(prey.endurance * (1.0 - mark)))
+                prey.defense = max(1, int(prey.defense * (1.0 - mark)))
+                pen = sfx.get("scout_mark_armor_pen", 0)
+                if pen:
+                    for h in combatants_heroes:
+                        if h.hero_class != "Construct":
+                            h.armor_pen = min(0.9, h.armor_pen + pen)
+                log.append(f"  ✦ Predator's Mark — {prey.log_name}'s defenses are shredded (−{int(mark * 100)}%).")
+            # Iron Chef capstone: fight-start morale surge (fearless bellies).
+            morale_boost = sfx.get("chef_morale_boost", 0)
+            if morale_boost:
+                for h in combatants_heroes:
+                    if h.hero_class != "Construct":
+                        h.morale = min(100, h.morale + morale_boost)
+                log.append(f"  ◆ War rations steel the party's nerves (+{morale_boost} morale).")
+            # Saint capstone: fight-start holy mending.
+            bless_heal = sfx.get("priest_blessing_heal", 0)
+            if bless_heal:
+                mended = 0
+                for h in combatants_heroes:
+                    if h.hero_class != "Construct" and h.health < h.max_health:
+                        mended += apply_heal(h, int(h.max_health * bless_heal))
+                if mended:
+                    log.append(f"  ✟ The Saint's blessing mends the party (+{mended} HP).")
+            # Plague Doctor / Brewmaster capstones: enemies start afflicted.
+            enemy_poison = sfx.get("alch_enemy_poison", 0)
+            if enemy_poison:
+                for e in enemies:
+                    apply_status_effect(e, "poison", 3, magnitude=e.max_health * enemy_poison)
+                log.append(f"  ✦ The enemy arrives already sick — poisons seep through their ranks.")
+            # Grand Strategist capstone: opening haste (agility surge, 2 rounds).
+            haste = sfx.get("tact_haste_agi", 0)
+            if haste:
+                for h in combatants_heroes:
+                    if h.hero_class != "Construct":
+                        delta = int(h.agility * haste)
+                        h.agility += delta
+                        h.status_effects.append({"type": "stat_mod", "rounds": 3, "magnitude": 0, "stat": "agility", "delta": delta, "source_id": None})
+                log.append(f"  ✦ The Grand Strategist's plan unfolds — the party moves with uncanny speed.")
+            qm_kit_mana = sfx.get("qm_kit_mana", False)
+            medic_stitch_pct = sfx.get("medic_stitch_pct", 0)
+            medic_cleanse = sfx.get("medic_cleanse", False)
+            priest_foresee = sfx.get("priest_foresee", 0)
+            laststand_pct = sfx.get("tact_laststand_pct", 0)
+            snowball_pct = sfx.get("tact_snowball_pct", 0)
+        except Exception:
+            pass
+
     for round_num in range(1, max_rounds + 1):
         # Blitz/Time Attack — the room empowers enemies further every round
         # they survive, starting round 2 (nothing's stacked yet on round 1).
@@ -1973,9 +2486,13 @@ def _resolve_combat_from_processed(processed, floor_number, is_boss, is_miniboss
                     e.strength = int(e.strength * (1 + BLITZ_STACK_PER_ROUND))
                     e.intelligence = int(e.intelligence * (1 + BLITZ_STACK_PER_ROUND))
                     e.agility = int(e.agility * (1 + BLITZ_STACK_PER_ROUND))
-            log.append(f"  ⚡ The room surges — enemies grow stronger (round {round_num}).")
+            log.append(f"  ✦ The room surges — enemies grow stronger (round {round_num}).")
 
-        if is_ambush and round_num == 1:
+        if tactician_first_strike and round_num == 1:
+            # The Tactician read the room — heroes act first on round 1,
+            # overriding even an ambush. Normal agility order resumes round 2.
+            all_units.sort(key=lambda u: (not u.is_hero, -(u.agility + random.uniform(0, 2))))
+        elif is_ambush and round_num == 1:
             # Guaranteed enemy-first round 1, regardless of agility — the
             # whole point of an ambush. Normal agility-based turn order
             # resumes from round 2 on.
@@ -2009,10 +2526,49 @@ def _resolve_combat_from_processed(processed, floor_number, is_boss, is_miniboss
             if dot_dmg and unit.health <= 0 and unit.alive:
                 unit.alive = False
                 log.append(f"  ✦ {unit.log_name} succumbs to their wounds.")
+            # Miracle Worker capstone: hero afflictions burn off twice as fast.
+            if medic_cleanse and unit.is_hero:
+                for eff in unit.status_effects:
+                    if eff["type"] in ("bleed", "poison", "burn") and eff["rounds"] > 0:
+                        eff["rounds"] -= 1
+                unit.status_effects = [e for e in unit.status_effects if e["rounds"] > 0]
         alive_heroes = [u for u in alive_heroes if u.alive]
         alive_enemies = [u for u in alive_enemies if u.alive]
         if not alive_heroes or not alive_enemies:
             break
+
+        # ─── CMO capstone: once per fight, the worst-hurt hero below 30% gets
+        # an emergency stitch — a big single heal from the ward's best hands. ───
+        if medic_stitch_pct > 0:
+            hurt = [h for h in alive_heroes if h.max_health and h.health / h.max_health < 0.30 and h.hero_class != "Construct"]
+            if hurt:
+                patient = min(hurt, key=lambda h: h.health / h.max_health)
+                healed = apply_heal(patient, int(patient.max_health * medic_stitch_pct))
+                medic_stitch_pct = 0.0
+                if healed:
+                    log.append(f"  ✚ Emergency stitch! The CMO's work saves {patient.log_name} (+{healed} HP).")
+
+        # ─── Quartermaster emergency field kits — a team pool of one-shot heals
+        # that fire on any hero below the HP threshold who hasn't been kitted
+        # yet this fight. Spends only on genuinely hurt heroes (never a wasted
+        # top-up), one per hero, until the pool is empty. ───
+        if qm_kit_charges > 0:
+            for hero in alive_heroes:
+                if qm_kit_charges <= 0:
+                    break
+                if hero.hero_class == "Construct" or getattr(hero, "_qm_kitted", False):
+                    continue
+                if hero.max_health and hero.health / hero.max_health < qm_kit_threshold:
+                    healed = apply_heal(hero, int(hero.max_health * qm_kit_heal_pct))
+                    hero._qm_kitted = True
+                    qm_kit_charges -= 1
+                    # Guildmaster capstone: kits also restore mana and purge afflictions.
+                    if qm_kit_mana:
+                        hero.mana = min(hero.max_mana, hero.mana + hero.max_mana // 2)
+                        hero.status_effects = [e for e in hero.status_effects if e["type"] not in ("bleed", "poison", "burn")]
+                    if healed:
+                        extra = " — mana restored, wounds purged" if qm_kit_mana else ""
+                        log.append(f"  ◆ The Quartermaster's field kit reaches {hero.log_name} — +{healed} HP{extra} [{hero.health}/{hero.max_health}]")
 
         # A steady Leader can pull a squadmate back together mid-fight —
         # personality-flavored, not guaranteed, and the Leader can't steady
@@ -2096,7 +2652,7 @@ def _resolve_combat_from_processed(processed, floor_number, is_boss, is_miniboss
             # The Runner's whole turn goes to the objective — no attack, no
             # skill cast. Getting them safely through the round IS the floor.
             if attacker.is_hero and attacker.is_runner:
-                log.append(f"  🎯 {attacker.name} works the objective ({min(round_num, max_rounds)}/{max_rounds})…")
+                log.append(f"  ✦ {attacker.name} works the objective ({min(round_num, max_rounds)}/{max_rounds})…")
                 continue
 
             if attacker.is_hero:
@@ -2130,6 +2686,10 @@ def _resolve_combat_from_processed(processed, floor_number, is_boss, is_miniboss
                             attacker.kills += 1
                             kill_counts[attacker.id] = kill_counts.get(attacker.id, 0) + 1
                             log.append(f"    ✦ {target.log_name} falls.")
+                            # Warlord capstone: blood begets fury.
+                            if snowball_pct and attacker.is_hero:
+                                attacker.strength = int(attacker.strength * (1.0 + snowball_pct))
+                                log.append(f"    ✦ {attacker.log_name}'s fury builds (+{int(snowball_pct * 100)}% ATK).")
                             for h in combatants_heroes:
                                 if h.alive:
                                     morale_changes[h.id] = morale_changes.get(h.id, 0) + random.randint(2, 5)
@@ -2155,7 +2715,7 @@ def _resolve_combat_from_processed(processed, floor_number, is_boss, is_miniboss
 
                     # A blinded attacker whiffs most basic attacks.
                     if has_status(attacker, "blind") and random.random() < BLIND_MISS_CHANCE:
-                        log.append(f"  🌫 {attacker.log_name} is blinded and misses!")
+                        log.append(f"  ◆ {attacker.log_name} is blinded and misses!")
                         continue
 
                     # Dodge check (now includes any Evasion status buff)
@@ -2192,6 +2752,10 @@ def _resolve_combat_from_processed(processed, floor_number, is_boss, is_miniboss
                         attacker.kills += 1
                         kill_counts[attacker.id] = kill_counts.get(attacker.id, 0) + 1
                         log.append(_kill_log_line(attacker, target))
+                        # Warlord capstone: blood begets fury.
+                        if snowball_pct and attacker.is_hero:
+                            attacker.strength = int(attacker.strength * (1.0 + snowball_pct))
+                            log.append(f"    ✦ {attacker.log_name}'s fury builds (+{int(snowball_pct * 100)}% ATK).")
                         morale_changes[attacker.id] = morale_changes.get(attacker.id, 0) + random.randint(2, 5)
                     elif target.alive:
                         # Target survived — it may counter-attack (on_hit_taken).
@@ -2250,7 +2814,7 @@ def _resolve_combat_from_processed(processed, floor_number, is_boss, is_miniboss
 
                 # A blinded enemy whiffs most basic attacks.
                 if has_status(attacker, "blind") and random.random() < BLIND_MISS_CHANCE:
-                    log.append(f"  🌫 {attacker.log_name} is blinded and misses!")
+                    log.append(f"  ◆ {attacker.log_name} is blinded and misses!")
                     continue
 
                 # Dodge check (now includes any Evasion status buff)
@@ -2279,6 +2843,13 @@ def _resolve_combat_from_processed(processed, floor_number, is_boss, is_miniboss
                 turns.append({"round": round_num, "attacker_id": attacker.id, "target_id": target.id, "damage": damage, "is_crit": is_crit, "target_hp": max(0, target.health), "log": log_msg, "attacker_mana": attacker.mana, "target_mana": target.mana, "unimber_stacks": stacks, "statuses": _status_snapshot(all_units)})
 
                 if target.health <= 0:
+                    # Prophet capstone: fate was foreseen — the blow misses entirely
+                    # (team pool, consumed before any death-save charge).
+                    if target.is_hero and priest_foresee > 0:
+                        priest_foresee -= 1
+                        target.health = max(1, target.health + damage)
+                        log.append(f"  ✦ The Prophet foresaw this — {target.log_name} steps aside from death itself!")
+                        continue
                     # Death save check
                     if target.death_save > 0:
                         target.death_save -= 1
@@ -2298,6 +2869,13 @@ def _resolve_combat_from_processed(processed, floor_number, is_boss, is_miniboss
                                 stress_changes[h.id] = stress_changes.get(h.id, 0) + random.randint(5, 12)
                                 log.append(f"    {h.name}'s morale wavers...")
                                 _panic_check(h, "witness_death", log, power_ratio, fear_resist_mult)
+                        # General capstone: the line holds — survivors dig in.
+                        if laststand_pct and target.is_hero:
+                            for h in combatants_heroes:
+                                if h.alive and h.hero_class != "Construct":
+                                    h.strength = int(h.strength * (1.0 + laststand_pct))
+                                    h.intelligence = int(h.intelligence * (1.0 + laststand_pct))
+                            log.append(f"  ◆ The General's voice cuts the despair — the line HOLDS (+{int(laststand_pct * 100)}%).")
                 elif target.health > 0 and (target.health / target.max_health) < 0.25:
                     _panic_check(target, "hp_critical", log, power_ratio, fear_resist_mult)
                     # A hero hit but still standing may counter (on_hit_taken).
@@ -2319,6 +2897,14 @@ def _resolve_combat_from_processed(processed, floor_number, is_boss, is_miniboss
         if (not alive_heroes or not alive_enemies
                 or (npc_unit is not None and not npc_unit.alive)
                 or (runner_unit is not None and not runner_unit.alive)):
+            break
+
+        # ═══ Boss phase check — a boss pushed past a threshold this round
+        # changes the fight before the next one starts. ═══
+        check_boss_phases(enemies, all_units, alive_heroes, log, floor_number,
+                          morale_changes, stress_changes, turns, round_num)
+        alive_heroes = [u for u in alive_heroes if u.alive]   # cataclysm can kill
+        if not alive_heroes:
             break
 
     alive_heroes  = [u for u in combatants_heroes if u.alive and u is not npc_unit]
@@ -2544,6 +3130,23 @@ def _apply_combat_drops(result: dict, floor_number: int, is_boss: bool, is_minib
         # Easy mode's appeal is quantity (gold), Hard's is quality (rarity
         # boost above) — Hard deliberately leaves gold at baseline per spec.
         result["gold_gained"] = int(result["gold_gained"] * diff_mults["gold_mult"])
+
+        # Quartermaster capstones: Hoarder (Deep Stores) fattens gold AND
+        # materials from every floor; Tycoon (War Chest) skims a gold cut.
+        try:
+            from services.support_service import get_support_effects
+            _sfx = get_support_effects(outer_conn)
+            hoard = _sfx.get("qm_hoard_loot_pct", 0)
+            warchest = _sfx.get("qm_warchest_gold_pct", 0)
+            if hoard:
+                result["gold_gained"] = int(result["gold_gained"] * (1 + hoard))
+                extra = tiered_material_name(roll_material_name_for_enemies(floor_number, enemy_names), avg_luck=avg_luck)
+                drops[extra] = drops.get(extra, 0) + 1
+                result["materials_gained"] = drops
+            if warchest:
+                result["gold_gained"] = int(result["gold_gained"] * (1 + warchest))
+        except Exception:
+            pass
 
         # Mounted Reliquary gold trophies boost every fight's gold.
         try:

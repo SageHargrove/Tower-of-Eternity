@@ -23,11 +23,16 @@ FOOD_CATALOG = [
 ]
 
 
-def cook_food(conn, recipe_id: str, quantity: int = 1) -> dict:
+def cook_food(conn, recipe_id: str, quantity: int = 1, quality_mult: float = 1.0) -> dict:
+    """quality_mult is the SEASON THE POT minigame result: 1.0 = auto-resolve
+    baseline; up to x3 multiplies the PORTIONS a batch yields; 0 = CATASTROPHE
+    (the pot is scorched — ingredients spent, nothing served). Server-clamped."""
     recipe = next((f for f in FOOD_CATALOG if f["id"] == recipe_id), None)
     if not recipe:
         raise ValueError("Unknown recipe.")
     quantity = max(1, min(50, int(quantity)))
+    ruined = (quality_mult or 1.0) <= 0.05
+    quality = max(0.3, min(3.0, quality_mult or 1.0))
 
     hall = conn.execute("SELECT id, level FROM facilities WHERE type = 'Dining Hall' AND base_id = 1").fetchone()
     if not hall:
@@ -51,6 +56,11 @@ def cook_food(conn, recipe_id: str, quantity: int = 1) -> dict:
         raise ValueError(f"Not enough ingredients. Need {total_cost}, have {base['ingredients']}.")
 
     conn.execute("UPDATE base SET ingredients = ingredients - ? WHERE id = 1", (total_cost,))
+    if ruined:
+        return {"cooked": 0, "ruined": True, "item": recipe["name"], "ingredients_spent": total_cost,
+                "message": "The pot scorches black — the kitchen fills with smoke, and nothing is served."}
+    # quality multiplies the PORTIONS the same ingredients yield
+    quantity = max(1, round(quantity * quality))
     existing = conn.execute(
         "SELECT id FROM inventory WHERE item_name = ? AND item_type = 'food'", (recipe["name"],)
     ).fetchone()
@@ -83,8 +93,13 @@ AETHER_REFINE_COST = {"gold": 400, "ingredients": 20}
 AETHER_REFINE_YIELD = 25
 
 
-def refine_aether(conn, batches: int = 1) -> dict:
+def refine_aether(conn, batches: int = 1, quality_mult: float = 1.0) -> dict:
+    """quality_mult is THE STILL minigame result: 1.0 = auto-resolve baseline;
+    up to x3 multiplies the aether yield; 0 = CATASTROPHE (the condenser
+    ruptures — gold and ingredients spent, no aether). Server-clamped."""
     batches = max(1, min(20, int(batches)))
+    ruined = (quality_mult or 1.0) <= 0.05
+    quality = max(0.3, min(3.0, quality_mult or 1.0))
     lab = conn.execute("SELECT id, level FROM facilities WHERE type = 'Alchemist Lab' AND base_id = 1").fetchone()
     if not lab:
         raise ValueError("Build the Alchemist Lab first.")
@@ -97,10 +112,17 @@ def refine_aether(conn, batches: int = 1) -> dict:
     if base["ingredients"] < ing_cost:
         raise ValueError(f"Not enough ingredients. Need {ing_cost}.")
 
-    # Lab level improves the distillation — +2% yield per level.
-    yield_amt = int(AETHER_REFINE_YIELD * batches * (1 + 0.02 * (lab["level"] - 1)))
+    if ruined:
+        conn.execute("UPDATE base SET gold = gold - ?, ingredients = ingredients - ? WHERE id = 1",
+                     (gold_cost, ing_cost))
+        return {"refined": 0, "ruined": True, "gold_spent": gold_cost, "ingredients_spent": ing_cost,
+                "message": "The condenser ruptures — raw mana vents into the night, and nothing is kept."}
+
+    # Lab level improves the distillation — +2% yield per level; the STILL
+    # minigame's quality multiplies the final yield.
+    yield_amt = int(AETHER_REFINE_YIELD * batches * (1 + 0.02 * (lab["level"] - 1)) * quality)
     conn.execute(
         "UPDATE base SET gold = gold - ?, ingredients = ingredients - ?, aether = aether + ? WHERE id = 1",
         (gold_cost, ing_cost, yield_amt)
     )
-    return {"refined": yield_amt, "gold_spent": gold_cost, "ingredients_spent": ing_cost}
+    return {"refined": yield_amt, "gold_spent": gold_cost, "ingredients_spent": ing_cost, "quality": quality}

@@ -1,17 +1,46 @@
 import React, { useState, useEffect } from 'react'
 import PageTitle from '../components/PageTitle'
-import { getAllTeams, getBase, enterFloor, resolveEvent, resolveExplore, previewFloor, getNarrative, getHero, getLegacies } from '../api/client'
+import { getAllTeams, getBase, enterFloor, resolveEvent, resolveExplore, previewFloor, getNarrative, getHero, getLegacies, getSupportBoons } from '../api/client'
+
+// Compact chips for the deploy panel — which support boons ride into THIS
+// climb (combat-relevant only; economy boons live in their facilities).
+function boonChips(b) {
+  if (!b) return []
+  const pct = v => `${Math.round((v || 0) * 100)}%`
+  const chips = []  // { icon: boon-set sigil name, label }
+  if (b.feast_stat_pct) chips.push({ icon: 'FEAST', label: `FEAST +${b.feast_stat_pct}%` })
+  if (b.war_str_pct) chips.push({ icon: 'WAR_RATIONS', label: `WAR RATIONS +${b.war_str_pct}%` })
+  if (b.formation_pct) chips.push({ icon: 'FORMATION', label: `FORMATION +${b.formation_pct}%` })
+  if (b.advisor_str_pct) chips.push({ icon: 'WAR_COUNCIL', label: `WAR COUNCIL +${b.advisor_str_pct}%` })
+  if (b.alch_draught_pct) chips.push({ icon: 'DRAUGHT', label: `DRAUGHTS +${b.alch_draught_pct}%` })
+  if (b.medic_shield_pct) chips.push({ icon: 'SURGERY', label: `+${b.medic_shield_pct}% HP` })
+  if (b.medic_regen_pct) chips.push({ icon: 'SURGERY', label: `REGEN ${pct(b.medic_regen_pct)}` })
+  if (b.medic_poison_pct) chips.push({ icon: 'TOXIN', label: `TOXIN ${pct(b.medic_poison_pct)}` })
+  if (b.quartermaster_barrier_pct) chips.push({ icon: 'BARRIER', label: `BARRIER −${pct(b.quartermaster_barrier_pct)}` })
+  if (b.quartermaster_kit_charges) chips.push({ icon: 'FIELD_KIT', label: `${b.quartermaster_kit_charges} KIT${b.quartermaster_kit_charges > 1 ? 'S' : ''}` })
+  if (b.smith_dmg_reduction_pct) chips.push({ icon: 'PLATE', label: `PLATE −${pct(b.smith_dmg_reduction_pct)}` })
+  if (b.blessing_resist_pct) chips.push({ icon: 'BLESSING', label: `RESIST +${pct(b.blessing_resist_pct)}` })
+  if (b.priest_death_saves) chips.push({ icon: 'DEATH_SAVE', label: `${b.priest_death_saves} DEATH-SAVE${b.priest_death_saves > 1 ? 'S' : ''}` })
+  if (b.tactician_first_strike) chips.push({ icon: 'FIRST_STRIKE', label: 'FIRST STRIKE' })
+  else if (b.tactician_bonus_mana) chips.push({ icon: 'FIRST_STRIKE', label: `+${b.tactician_bonus_mana} MANA` })
+  if (b.scout_sabotage_pct) chips.push({ icon: 'SABOTAGE', label: `SABOTAGE −${pct(b.scout_sabotage_pct)}` })
+  if (b.scout_mark_pct) chips.push({ icon: 'MARK', label: `MARK −${pct(b.scout_mark_pct)}` })
+  return chips
+}
 import DeathCeremony from '../components/DeathCeremony'
 import DailyDungeons from '../components/DailyDungeons'
 import StakesBanner from '../components/StakesBanner'
 import { arenaUpdateFloor, getArenaToken } from '../api/arenaServerClient'
 import { emitToast } from '../toastBus'
+import { playDeedChime, playVictoryFanfare, playDefeatToll } from '../audio'
+import { scanCombatForDiscoveries } from '../codexBus'
 import CombatArena from '../components/CombatArena'
 import FairyGuide from '../components/FairyGuide'
 import { CardFrame } from '../components/HeroCard'
 import { EquipmentTypeIcon } from '../components/EquipmentTypeIcon'
 import GameIcon from '../components/GameIcon'
 import Sigil from '../components/Sigil'
+import Tip, { TIPS } from '../components/Tip'
 
 // Time-skip combat persistence — see resumeTurnIndex below. Discard
 // anything older than this even if found; a fight left "in progress" for
@@ -379,14 +408,25 @@ function AscentScreen({
   const startFloor = selectedZone * 10 + 1
   const floors = Array.from({ length: 10 }, (_, i) => startFloor + i)
   const nextFloor = highestFloor + 1
+  // Company boons riding into this climb (from stationed supports).
+  const [boons, setBoons] = useState(null)
+  useEffect(() => { getSupportBoons().then(setBoons).catch(() => {}) }, [])
+  const chips = boonChips(boons)
   const teamsNeeded = selectedFloor === 1 ? 1 : Math.floor((selectedFloor - 1) / 20) + 1
   const activeIds = deployTeamIds.slice(0, teamsNeeded)
   const notReady = activeIds.some(id => !team[id.toString()] || team[id.toString()].length === 0)
-  // Trust the backend on reveal: it returns floor_type only when the floor is
-  // visited OR scouted (a Bestiary Scout reveals floors past the deepest climb).
+  // Trust the backend on reveal: it returns floor_type only for floors the
+  // player has actually walked (floors stay unknown ahead — user rule).
   const selPreview = zoneFloorTypes[selectedFloor]
   const selInfo = selPreview?.floor_type ? FLOOR_TYPE_INFO[selPreview.floor_type] : null
-  const selScouted = !!selPreview?.scouted
+  // Learned intel from having WALKED this floor — condition/elite/boss phases
+  // are deterministic facts, so remembering them between attempts is real.
+  const selIntel = selPreview || {}
+  const PHASE_LABELS = {
+    summon: 'calls reinforcements', harden: 'hardens its carapace', ritual: 'heals mid-fight',
+    quicken: 'quickens', fury: 'flies into a fury', shed_armor: 'sheds its armor for speed',
+    cataclysm: 'unleashes a cataclysm', second_summon: 'calls mass reinforcements',
+  }
   const selIsBoss = selectedFloor % 10 === 0
   const bossFloorInZone = startFloor + 9
   const readyHeroes = (team[activeIds[0]?.toString()] || [])
@@ -419,7 +459,7 @@ function AscentScreen({
         <div style={{ marginTop: 20, border: '1px solid rgba(184,151,98,.4)', background: 'linear-gradient(150deg,rgba(124,58,214,.14),rgba(12,7,24,.5))', padding: '16px 18px', clipPath: 'polygon(0 0,100% 0,100% 100%,12px 100%)' }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
             <span style={{ fontFamily: 'Cinzel, serif', fontWeight: 700, letterSpacing: '.18em', fontSize: 12, color: 'var(--text-hi)', textTransform: 'uppercase' }}>
-              {selIsBoss ? 'Floor Type · Boss' : selInfo ? `Floor Type · ${selInfo.label}${selScouted ? ' · Scouted' : ''}` : 'Floor Type · Unknown'}
+              {selIsBoss ? 'Floor Type · Boss' : selInfo ? `Floor Type · ${selInfo.label}` : 'Floor Type · Unknown'}
             </span>
             <span className="ilm-mono" style={{ width: 26, height: 26, border: '1px solid rgba(216,187,132,.7)', background: '#1c1030' }}>
               <span style={{ color: 'var(--gold-hi)', fontSize: 11 }}>✦</span>
@@ -428,6 +468,31 @@ function AscentScreen({
           <div style={{ fontSize: '0.92rem', fontStyle: 'italic', color: '#c8b8dd', marginTop: 8, lineHeight: 1.45 }}>
             {floorPreview?.blurb || selInfo?.blurb || 'The floor reveals itself only to those who enter. Deaths beyond this threshold are permanent.'}
           </div>
+          {/* learned intel — only present on floors you've walked before */}
+          {(selIntel.condition || selIntel.elite || selIntel.boss_phases) && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 5, marginTop: 10, borderTop: '1px solid rgba(184,151,98,.18)', paddingTop: 9 }}>
+              {selIntel.condition && (
+                <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
+                  <span style={{ fontFamily: 'Cinzel, serif', letterSpacing: '.14em', fontSize: 9.5, color: 'var(--lavender)', flex: 'none' }}>◆ {selIntel.condition.name}</span>
+                  <span style={{ fontSize: '0.8rem', fontStyle: 'italic', color: 'var(--muted)' }}>{selIntel.condition.desc}</span>
+                </div>
+              )}
+              {selIntel.elite && (
+                <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
+                  <span style={{ fontFamily: 'Cinzel, serif', letterSpacing: '.14em', fontSize: 9.5, color: 'var(--red-hi)', flex: 'none' }}>◆ ELITE</span>
+                  <span style={{ fontSize: '0.8rem', fontStyle: 'italic', color: 'var(--muted)' }}>a {selIntel.elite} prowls this floor</span>
+                </div>
+              )}
+              {selIntel.boss_phases && (
+                <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
+                  <span style={{ fontFamily: 'Cinzel, serif', letterSpacing: '.14em', fontSize: 9.5, color: 'var(--red-hi)', flex: 'none' }}>◆ KNOWN PHASES</span>
+                  <span style={{ fontSize: '0.8rem', fontStyle: 'italic', color: 'var(--muted)' }}>
+                    wounded, it {selIntel.boss_phases.map(k => PHASE_LABELS[k] || k).join(', then ')}
+                  </span>
+                </div>
+              )}
+            </div>
+          )}
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 10 }}>
             <span style={{ width: 7, height: 7, transform: 'rotate(45deg)', background: 'var(--red)', display: 'inline-block' }} />
             <span style={{ fontFamily: 'Cinzel, serif', letterSpacing: '.2em', fontSize: 11, color: 'var(--red-hi)' }}>BOSS AWAITS ON FLOOR {bossFloorInZone}</span>
@@ -435,6 +500,17 @@ function AscentScreen({
         </div>
 
         {/* stakes + actions */}
+        {/* company boons — what the stationed supports send with the party */}
+        {chips.length > 0 && (
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 12 }}>
+            {chips.map((c, i) => (
+              <span key={i} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontFamily: 'Cinzel, serif', fontSize: 9.5, letterSpacing: '.1em', color: 'var(--gold-hi)', border: '1px solid rgba(184,151,98,.35)', background: 'rgba(184,151,98,.08)', padding: '3px 9px', whiteSpace: 'nowrap' }}>
+                <Sigil set="boon" name={c.icon} size={12} />
+                {c.label}
+              </span>
+            ))}
+          </div>
+        )}
         <StakesBanner variant="souls" compact style={{ marginTop: 14 }} />
         <div style={{ display: 'flex', gap: 12, marginTop: 10 }}>
           <button className="btn btn-primary" style={{ flex: 1, padding: '13px 0', fontSize: '0.9rem', letterSpacing: '.24em' }}
@@ -652,15 +728,6 @@ export default function TowerPage({ onGoldChange, onNavigate }) {
   const [pendingExplore, setPendingExplore] = useState(null)
   const [exploreResolution, setExploreResolution] = useState(null)
 
-  // The manager's standing tactical directive — applies to every regular
-  // combat floor automatically (Boss/Miniboss ignore it, see backend). The
-  // one persistent lever the player gets since they can't dictate the fight
-  // itself once the team's deployed.
-  const [stance, setStance] = useState(localStorage.getItem('tower_stance') || 'balanced')
-  function changeStance(s) {
-    setStance(s)
-    localStorage.setItem('tower_stance', s)
-  }
   
   const [combatEntities, setCombatEntities] = useState(null)
   const [postCombatPhase, setPostCombatPhase] = useState(false)
@@ -844,9 +911,24 @@ export default function TowerPage({ onGoldChange, onNavigate }) {
 
     try {
       const requiredTeams = (floorNumber - 1) === 0 ? 1 : Math.floor((floorNumber - 1) / 20) + 1
-      const result = await enterFloor(floorNumber, deployTeamIds.slice(0, requiredTeams), stance)
+      const result = await enterFloor(floorNumber, deployTeamIds.slice(0, requiredTeams), 'balanced')
       setLastResult(result)
       setCombatEntities(mergedCombatEntities(result))
+      scanCombatForDiscoveries(result)  // codex pages unlock on first encounter
+      // Deeds — announce each permanent record the fight just earned.
+      if (result.deeds_earned?.length) {
+        const heroName = (id) => result.combat?.initial_state?.heroes?.find(h => h.id === id)?.name || ''
+        result.deeds_earned.slice(0, 3).forEach((d, i) => {
+          setTimeout(() => {
+            playDeedChime()
+            emitToast({
+              title: 'DEED RECORDED',
+              lines: [{ label: heroName(d.hero_id), value: d.deed }],
+              borderColor: 'var(--gold)',
+            })
+          }, 800 + i * 1400)
+        })
+      }
       if (result.narrative_id) pollNarrative(result.narrative_id)
       const tnIds = result.turn_narrative_ids || (result.turn_narrative_id != null ? [result.turn_narrative_id] : [])
       tnIds.forEach((id, i) => pollTurnNarrative(id, i))
@@ -1109,7 +1191,11 @@ export default function TowerPage({ onGoldChange, onNavigate }) {
                 return (
                   <CombatArena
                     combatData={lastResult?.combat || lastResult}
-                    onComplete={() => { clearActiveCombat(); setPostCombatPhase(true) }}
+                    onComplete={() => {
+                      clearActiveCombat(); setPostCombatPhase(true)
+                      const won = (lastResult?.combat || lastResult)?.winner === 'heroes'
+                      won ? playVictoryFanfare() : playDefeatToll()
+                    }}
                     turnNarrations={turnNarrations[0]}
                     initialTurnIndex={resumeTurnIndex}
                   />

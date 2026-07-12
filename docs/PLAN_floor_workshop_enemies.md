@@ -1,5 +1,7 @@
 # Implementation Status — Survival Floor & Enemy Roster
 
+> **STATUS (2026-07-12): COMPLETE** — the enemy-roster expansion finished with the 2026-07-10 zone rework (10 band-pure zones, ~90 enemy types, every zone 5+ regulars, Leviathan's Graveyard band). Historical record.
+
 Tracks the three things originally deferred for discussion. (1) and (2)
 are resolved/built. (3) is in progress — floor 1-10's batch is built and
 tested; the rest is staged for later, one floor-range block at a time.

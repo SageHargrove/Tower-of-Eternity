@@ -6,6 +6,7 @@
  * (Friends · Mail · Chat · Guild · Menu). Glyphs are the same bordered-span
  * constructs as the .dc.html files — no icon font, no SVG dependency.
  */
+import Tip, { TIPS } from '../Tip'
 import React from 'react'
 import { Diamond } from './Ilm'
 import Sigil from '../Sigil'
@@ -97,12 +98,15 @@ export function HearthGlyph() {
 // gems glowing. No icon art here; the PNG/SVG versions read as off-model.
 function Currency({ value, label, color, glow }) {
   if (value === null || value === undefined) return null
+  const tip = { GOLD: TIPS.gold, GEMS: TIPS.gems, AETHER: TIPS.aether }[label]
   return (
-    <span className="resource-pill">
-      <Diamond size={9} color={color} glow={glow} />
-      <span style={{ color: '#efe8da' }}>{Number(value).toLocaleString()}</span>
-      <span className="pill-label">{label}</span>
-    </span>
+    <Tip text={tip} width={230}>
+      <span className="resource-pill">
+        <Diamond size={9} color={color} glow={glow} />
+        <span style={{ color: '#efe8da' }}>{Number(value).toLocaleString()}</span>
+        <span className="pill-label">{label}</span>
+      </span>
+    </Tip>
   )
 }
 
