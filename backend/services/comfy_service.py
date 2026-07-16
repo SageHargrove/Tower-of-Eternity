@@ -4,7 +4,7 @@ import random
 import requests
 import os
 
-COMFY_URL = "http://127.0.0.1:8188"
+COMFY_URL = os.getenv("COMFY_URL", "http://127.0.0.1:8188")
 CHECKPOINT = os.getenv("COMFY_CHECKPOINT", "noobaiXLNAIXL_vPred10Version.safetensors")
 LORA_NAME = os.getenv("COMFY_LORA", None)
 LORA_STRENGTH = float(os.getenv("COMFY_LORA_STRENGTH", "0.8"))
@@ -369,6 +369,36 @@ def is_comfy_running() -> bool:
         requests.get(f"{COMFY_URL}/system_stats", timeout=3.0)
         return True
     except Exception:
+        return False
+
+
+def ensure_comfy_running() -> bool:
+    """Launch-everything UX: if ComfyUI isn't up but a local install exists,
+    start it in the background so the player never has to. Looks at
+    COMFYUI_DIR, then ~/ComfyUI. Non-fatal on every path — no install just
+    means base-art mode. Returns True if the server is (or soon will be) up."""
+    if is_comfy_running():
+        return True
+    if not COMFY_URL.startswith(("http://127.0.0.1", "http://localhost")):
+        return False  # remote server — nothing to launch locally
+    import subprocess, sys
+    cand = os.getenv("COMFYUI_DIR") or os.path.join(os.path.expanduser("~"), "ComfyUI")
+    main_py = os.path.join(cand, "main.py")
+    if not os.path.exists(main_py):
+        return False
+    py = os.path.join(cand, "venv", "Scripts", "python.exe")
+    if not os.path.exists(py):
+        py = sys.executable
+    try:
+        flags = subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
+        subprocess.Popen([py, main_py, "--listen", "127.0.0.1", "--port",
+                          COMFY_URL.rsplit(":", 1)[-1]],
+                         cwd=cand, creationflags=flags,
+                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        print(f"[ComfyUI] Auto-started from {cand} (warming up).")
+        return True
+    except Exception as e:
+        print(f"[ComfyUI] Auto-start failed: {e}")
         return False
 
 

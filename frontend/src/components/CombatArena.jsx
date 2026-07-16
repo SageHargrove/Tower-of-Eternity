@@ -282,7 +282,7 @@ function CombatUnitSprite({ unit, team, position, teamCount = 1, pos: posOverrid
   )
 }
 
-export default function CombatArena({ combatData, onComplete, turnNarrations, initialTurnIndex = -1 }) {
+export default function CombatArena({ combatData, onComplete, turnNarrations, initialTurnIndex = -1, environment = null }) {
   const [currentTurnIndex, setCurrentTurnIndex] = useState(-1)
   const [playing, setPlaying] = useState(false)
   
@@ -455,7 +455,10 @@ export default function CombatArena({ combatData, onComplete, turnNarrations, in
         ))}
       </div>
     </div>
-    <div className="ilm-combat-stage">
+    <div className="ilm-combat-stage" style={environment ? {
+      backgroundImage: `linear-gradient(rgba(8,8,12,.72), rgba(8,8,12,.80)), url(${environment})`,
+      backgroundSize: 'cover', backgroundPosition: 'center',
+    } : undefined}>
       {isSurvivalSwarm && turnLimit && (
         <div className="ilm-combat-survive">SURVIVE · ROUND {Math.min(currentTurn?.round || 1, turnLimit)} / {turnLimit}</div>
       )}

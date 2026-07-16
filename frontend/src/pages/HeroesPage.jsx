@@ -213,6 +213,20 @@ export default function HeroesPage({ onNavigate }) {
   const [eqModal, setEqModal] = useState(null)
   const [allEq, setAllEq] = useState([])
   const [evoModal, setEvoModal] = useState(null)
+  // FORCE-EVO-PICK (support revamp leftover): the backend already holds a
+  // hero's level at 30/60 until a path is chosen — this surfaces it. Any
+  // gated hero auto-opens the evolution modal on page load; closing without
+  // choosing snoozes that hero for this visit only (the gate itself never
+  // releases until they pick).
+  const evoSnoozedRef = React.useRef(new Set())
+  useEffect(() => {
+    if (evoModal) return
+    const gated = heroes.find(h =>
+      h.evolution_options?.length > 0 &&
+      (h.level === 30 || h.level === 60) &&
+      !evoSnoozedRef.current.has(h.id))
+    if (gated) setEvoModal({ hero: gated, forced: true })
+  }, [heroes, evoModal])
   const [consModal, setConsModal] = useState(null)
   const [consOptions, setConsOptions] = useState([])
 
@@ -1287,7 +1301,11 @@ export default function HeroesPage({ onNavigate }) {
       {evoModal && (
         <ClassEvolutionModal
           hero={evoModal.hero}
-          onClose={() => setEvoModal(null)}
+          forced={!!evoModal.forced}
+          onClose={() => {
+            if (evoModal.forced) evoSnoozedRef.current.add(evoModal.hero.id)
+            setEvoModal(null)
+          }}
           onEvolve={(newClass) => {
             setMsg(`Hero evolved to ${newClass}!`)
             import('../audio').then(a => a.playEvolveSurge()).catch(() => {})

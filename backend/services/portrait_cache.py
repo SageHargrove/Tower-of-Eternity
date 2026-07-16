@@ -848,13 +848,16 @@ def _flood_bg_mask(rgb, dark_thresh=20, range_thresh=14):
 
 def _cutout_ok(alpha, rgb) -> bool:
     """Sanity gate: a good cutout keeps essentially ALL of the visibly-bright
-    figure and doesn't blank (or keep) the whole frame. 2026-07-15: bright-
-    retention tightened 0.6 -> 0.9 after the half-res flood gutted dark
-    bodies while still passing the old gate (Liam: "missing huge parts")."""
+    figure, keeps most of the MIDTONE (near-dark body) content, and doesn't
+    blank (or keep) the whole frame. 2026-07-15: bright-retention tightened
+    0.6 -> 0.9; midtone check added after the deep audit — dark-bodied art
+    (mordane, hellhound, hydra...) passed the bright-only gate while missing
+    its entire body, because black armor isn't 'bright'."""
     import numpy as np
     total = alpha.size
     opaque = (alpha > 128).sum() / total
-    figure_px = rgb.max(axis=2) > 45                 # clearly-not-background px
+    maxc = rgb.max(axis=2)
+    figure_px = maxc > 45                            # clearly-not-background px
     figure = figure_px.sum() / total
     if opaque < 0.06 or opaque > 0.92:
         return False
@@ -862,10 +865,15 @@ def _cutout_ok(alpha, rgb) -> bool:
         kept_bright = ((alpha > 128) & figure_px).sum() / max(figure_px.sum(), 1)
         if kept_bright < 0.90:
             return False
+    mid_px = (maxc > 16) & (maxc <= 45)              # dark-body midtones
+    if mid_px.sum() / total > 0.01:
+        kept_mid = ((alpha > 128) & mid_px).sum() / max(mid_px.sum(), 1)
+        if kept_mid < 0.65:
+            return False
     return True
 
 
-def _void_bg_mask(rgb):
+def _void_bg_mask(rgb, dark_thresh=26):
     """Background mask v2 (2026-07-15) — replaces the half-res dark+smooth
     flood whose leaks ate flat-shaded dark bodies (black armor, capes).
     Full resolution, NEAR-BLACK pixels only, border-connectivity, plus a
@@ -876,7 +884,7 @@ def _void_bg_mask(rgb):
     import numpy as np
     from scipy import ndimage
     maxc = rgb.max(axis=2)
-    bg0 = maxc <= 26                                  # near-black only
+    bg0 = maxc <= dark_thresh                         # near-black only
     if not bg0.any():
         return np.zeros(maxc.shape, dtype=bool)
     lbl, _ = ndimage.label(bg0)
@@ -912,11 +920,24 @@ def _trim_rgba(rgba, margin_frac: float = 0.05):
     return rgba[y0:y1, x0:x1]
 
 
-def make_game_cutout(path: str) -> bool:
+_REMBG_SESSION = None
+
+def _rembg_remove(im):
+    """isnet-anime segmentation with a cached session; returns RGBA Image."""
+    global _REMBG_SESSION
+    from rembg import remove, new_session
+    if _REMBG_SESSION is None:
+        _REMBG_SESSION = new_session("isnet-anime")
+    return remove(im, session=_REMBG_SESSION)
+
+
+def make_game_cutout(path: str, mode: str = "auto") -> bool:
     """Convert a black-bg portrait into game-ready transparent art IN PLACE —
     but ONLY if the result passes a sanity check; on failure the original
     file is left untouched and False is returned (the old version silently
     saved broken results and gutted most of the monster art — Liam).
+    mode="rembg_only" skips the void mask — for masters that carry a real
+    (non-void) backdrop the union would keep as a blob.
     Primary: border flood-fill (dark+smooth) — built for this pipeline's
     black-void backgrounds, keeps interior blacks and bright ground-glow.
     Fallback: rembg isnet-anime + ghost-kill (better on gradient bgs)."""
@@ -926,33 +947,47 @@ def make_game_cutout(path: str) -> bool:
         im = Image.open(path).convert("RGB")
         rgb = np.asarray(im)
 
-        # ── primary: void-mask cutout (v2 — see _void_bg_mask) ──
-        try:
-            from scipy import ndimage
-            bg = _void_bg_mask(rgb)
-            # a real void bg should be a decent chunk of the frame; if not,
-            # this isn't a black-void render — let rembg handle it
-            if bg.mean() >= 0.15:
-                mask = (~bg).astype(np.float32)
-                mask = ndimage.gaussian_filter(mask, sigma=0.7)  # 1px feather
-                alpha = np.clip(mask * 255, 0, 255).astype(np.uint8)
-                if _cutout_ok(alpha, rgb):
-                    rgba = np.dstack([rgb, alpha])
-                    Image.fromarray(_trim_rgba(rgba), "RGBA").save(path)
-                    return True
-        except Exception as e:
-            print(f"[Cutout] void method errored for {path}: {e}")
+        # ── primary: void-mask ∪ rembg (v4, 2026-07-15) ──
+        # v2's border-connectivity alone ate near-black CONTENT (black beards,
+        # hair, ink shadows) — the rembg union (isnet-anime, WITHOUT the
+        # ghost-kill that once gutted dark monsters) restores anatomy while
+        # the void mask keeps interior blacks and bright ground FX.
+        # v4: the void threshold now STEPS DOWN (26 -> 14 -> 10) — dark-bodied
+        # art (black armor at pixel values ~15-40) needs a stricter void
+        # definition than clean renders, and the midtone gate in _cutout_ok
+        # rejects the thresholds that eat the body.
+        if mode != "rembg_only":
+            try:
+                from scipy import ndimage
+                seg_fg = None
+                try:
+                    seg_fg = np.asarray(_rembg_remove(im))[:, :, 3] > 100
+                except Exception as e:
+                    print(f"[Cutout] rembg union skipped for {path}: {e}")
+                for thresh in (26, 14, 10):
+                    bg = _void_bg_mask(rgb, dark_thresh=thresh)
+                    # a real void bg should be a decent chunk of the frame;
+                    # if not, this isn't a black-void render — rembg's job
+                    if bg.mean() < 0.15:
+                        continue
+                    fg = ~bg
+                    if seg_fg is not None:
+                        fg = fg | seg_fg
+                    flbl, n = ndimage.label(fg)
+                    if n > 1:
+                        sizes = ndimage.sum(fg, flbl, range(1, n + 1))
+                        fg &= ~np.isin(flbl, np.where(sizes < 64)[0] + 1)
+                    mask = ndimage.gaussian_filter(fg.astype(np.float32), sigma=0.7)
+                    alpha = np.clip(mask * 255, 0, 255).astype(np.uint8)
+                    if _cutout_ok(alpha, rgb):
+                        rgba = np.dstack([rgb, alpha])
+                        Image.fromarray(_trim_rgba(rgba), "RGBA").save(path)
+                        return True
+            except Exception as e:
+                print(f"[Cutout] void method errored for {path}: {e}")
 
         # ── fallback: rembg + ghost-kill ──
-        from rembg import remove, new_session
-        global _REMBG_SESSION
-        try:
-            _REMBG_SESSION
-        except NameError:
-            _REMBG_SESSION = None
-        if _REMBG_SESSION is None:
-            _REMBG_SESSION = new_session("isnet-anime")
-        rgba = np.asarray(remove(im, session=_REMBG_SESSION)).copy()
+        rgba = np.asarray(_rembg_remove(im)).copy()
         a = rgba[:, :, 3].astype(np.float32)
         lum = rgba[:, :, :3].max(axis=2).astype(np.float32)
         ghost = (a < 210) & (lum < 70)
@@ -1087,7 +1122,23 @@ def rename_portrait_for_hero(hero_id: int, old_path: str, hero_name: str):
 # Generation
 # ---------------------------------------------------------------------------
 
+def _generation_unlocked() -> bool:
+    """Player-facing hero generation runs ONLY once an API key is attuned
+    (Liam's launch UX: fresh install = base art everywhere; entering a key
+    in the tutorial/settings is the switch that turns personal generation
+    on). Batch/curation scripts call comfy_service directly and are not
+    affected. The key's VALUE is not consumed yet — local ComfyUI needs no
+    auth — it is reserved for the future hosted-generation path."""
+    try:
+        from routers.settings import get_generation_api_key
+        return bool(get_generation_api_key())
+    except Exception:
+        return False
+
+
 def _generate_one_cached(birth_star: int):
+    if not _generation_unlocked():
+        return
     if get_cache_counts().get(birth_star, 0) >= MAX_PER_STAR.get(birth_star, 999):
         return
     try:
@@ -1110,6 +1161,8 @@ def _generate_one_cached(birth_star: int):
 
 def _generate_custom_portrait(hero_id: int, portrait_prompt: str, hero_name: str, gender: str = "unknown"):
     """Generate a hero-specific portrait from the LLM's portrait_prompt, in the house style."""
+    if not _generation_unlocked():
+        return
     try:
         from services.comfy_service import generate_portrait_comfy
         custom_dir = f"static/portraits/{database.ACTIVE_PROFILE}/alive"

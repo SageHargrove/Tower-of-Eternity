@@ -86,7 +86,7 @@ const CLASS_LORE = {
   "Grand Alchemist": { desc: "Transmutes the battlefield, turning enemy armor to dust.", team: "Ultimate Debuffer." }
 };
 
-export default function ClassEvolutionModal({ hero, onClose, onEvolve }) {
+export default function ClassEvolutionModal({ hero, onClose, onEvolve, forced = false }) {
   const [selectedClass, setSelectedClass] = useState(null);
   const [evolving, setEvolving] = useState(false);
 
@@ -127,6 +127,14 @@ export default function ClassEvolutionModal({ hero, onClose, onEvolve }) {
             <div className="text-dim" style={{ fontSize: '1.2rem', marginTop: '0.5rem' }}>
               {hero.name} has reached Level {hero.level} and is ready to evolve.
             </div>
+            {forced && (
+              <div style={{
+                fontFamily: 'Cinzel, serif', fontSize: '0.85rem', letterSpacing: '.08em',
+                color: '#e0aaff', marginTop: '0.5rem',
+              }}>
+                THE CROSSROADS — LEVEL HELD AT {hero.level}. XP BANKS UNTIL A PATH IS CHOSEN.
+              </div>
+            )}
           </div>
           <button className="btn" onClick={onClose} style={{ fontSize: '1.5rem', padding: '0.2rem 0.8rem' }}>&times;</button>
         </div>

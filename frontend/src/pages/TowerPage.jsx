@@ -80,16 +80,22 @@ function loadActiveCombat() {
 // The 10 biomes, one per 10-floor zone — derived from enemy_families.py's
 // spawn tables. Art lives in /images/floors/<slug>.png; the zone tile grid
 // uses it as a background so each stretch of the climb reads distinctly.
+// Order matches combat_service.py's band tiers (the spawn-table ground
+// truth): beginner/intermediate/veteran/advanced/mighty/ascendant/
+// MYTHIC=Leviathan's Graveyard (61-70, the sea band)/apex/dread/ancient.
+// 2026-07-15 re-theme: Dread Peaks moved to 41-50 (the winged-beast band),
+// Leviathan's Graveyard restored at 61-70, Blood Lake now covers apex's
+// hydras/nagas at 71-80. ashen_depths.png is spare until a band fits it.
 const ZONES = [
   { name: 'Overgrown Caverns', slug: 'overgrown_caverns', blurb: 'Root-choked tunnels where goblins, spiders, and wolves den.' },
-  { name: 'Savage Badlands', slug: 'savage_badlands', blurb: 'Sun-cracked wastes ruled by orcs, trolls, and dire wolf packs.' },
-  { name: 'Sunken Swamp', slug: 'sunken_swamp', blurb: 'Fetid mire crawling with hobgoblins and lizardmen.' },
-  { name: 'Profane Catacombs', slug: 'profane_catacombs', blurb: 'Desecrated halls of rotting ghouls and rampaging minotaurs.' },
-  { name: 'Ashen Depths', slug: 'ashen_depths', blurb: 'Smouldering caverns where the Ashen Colossus stirs.' },
-  { name: 'Crystalline Labyrinth', slug: 'crystalline_depths', blurb: 'A maze of living stone — sentinels and golems keep the walls.' },
-  { name: 'Blood Lake', slug: 'blood_lake', blurb: 'Crimson waters prowled by vampire spawn and nagas.' },
-  { name: 'Dread Peaks', slug: 'dread_peaks', blurb: 'Storm-lashed summits of death knights, hydras, and manticores.' },
-  { name: 'Abyssal Rift', slug: 'abyssal_rift', blurb: 'A wound in reality leaking imps and masked horrors.' },
+  { name: 'Savage Badlands', slug: 'savage_badlands', blurb: 'Sun-cracked wastes ruled by orcs, ogres, and trolls.' },
+  { name: 'Sunken Swamp', slug: 'sunken_swamp', blurb: 'Fetid mire crawling with hobgoblins, lizardmen, and gnolls.' },
+  { name: 'Profane Catacombs', slug: 'profane_catacombs', blurb: 'Desecrated halls of grave scarabs, ghouls, and their jackal wardens.' },
+  { name: 'Dread Peaks', slug: 'dread_peaks', blurb: 'Storm-lashed summits hunted by wyverns, manticores, and griffons.' },
+  { name: 'Crystalline Labyrinth', slug: 'crystalline_depths', blurb: 'A maze of living stone — wardens, animated armor, and juggernauts keep the walls.' },
+  { name: "Leviathan's Graveyard", slug: 'leviathans_graveyard', blurb: 'A drowned dark of leviathan bones — the drowned crew still keeps its watch.' },
+  { name: 'Blood Lake', slug: 'blood_lake', blurb: 'Crimson waters prowled by hydras, nagas, and the knights of the dead.' },
+  { name: 'Abyssal Rift', slug: 'abyssal_rift', blurb: 'A wound in reality leaking imps, hellhounds, and pit fiends.' },
   { name: "Dragon's Boneyard", slug: 'dragons_boneyard', blurb: 'The final ascent — liches, dragons, and dracoliches guard the peak.' },
 ]
 
@@ -97,6 +103,13 @@ const ZONES = [
 // biome rather than breaking — nothing past floor 100 is designed yet.
 function zoneFor(zoneIndex) {
   return ZONES[Math.min(zoneIndex, ZONES.length - 1)]
+}
+
+// The combat backdrop — the entered floor's zone art. Only rendered once
+// you're IN a floor (CombatArena); the zone grid keeps its own tile art.
+function floorArtFor(floorNumber) {
+  if (!floorNumber) return null
+  return `/images/floors/${zoneFor(Math.floor((floorNumber - 1) / 10)).slug}.png`
 }
 
 // Teams carry names (shared with the Squad Overview's toe_team_names store)
@@ -1188,7 +1201,7 @@ export default function TowerPage({ onGoldChange, onNavigate }) {
                           <div style={{ textAlign: 'center', color: 'var(--text-hi)', fontFamily: 'Cinzel, serif', marginBottom: '0.3rem' }}>
                             Team {i + 1}
                           </div>
-                          <CombatArena combatData={tr} onComplete={onArenaComplete} turnNarrations={turnNarrations[i]} />
+                          <CombatArena combatData={tr} onComplete={onArenaComplete} turnNarrations={turnNarrations[i]} environment={floorArtFor(lastResult?.floor)} />
                         </div>
                       ))}
                     </div>
@@ -1196,6 +1209,7 @@ export default function TowerPage({ onGoldChange, onNavigate }) {
                 }
                 return (
                   <CombatArena
+                    environment={floorArtFor(lastResult?.floor)}
                     combatData={lastResult?.combat || lastResult}
                     onComplete={() => {
                       clearActiveCombat(); setPostCombatPhase(true)
