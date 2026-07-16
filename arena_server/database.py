@@ -152,6 +152,12 @@ def init_db():
         pass # Column already exists
 
     try:
+        conn.execute("ALTER TABLE arena_players ADD COLUMN email TEXT")
+        conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_players_email ON arena_players(email)")
+    except sqlite3.OperationalError:
+        pass # Column already exists
+
+    try:
         conn.execute("ALTER TABLE arena_players ADD COLUMN elo INTEGER DEFAULT 1000")
     except sqlite3.OperationalError:
         pass # Column already exists

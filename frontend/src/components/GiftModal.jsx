@@ -136,11 +136,12 @@ export default function GiftModal({ hero, onClose, onGifted }) {
             <div style={{ position: 'relative', display: 'inline-block' }}>
               {hero.portrait_path ? (
                 <img
-                  src={`/${hero.portrait_path}`}
+                  src={`/heroes/${hero.id}/card-image?mini=1`}
                   alt={hero.name}
                   draggable={false}
+                  onError={(e) => { if (!e.currentTarget.dataset.fb) { e.currentTarget.dataset.fb = '1'; e.currentTarget.src = `/${hero.portrait_path}` } }}
                   style={{
-                    width: 130, height: 130, borderRadius: '50%', objectFit: 'cover', objectPosition: 'center 15%',
+                    width: 130, height: 130, borderRadius: '50%', objectFit: 'cover', objectPosition: 'center',
                     border: `3px solid ${rs.color}`, boxShadow: `0 0 25px ${rs.color}66`,
                   }}
                 />

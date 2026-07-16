@@ -28,35 +28,79 @@ function rng(seedStr) {
 const GOLD = a => `rgba(184,151,98,${a})`
 const VIOLET = a => `rgba(150,110,230,${a})`
 
-export default function Ornaments({ seed = 'page' }) {
+// Background variants for Liam to A/B live (Settings → BACKGROUND). The
+// sparkles + diagonal lines are loved and stay in every variant; what
+// changes is the "shapes" layer he isn't sold on.
+//   manuscript    — the current look: big diamond/square outlines
+//   starfield     — no shapes at all, just a denser sparkle scatter
+//   constellation — sparkle clusters joined by faint hairlines
+//   pips          — tiny filled diamond pips (brand-mark motif), no outlines
+export const BG_VARIANTS = [
+  ['manuscript', 'MANUSCRIPT'],
+  ['starfield', 'STARFIELD'],
+  ['constellation', 'CONSTELLATION'],
+  ['pips', 'PIPS'],
+]
+
+export default function Ornaments({ seed = 'page', variant = 'manuscript' }) {
   const bits = useMemo(() => {
-    const r = rng(seed)
+    const r = rng(seed + ':' + variant)
     const pick = arr => arr[Math.floor(r() * arr.length)]
     const spread = () => ({ left: `${Math.round(6 + r() * 86)}%`, top: `${Math.round(6 + r() * 84)}%` })
 
-    // 2-3 rotated diamond outlines — large, faint, spread; ~half nested.
-    const diamonds = Array.from({ length: 2 + Math.floor(r() * 2) }, () => {
-      const size = Math.round(180 + r() * 300)
-      return { ...spread(), size, nested: r() < 0.45, color: (r() < 0.5 ? GOLD : VIOLET)(0.05 + r() * 0.04) }
-    })
-    // 1-2 upright squares (axis-aligned) — a different shape for variety.
-    const squares = Array.from({ length: 1 + Math.floor(r() * 2) }, () => {
-      const size = Math.round(90 + r() * 150)
-      return { ...spread(), size, color: (r() < 0.5 ? GOLD : VIOLET)(0.045 + r() * 0.035) }
-    })
-    // 4 twinkling ✦ / ✧ sparkles.
-    const sparks = Array.from({ length: 4 }, () => ({
+    const mkSpark = () => ({
       ...spread(), char: pick(['✦', '✧', '✦']), size: Math.round(9 + r() * 9),
       color: (r() < 0.5 ? 'rgba(200,169,245,' : 'rgba(216,187,132,') + (0.3 + r() * 0.25) + ')',
       dur: (3.5 + r() * 3).toFixed(1), delay: (r() * 3).toFixed(1),
-    }))
-    // 1-2 lone accent hairlines drawn ON TOP of the base wash.
-    const lines = Array.from({ length: 1 + Math.floor(r() * 2) }, () => ({
+    })
+    const mkLine = () => ({
       ...spread(), len: Math.round(120 + r() * 220), rot: Math.round(-70 + r() * 40),
       color: (r() < 0.5 ? GOLD : VIOLET)(0.1 + r() * 0.06),
-    }))
-    return { diamonds, squares, sparks, lines }
-  }, [seed])
+    })
+
+    let diamonds = [], squares = [], pips = [], constellations = []
+    let sparkCount = 4
+    let lineCount = 1 + Math.floor(r() * 2)
+
+    if (variant === 'manuscript') {
+      // 2-3 rotated diamond outlines — large, faint, spread; ~half nested.
+      diamonds = Array.from({ length: 2 + Math.floor(r() * 2) }, () => {
+        const size = Math.round(180 + r() * 300)
+        return { ...spread(), size, nested: r() < 0.45, color: (r() < 0.5 ? GOLD : VIOLET)(0.05 + r() * 0.04) }
+      })
+      // 1-2 upright squares (axis-aligned) — a different shape for variety.
+      squares = Array.from({ length: 1 + Math.floor(r() * 2) }, () => {
+        const size = Math.round(90 + r() * 150)
+        return { ...spread(), size, color: (r() < 0.5 ? GOLD : VIOLET)(0.045 + r() * 0.035) }
+      })
+    } else if (variant === 'starfield') {
+      sparkCount = 11
+      lineCount = 2
+    } else if (variant === 'constellation') {
+      // 3 clusters of 3-4 stars, each joined by faint hairlines.
+      sparkCount = 3
+      constellations = Array.from({ length: 3 }, () => {
+        const cx = 10 + r() * 76, cy = 10 + r() * 74
+        const stars = Array.from({ length: 3 + Math.floor(r() * 2) }, () => ({
+          x: cx + (r() - 0.5) * 16, y: cy + (r() - 0.5) * 14,
+          size: Math.round(8 + r() * 8),
+          color: (r() < 0.5 ? 'rgba(200,169,245,' : 'rgba(216,187,132,') + (0.35 + r() * 0.25) + ')',
+          dur: (3.5 + r() * 3).toFixed(1), delay: (r() * 3).toFixed(1),
+        }))
+        return { stars, lineColor: (r() < 0.5 ? GOLD : VIOLET)(0.14 + r() * 0.06) }
+      })
+    } else if (variant === 'pips') {
+      sparkCount = 5
+      pips = Array.from({ length: 8 }, () => ({
+        ...spread(), size: Math.round(4 + r() * 6),
+        color: (r() < 0.5 ? GOLD : VIOLET)(0.14 + r() * 0.12),
+      }))
+    }
+
+    const sparks = Array.from({ length: sparkCount }, mkSpark)
+    const lines = Array.from({ length: lineCount }, mkLine)
+    return { diamonds, squares, pips, constellations, sparks, lines }
+  }, [seed, variant])
 
   return (
     <div aria-hidden style={{ position: 'fixed', inset: 0, pointerEvents: 'none', overflow: 'hidden', zIndex: 0 }}>
@@ -74,6 +118,30 @@ export default function Ornaments({ seed = 'page' }) {
       {/* upright squares */}
       {bits.squares.map((s, i) => (
         <div key={`q${i}`} style={{ position: 'absolute', left: s.left, top: s.top, width: s.size, height: s.size, border: `1px solid ${s.color}` }} />
+      ))}
+      {/* filled diamond pips (pips variant) */}
+      {bits.pips.map((p, i) => (
+        <div key={`p${i}`} style={{ position: 'absolute', left: p.left, top: p.top, width: p.size, height: p.size, transform: 'rotate(45deg)', background: p.color }} />
+      ))}
+      {/* constellation clusters (constellation variant) */}
+      {bits.constellations.map((c, ci) => (
+        <React.Fragment key={`c${ci}`}>
+          {c.stars.map((s, si) => {
+            const next = c.stars[si + 1]
+            return (
+              <React.Fragment key={si}>
+                {next && (() => {
+                  const dx = next.x - s.x, dy = next.y - s.y
+                  // % coords → approximate px angle/length on a 16:9 canvas
+                  const lenPct = Math.sqrt(dx * dx * 1 + dy * dy * (9 / 16) * (9 / 16))
+                  const ang = Math.atan2(dy * (9 / 16), dx) * 180 / Math.PI
+                  return <div style={{ position: 'absolute', left: `${s.x}%`, top: `${s.y}%`, width: `${lenPct}%`, height: 1, transform: `rotate(${ang}deg)`, transformOrigin: 'left center', background: `linear-gradient(90deg,transparent,${c.lineColor},transparent)` }} />
+                })()}
+                <span style={{ position: 'absolute', left: `${s.x}%`, top: `${s.y}%`, fontSize: s.size, lineHeight: 1, transform: 'translate(-50%,-50%)', color: s.color, animation: `orn-twinkle ${s.dur}s ease-in-out ${s.delay}s infinite` }}>✦</span>
+              </React.Fragment>
+            )
+          })}
+        </React.Fragment>
       ))}
       {/* accent hairlines on top of the wash */}
       {bits.lines.map((l, i) => (

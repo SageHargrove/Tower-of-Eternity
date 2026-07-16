@@ -48,7 +48,7 @@ ACHIEVEMENTS = [
      "reward": {"gems": 1000}},
     {"id": "floor_100", "name": "Top of the Spire", "desc": "Reach Floor 100 and survive the final Raid Boss.", "category": "Tower",
      "metric_fn": lambda c: _scalar(c, "SELECT highest_floor FROM base WHERE id=1"), "target": 100,
-     "reward": {"gems": 2000, "summon_ticket": "7-Star Summon Ticket"}},
+     "reward": {"gems": 2000, "materials": {"Eternal Shard": 3}}},
 
     # ─── Summoning ───
     {"id": "summon_1", "name": "First Summon", "desc": "Summon your first hero.", "category": "Summoning",
@@ -72,12 +72,14 @@ ACHIEVEMENTS = [
     {"id": "pull_6star", "name": "Brilliant Star", "desc": "Pull a 6★ hero.", "category": "Summoning",
      "metric_fn": lambda c: _scalar(c, "SELECT COUNT(*) FROM heroes WHERE birth_star >= 6"), "target": 1,
      "reward": {"gems": 400}},
-    {"id": "pull_7star", "name": "Mythic Pull", "desc": "Pull a 7★ hero.", "category": "Summoning",
-     "metric_fn": lambda c: _scalar(c, "SELECT COUNT(*) FROM heroes WHERE birth_star >= 7"), "target": 1,
-     "reward": {"gems": 1000, "summon_ticket": "4-Star Summon Ticket"}},
+    # 7★ can no longer be pulled — only transcended into (6★ evolution at
+    # floor 90+, Eternal Shards). These two track the ritual instead.
+    {"id": "pull_7star", "name": "Transcendent", "desc": "Raise a hero to 7★ — the Gate grants no such soul; it must be made.", "category": "Summoning",
+     "metric_fn": lambda c: _scalar(c, "SELECT COUNT(*) FROM heroes WHERE COALESCE(current_star, birth_star) >= 7"), "target": 1,
+     "reward": {"gems": 2500}},
     {"id": "pull_7star_5", "name": "Star Collector", "desc": "Own 5 seven-star heroes at once.", "category": "Summoning",
-     "metric_fn": lambda c: _scalar(c, "SELECT COUNT(*) FROM heroes WHERE birth_star >= 7 AND is_alive = 1"), "target": 5,
-     "reward": {"gems": 1500, "summon_ticket": "6-Star Summon Ticket"}},
+     "metric_fn": lambda c: _scalar(c, "SELECT COUNT(*) FROM heroes WHERE COALESCE(current_star, birth_star) >= 7 AND is_alive = 1"), "target": 5,
+     "reward": {"gems": 5000, "summon_ticket": "6-Star Summon Ticket"}},
 
     # ─── Roster ───
     {"id": "roster_10", "name": "Growing Family", "desc": "Have 10 living heroes in your roster.", "category": "Roster",
@@ -179,7 +181,7 @@ ACHIEVEMENTS = [
      "reward": {"gems": 1800, "summon_ticket": "6-Star Summon Ticket"}},
     {"id": "arena_elo_2500", "name": "Legend of the Arena", "desc": "Reach 2,500 Arena ELO — the theoretical ceiling. Vanishingly few will ever see this.", "category": "Arena",
      "metric_fn": lambda c: _scalar(c, "SELECT arena_elo FROM base WHERE id=1"), "target": 2500,
-     "reward": {"gems": 3000, "summon_ticket": "7-Star Summon Ticket"}},
+     "reward": {"gems": 3000, "materials": {"Eternal Shard": 3}}},
 ]
 
 _BY_ID = {a["id"]: a for a in ACHIEVEMENTS}
@@ -216,6 +218,13 @@ def claim_achievement(conn, achievement_id: str) -> dict:
         conn.execute("UPDATE base SET gems = gems + ? WHERE id = 1", (reward["gems"],))
     if reward.get("gold"):
         conn.execute("UPDATE base SET gold = gold + ? WHERE id = 1", (reward["gold"],))
+    if reward.get("materials"):
+        import json as _json
+        row = conn.execute("SELECT materials FROM base WHERE id = 1").fetchone()
+        mats = _json.loads(row["materials"]) if row and row["materials"] else {}
+        for name, qty in reward["materials"].items():
+            mats[name] = mats.get(name, 0) + int(qty)
+        conn.execute("UPDATE base SET materials = ? WHERE id = 1", (_json.dumps(mats),))
     if reward.get("summon_ticket"):
         ticket_name = reward["summon_ticket"]
         existing = conn.execute(

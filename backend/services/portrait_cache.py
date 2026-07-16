@@ -70,13 +70,16 @@ BASE_STYLE = (
     # also fought the anti-flat-background negatives and compromised on gray.
     # A/B verified 2026-07-06 (fixed seed): true black gradient, richer gold
     # trim, truer costume colors.
-    "simple background, dark background, (black background:1.1), gradient background, "
+    # "gradient background" removed 2026-07-12: with the frontend drawing a
+    # uniform in-game spotlight, baked bg light is pure downside (cutouts +
+    # LoRA both want pure black). Black weight nudged up to compensate.
+    "simple background, dark background, (black background:1.15), "
     # LIGHTING FIX (2026-07-08, A/B verified on Real_ToE ep10): the manhwa LoRA
     # is already dark-leaning, and backlighting/chiaroscuro/dramatic-shadow were
     # silhouetting the subject (lower bodies faded to pure black). Swapped those
     # three for a front key light + illumination tags, dropped black-bg 1.2->1.1
     # and rim 1.25->1.1. Full bodies now survive; void background preserved.
-    "(rim lighting:1.1), (character fully illuminated:1.25), bright key light on the figure, "
+    "(rim lighting:1.1), (character fully illuminated:1.25), bright frontal light on the figure, "
     "front lighting, full body clearly visible, well-lit character, crisp visible details, high contrast, "
     # very awa / absurdres are NoobAI's own top-quality training tags — they
     # pull toward the highest-scored slice of its dataset.
@@ -279,6 +282,10 @@ NEGATIVE_STYLE = (
     # floor-disc/platform motif (2026-07-12): some renders stand the hero on a
     # glowing colored disc/platform — bad for game-side cutouts, ban it.
     "glowing circle on the floor, light disc under feet, standing on a glowing platform, colored spotlight on the ground, "
+    # cutout-hostile artifacts (2026-07-12): soft cast shadows / dark smoke
+    # ghosts behind the figure segment terribly. Auras/halos are ALLOWED
+    # (preserved via luminance alpha at export) — only shadows banned.
+    "drop shadow, cast shadow on the background, dark shadow silhouette behind the character, "
     "detailed scenery background, busy background, environment background, landscape background, "
     # ground/floor creep — the void should hold only a soft shadow under
     # the feet, never terrain (merchant-on-rubble / berserker-on-white-floor
@@ -311,6 +318,78 @@ NEGATIVE_STYLE = (
 # Without it, this checkpoint's anime-style bias pulls small/humanoid-ish
 # creature prompts (goblin, rat, hyena) toward sexualized "monster girl"
 # anime-pinup interpretations instead of actual monsters.
+# ── FROZEN MONSTER DATASET RECIPE (2026-07-12) ─────────────────────────────
+# The hero recipe was tuned pure-black + heavy anti-shadow/anti-platform
+# negatives for clean game cutouts — which nerfed MONSTER generation (wolf
+# etc. came out weak). This is the reconstructed 2026-07-09 recipe that made
+# the monster art Liam actually likes (confirmed set). Kept SEPARATE from
+# BASE_STYLE/NEGATIVE_STYLE so future hero-recipe edits never touch monsters
+# again. Use these (+ the BOOST prefix) for monster-DATASET generation.
+# GOLDEN — do NOT fold hero-recipe changes into these without A/B evidence.
+MONSTER_GEN_STYLE = (
+    "(Solo Leveling manhwa art style:1.3), dark fantasy anime, "
+    "(bold black ink outlines:1.25), (thick clean lineart:1.15), (cel shading:1.1), hard shadow edges, "
+    "highly detailed facial shading, multiple distinct shading tones, colored midtones in shadow, "
+    "detailed hair strands, textured hair shading, "
+    "rich saturated colors, vivid true-to-color hair, natural skin tone unaffected by lighting, "
+    "simple background, dark background, (black background:1.1), gradient background, "
+    "(rim lighting:1.1), (character fully illuminated:1.25), bright frontal light on the figure, "
+    "front lighting, full body clearly visible, well-lit character, crisp visible details, high contrast, "
+    "intricate details, masterpiece, best quality, very awa, absurdres, newest, same universe aesthetic"
+)
+MONSTER_GEN_NEGATIVE = (
+    "(bad eyes:1.2), (asymmetric eyes:1.2), poorly drawn eyes, cross-eyed, "
+    "wonky eyes, misaligned pupils, extra pupils, deformed iris, dead eyes, "
+    "(bad face:1.1), poorly drawn face, malformed face, "
+    "(text:1.3), (watermark:1.3), signature, artist name, logo, username, speech bubble, letters, "
+    "(3d render:1.3), (cgi:1.25), (glossy plastic skin:1.2), porcelain doll skin, video game cinematic render, "
+    "unreal engine, octane render, chrome specular highlights, "
+    "overexposed, blown out highlights, washed out, sketch, unfinished sketch, monochrome, no color saturation, "
+    "(body dissolving into darkness:1.2), limbs fading into the background, dark clothing merging with background, "
+    "(tiny distant figure:1.2), (zoomed out:1.2), far away shot, small figure in a large empty frame, "
+    "(silhouette:1.3), (underexposed dark figure:1.2), flat single-color fill, body merging into the black background"
+)
+MONSTER_GEN_BOOST = (
+    "(strong even front lighting across the whole body:1.3), "
+    "(detailed cel shading with multiple tones and colored midtones:1.2), "
+    "fully rendered volumetric body, clearly visible head to toe, "
+)
+
+# ─── ENVIRONMENT GENERATION — GOLDEN RECIPE (Liam-approved 2026-07-13) ──────
+# "The environments look great. Whatever you shifted in terms of the
+# prompting, save it! That will be how we generate environments from now on."
+# Validated on 6 varied biomes (throne hall, crystal cavern, misty swamp, sky
+# ruins, volcanic forge, moonlit library) + the 10 zone backgrounds.
+# ScenicILL ALONE (EldRinBac was rejected); hires two-pass; landscape 1216x832.
+# DO NOT tweak without a fresh A/B in front of Liam.
+ENV_GEN_LORA = "ScenicILL.safetensors:0.8"
+ENV_GEN_PROMPT = (
+    "no humans, no creatures, empty scenery, dark fantasy, {tags}, "
+    "intricate detailed background, atmospheric lighting, "
+    "masterpiece, best quality, very awa, absurdres"
+)
+ENV_GEN_NEGATIVE = (
+    "photorealistic, 3d render, cgi, blurry, watermark, text, signature, "
+    "people, 1boy, 1girl, character, humans, figures, "
+    "monster, creature, animal, beast, dragon, skeleton, skull, corpse, body, bones, "
+    "statue of a person"
+)
+ENV_GEN_SIZE = (1216, 832)
+
+
+def generate_environment(tags: str, save_path: str) -> bool:
+    """Generate one environment on the golden recipe. `tags` is the scene
+    description only (e.g. 'vast gothic throne hall, stained-glass windows,
+    violet light shafts') — framing/quality/no-creature tags are the recipe's
+    job. This is THE way environments are generated (zone backgrounds now,
+    per-account environments later)."""
+    from services.comfy_service import generate_portrait_comfy
+    w, h = ENV_GEN_SIZE
+    return generate_portrait_comfy(
+        ENV_GEN_PROMPT.format(tags=tags), save_path,
+        negative=ENV_GEN_NEGATIVE, hires=True,
+        lora_override=ENV_GEN_LORA, width=w, height=h)
+
 MONSTER_STYLE = (
     # e621 anchor tags first — NoobAI is danbooru+e621 trained, and these
     # three tags are the strongest lever away from the anime-human prior.
@@ -379,7 +458,7 @@ HUMANOID_EVIL_NEGATIVE = NEGATIVE_STYLE + (
 HUMANOID_ENEMY_NAMES = {
     "Hobgoblin", "Lizardman", "Hobgoblin Berserker", "Lizardman Stalker",
     "Plague Harbinger", "Minotaur", "Minotaur Juggernaut",
-    "Stone Sentinel", "Lesser Golem", "Naga", "Death Knight", "Giant",
+    "Crypt Warden", "Animated Armor", "Naga", "Death Knight", "Giant",
     "Black Knight Commander", "Demon", "Pit Fiend", "Wraith Sovereign",
     "Lich Acolyte", "Archdemon Enforcer",
     "Orc Warchief", "The Troll King", "Skarn the Lizard Chieftain",
@@ -392,7 +471,7 @@ HUMANOID_ENEMY_NAMES = {
     "Drowned Deckhand", "Galleon Captain", "Bone-Grafted Goliath", "Captain Iron-Lung",
     # 2026-07-10 variety adds that are person-shaped.
     "Gnoll Marauder", "Blood Thrall", "Cambion", "Succubus",
-    "Magma Colossus", "Dragonkin Warrior", "The Forgotten God", "Ancient Revenant",
+    "Cinder Ogre", "Dragonkin Warrior", "The Forgotten God", "Ancient Revenant",
     # Harpy/Frost Wight are person-shaped — they render far better through
     # the hero-grade humanoid recipe than MONSTER_STYLE (Liam, 2026-07-06:
     # "for humanoid ones you could pull from the humanoid prompts").
@@ -571,7 +650,7 @@ CLASS_OUTFITS = {
     "Magic Engineer": "goggles on head, leather apron, mechanical gauntlet on one arm, tool belt, heavy work boots",
     "Classless": "worn traveling clothes, patched cloak, simple tunic",
     # support & profession classes — previously all fell to the default
-    "Chef": "chef whites reimagined as fantasy garb, apron, rolled sleeves, cleaver at the belt, sturdy shoes",
+    "Chef": "chef whites reimagined as fantasy garb, apron, rolled sleeves, holding a large kitchen knife, sturdy shoes",
     "Medic": "long coat with satchel, bandage rolls at the belt, gloves, leather shoes",
     "Scout": "camouflage cloak, light leather armor, shortbow slung on back, coiled rope and belt pouches at the hip, soft travel boots",
     "Blacksmith": "sturdy work shirt with rolled sleeves, heavy leather apron, thick gloves, soot smudges, hammer at the belt, heavy work boots",
@@ -687,6 +766,12 @@ def pop_cached_portrait(birth_star: int, class_name: str = None):
                 LIMIT 1
             """, (birth_star,)).fetchone()
         if not row:
+            # Pool dry: if no generation backend is available (no ComfyUI /
+            # no user API key), reuse a random default instead of waiting on
+            # a placeholder that would never be filled.
+            from services.comfy_service import is_comfy_running
+            if not is_comfy_running():
+                return _random_default_portrait(birth_star)
             return None
         conn.execute("UPDATE portrait_cache SET used = 1 WHERE id = ?", (row["id"],))
         return (row["path"], row["gender"], row["class_name"])
@@ -698,6 +783,238 @@ def add_to_cache(birth_star: int, path: str, gender: str, class_name: str):
             (birth_star, path, gender, class_name)
         )
 
+# ---------------------------------------------------------------------------
+# DEFAULT PORTRAIT POOL (2026-07-12): the 149 hand-curated heroes in
+# confirmed_heroes/ double as the game's default art. Seeded into the normal
+# portrait_cache at startup so pulls consume them like pre-generated art; when
+# the pool runs dry AND no generation backend is available (the future
+# bring-your-own-API-key setting / ComfyUI offline), pulls reuse a random
+# default instead of hanging on a placeholder. Files in confirmed_heroes are
+# never deleted by portrait replacement (guard in update_hero_portrait).
+DEFAULT_POOL_DIR = "static/portraits/cutouts_heroes"  # transparent game-display versions (confirmed_heroes stays black-bg for LoRA training)
+_DEFAULT_NAME_RE = re.compile(r"_(?:h?\d+_)?([A-Za-z]+)_([mf])(\d)\.png$")
+_CLASS_DISPLAY = {"MagicEngineer": "Magic Engineer"}
+
+def _parse_default_filename(fname: str):
+    m = _DEFAULT_NAME_RE.search(fname)
+    if not m:
+        return None
+    klass, g, star = m.group(1), m.group(2), int(m.group(3))
+    klass = _CLASS_DISPLAY.get(klass, klass)
+    if klass not in CLASS_OUTFITS:
+        return None
+    return klass, ("male" if g == "m" else "female"), star
+
+def _flood_bg_mask(rgb, dark_thresh=20, range_thresh=14):
+    """Background mask via border flood-fill over pixels that are BOTH very
+    dark AND locally smooth. The smoothness gate is what stops the flood at
+    the character's black ink OUTLINE (outline pixels sit next to brighter
+    body pixels -> high local range -> impassable), so interior black areas
+    (wings, dark fur) are unreachable and survive. Runs at half resolution
+    for speed, upsampled with a full-res darkness re-check."""
+    import numpy as np
+    from collections import deque
+    h, w = rgb.shape[:2]
+    small = rgb[::2, ::2]
+    lum = small.max(axis=2).astype(np.int16)
+    # 3x3 local range via shifted maxima/minima
+    pads = np.pad(lum, 1, mode='edge')
+    mx = np.max([pads[dy:dy+lum.shape[0], dx:dx+lum.shape[1]]
+                 for dy in range(3) for dx in range(3)], axis=0)
+    mn = np.min([pads[dy:dy+lum.shape[0], dx:dx+lum.shape[1]]
+                 for dy in range(3) for dx in range(3)], axis=0)
+    passable = (lum < dark_thresh) & ((mx - mn) < range_thresh)
+    sh, sw = lum.shape
+    bg = np.zeros((sh, sw), dtype=bool)
+    dq = deque()
+    for x in range(sw):
+        for y in (0, sh - 1):
+            if passable[y, x] and not bg[y, x]:
+                bg[y, x] = True; dq.append((y, x))
+    for y in range(sh):
+        for x in (0, sw - 1):
+            if passable[y, x] and not bg[y, x]:
+                bg[y, x] = True; dq.append((y, x))
+    while dq:
+        y, x = dq.popleft()
+        for ny, nx in ((y-1, x), (y+1, x), (y, x-1), (y, x+1)):
+            if 0 <= ny < sh and 0 <= nx < sw and passable[ny, nx] and not bg[ny, nx]:
+                bg[ny, nx] = True; dq.append((ny, nx))
+    full = np.repeat(np.repeat(bg, 2, axis=0), 2, axis=1)[:h, :w]
+    # full-res darkness re-check so upsampling can't eat bright pixels
+    flum = rgb.max(axis=2)
+    return full & (flum < dark_thresh + 8)
+
+
+def _cutout_ok(alpha, rgb) -> bool:
+    """Sanity gate: a good cutout keeps essentially ALL of the visibly-bright
+    figure and doesn't blank (or keep) the whole frame. 2026-07-15: bright-
+    retention tightened 0.6 -> 0.9 after the half-res flood gutted dark
+    bodies while still passing the old gate (Liam: "missing huge parts")."""
+    import numpy as np
+    total = alpha.size
+    opaque = (alpha > 128).sum() / total
+    figure_px = rgb.max(axis=2) > 45                 # clearly-not-background px
+    figure = figure_px.sum() / total
+    if opaque < 0.06 or opaque > 0.92:
+        return False
+    if figure > 0.02:
+        kept_bright = ((alpha > 128) & figure_px).sum() / max(figure_px.sum(), 1)
+        if kept_bright < 0.90:
+            return False
+    return True
+
+
+def _void_bg_mask(rgb):
+    """Background mask v2 (2026-07-15) — replaces the half-res dark+smooth
+    flood whose leaks ate flat-shaded dark bodies (black armor, capes).
+    Full resolution, NEAR-BLACK pixels only, border-connectivity, plus a
+    morphological leak-cut: the accepted background must survive a 3px
+    erosion re-grow, so hairline tendrils sneaking through soft outline
+    gaps get clipped instead of hollowing out the figure. Interior darks
+    (not border-connected) are foreground by construction."""
+    import numpy as np
+    from scipy import ndimage
+    maxc = rgb.max(axis=2)
+    bg0 = maxc <= 26                                  # near-black only
+    if not bg0.any():
+        return np.zeros(maxc.shape, dtype=bool)
+    lbl, _ = ndimage.label(bg0)
+    border = np.unique(np.concatenate([lbl[0, :], lbl[-1, :], lbl[:, 0], lbl[:, -1]]))
+    border = border[border != 0]
+    bg = np.isin(lbl, border)
+    # leak-cut: erode then re-grow within bg — thin leak corridors die
+    seed = ndimage.binary_erosion(bg, iterations=3)
+    bg = ndimage.binary_propagation(seed, mask=bg)
+    # despeckle foreground: dust specks in the void become transparent
+    fg = ~bg
+    flbl, n = ndimage.label(fg)
+    if n > 1:
+        sizes = ndimage.sum(fg, flbl, range(1, n + 1))
+        kill = np.isin(flbl, np.where(sizes < 64)[0] + 1)
+        bg |= kill
+    return bg
+
+
+def _trim_rgba(rgba, margin_frac: float = 0.05):
+    """Crop an RGBA array to the bounding box of its visible pixels plus a
+    uniform margin, so every cutout fills its frame consistently — otherwise
+    a figure occupying half the canvas renders half-size on combat cards."""
+    import numpy as np
+    a = rgba[:, :, 3]
+    ys, xs = np.where(a > 12)
+    if ys.size == 0:
+        return rgba
+    h, w = a.shape
+    m = int(round(max(h, w) * margin_frac))
+    y0, y1 = max(ys.min() - m, 0), min(ys.max() + 1 + m, h)
+    x0, x1 = max(xs.min() - m, 0), min(xs.max() + 1 + m, w)
+    return rgba[y0:y1, x0:x1]
+
+
+def make_game_cutout(path: str) -> bool:
+    """Convert a black-bg portrait into game-ready transparent art IN PLACE —
+    but ONLY if the result passes a sanity check; on failure the original
+    file is left untouched and False is returned (the old version silently
+    saved broken results and gutted most of the monster art — Liam).
+    Primary: border flood-fill (dark+smooth) — built for this pipeline's
+    black-void backgrounds, keeps interior blacks and bright ground-glow.
+    Fallback: rembg isnet-anime + ghost-kill (better on gradient bgs)."""
+    try:
+        import numpy as np
+        from PIL import Image
+        im = Image.open(path).convert("RGB")
+        rgb = np.asarray(im)
+
+        # ── primary: void-mask cutout (v2 — see _void_bg_mask) ──
+        try:
+            from scipy import ndimage
+            bg = _void_bg_mask(rgb)
+            # a real void bg should be a decent chunk of the frame; if not,
+            # this isn't a black-void render — let rembg handle it
+            if bg.mean() >= 0.15:
+                mask = (~bg).astype(np.float32)
+                mask = ndimage.gaussian_filter(mask, sigma=0.7)  # 1px feather
+                alpha = np.clip(mask * 255, 0, 255).astype(np.uint8)
+                if _cutout_ok(alpha, rgb):
+                    rgba = np.dstack([rgb, alpha])
+                    Image.fromarray(_trim_rgba(rgba), "RGBA").save(path)
+                    return True
+        except Exception as e:
+            print(f"[Cutout] void method errored for {path}: {e}")
+
+        # ── fallback: rembg + ghost-kill ──
+        from rembg import remove, new_session
+        global _REMBG_SESSION
+        try:
+            _REMBG_SESSION
+        except NameError:
+            _REMBG_SESSION = None
+        if _REMBG_SESSION is None:
+            _REMBG_SESSION = new_session("isnet-anime")
+        rgba = np.asarray(remove(im, session=_REMBG_SESSION)).copy()
+        a = rgba[:, :, 3].astype(np.float32)
+        lum = rgba[:, :, :3].max(axis=2).astype(np.float32)
+        ghost = (a < 210) & (lum < 70)
+        a[ghost] = 0
+        a[a < 12] = 0
+        a = a.astype(np.uint8)
+        if _cutout_ok(a, rgb):
+            rgba[:, :, 3] = a
+            Image.fromarray(_trim_rgba(rgba)).save(path)
+            return True
+        print(f"[Cutout] both methods failed sanity check for {path} — original kept")
+        return False
+    except Exception as e:
+        print(f"[Cutout] make_game_cutout failed for {path}: {e}")
+        return False
+
+
+def seed_default_pool():
+    """Idempotently register every confirmed default hero in portrait_cache."""
+    if not os.path.isdir(DEFAULT_POOL_DIR):
+        return 0
+    added = 0
+    with db() as conn:
+        known = {r["path"] for r in conn.execute(
+            "SELECT path FROM portrait_cache").fetchall()}
+        for fname in sorted(os.listdir(DEFAULT_POOL_DIR)):
+            if not fname.endswith(".png"):
+                continue
+            parsed = _parse_default_filename(fname)
+            if not parsed:
+                continue
+            klass, gender, star = parsed
+            path = f"{DEFAULT_POOL_DIR}/{fname}"
+            if path in known:
+                continue
+            conn.execute(
+                "INSERT INTO portrait_cache (birth_star, path, gender, class_name) VALUES (?,?,?,?)",
+                (star, path, gender, klass))
+            added += 1
+    if added:
+        print(f"[Cache] Seeded {added} default-pool portraits from confirmed_heroes")
+    return added
+
+def _random_default_portrait(birth_star: int):
+    """Reusable fallback when the cache is dry and generation is unavailable.
+    Same file may serve multiple heroes — acceptable for the default pool."""
+    if not os.path.isdir(DEFAULT_POOL_DIR):
+        return None
+    same_star, any_star = [], []
+    for fname in os.listdir(DEFAULT_POOL_DIR):
+        parsed = _parse_default_filename(fname) if fname.endswith(".png") else None
+        if not parsed:
+            continue
+        klass, gender, star = parsed
+        entry = (f"{DEFAULT_POOL_DIR}/{fname}", gender, klass)
+        any_star.append(entry)
+        if star == birth_star:
+            same_star.append(entry)
+    pool = same_star or any_star
+    return random.choice(pool) if pool else None
+
+
 def update_hero_portrait(hero_id: int, path: str):
     """Point a hero at a new portrait file, deleting the old custom one it
     replaces — regeneration (promotion upgrades, manual regen) otherwise
@@ -706,7 +1023,7 @@ def update_hero_portrait(hero_id: int, path: str):
         old = conn.execute("SELECT portrait_path FROM heroes WHERE id = ?", (hero_id,)).fetchone()
         old_path = old["portrait_path"] if old else None
         conn.execute("UPDATE heroes SET portrait_path = ? WHERE id = ?", (path, hero_id))
-    if old_path and old_path != path and "default_" not in old_path and os.path.exists(old_path):
+    if old_path and old_path != path and "default_" not in old_path and "cutouts_heroes" not in old_path and "confirmed_heroes" not in old_path and os.path.exists(old_path):
         try:
             os.remove(old_path)
         except Exception:
@@ -722,12 +1039,11 @@ def handle_fallen_portrait(hero_id: int, portrait_path: str, is_sacrifice: bool)
         return None
 
     if not is_sacrifice:
-        try:
-            os.remove(portrait_path)
-            update_hero_portrait(hero_id, None)
-        except Exception as e:
-            print(f"[Cache] Failed to delete portrait for fallen hero {hero_id}: {e}")
-        return None
+        # KEEP the portrait (Liam): deleting it turned a hero into a "?" the
+        # instant they died — the battle report, Death Ceremony, and Memorial
+        # all still want their real face. The row stays is_alive=0; the file
+        # lingers for those historical views.
+        return portrait_path
 
     memorial_dir = f"static/portraits/{database.ACTIVE_PROFILE}/memorial"
     os.makedirs(memorial_dir, exist_ok=True)
@@ -748,11 +1064,20 @@ def rename_portrait_for_hero(hero_id: int, old_path: str, hero_name: str):
     os.makedirs(custom_dir, exist_ok=True)
     safe_name = re.sub(r'[^a-z0-9]', '_', hero_name.lower())[:30]
     new_path = f"{custom_dir}/custom_hero_{hero_id}_{safe_name}_{int(time.time())}.png"
+    # Default-pool art is the master library — COPY it to the hero (the pool
+    # row stays used=1 so the same art isn't dealt twice, but the master file
+    # must never leave cutouts_heroes). Generated cache art is one-off: move.
+    is_default_pool = "cutouts_heroes" in old_path or "confirmed_heroes" in old_path
     try:
-        os.rename(old_path, new_path)
+        if is_default_pool:
+            import shutil
+            shutil.copy2(old_path, new_path)
+        else:
+            os.rename(old_path, new_path)
         update_hero_portrait(hero_id, new_path)
         with db() as conn:
-            conn.execute("DELETE FROM portrait_cache WHERE path = ?", (old_path,))
+            if not is_default_pool:
+                conn.execute("DELETE FROM portrait_cache WHERE path = ?", (old_path,))
         return new_path
     except Exception as e:
         print(f"[Cache] Failed to rename portrait for hero {hero_id}: {e}")
@@ -775,6 +1100,7 @@ def _generate_one_cached(birth_star: int):
         # what rescues small faces/eyes at full-body framing.
         success = generate_portrait_comfy(prompt, filename, negative=negative_for_class(hero_class), hires=True, lora_override=HERO_LORA)
         if success:
+            make_game_cutout(filename)  # game art is transparent; only datasets stay black-bg
             add_to_cache(birth_star, filename, gender, hero_class)
             print(f"[Cache] Generated {birth_star}★ {hero_class} ({gender}) portrait -> {filename}")
         else:
@@ -798,6 +1124,7 @@ def _generate_custom_portrait(hero_id: int, portrait_prompt: str, hero_name: str
         )
         success = generate_portrait_comfy(full_prompt, filename, negative=NEGATIVE_STYLE, lora_override=HERO_LORA)
         if success:
+            make_game_cutout(filename)  # game art is transparent
             update_hero_portrait(hero_id, filename)
             _prewarm_card(hero_id, filename)
             print(f"[Cache] Custom portrait ready for hero {hero_id}")
@@ -864,7 +1191,7 @@ ENEMY_PORTRAIT_HINTS = {
     "Bone Warden": "a skeletal guardian standing firmly on bleached white bone legs in a defensive stance, bone plating fused with tarnished silver armor across its chest and shoulders, glowing violet runes etched along its ribs and skull, gripping a weapon",
     "Flame Wraith": "a humanoid wraith composed of dark orange and red flame, charred black tattered robes with glowing ember-orange seams, flames visibly licking along its silhouette and within its hood, glowing ember-orange eyes",
     "Shriek Shade": "a screaming humanoid wraith, a hooded ghostly form rendered almost entirely in near-black with very dark deep-lavender undertones, subtle lighter-grey grain and highlights along the folds and tattered edges of its robes so the shape isn't perfectly flat, a clearly readable hooded humanoid silhouette, a gaping hollow mouth frozen in a scream, two small dim white dot-eyes, faint tendrils trailing from its form",
-    "Stone Golem": "(golem, rock creature:1.2), a hulking stone golem standing in a torchlit ancient ruin, rough granite slabs stacked like overlapping armor with moss in the crevices, (molten orange light glowing from the cracks between plates, lighting its own chest and arms:1.2), two furnace-orange eyes in a craggy face, oversized boulder fists, warm torchlight on broken pillars behind",
+    "Iron Juggernaut": "a colossal suit of ornate black-and-gold plate armor animated by a glowing orb in its chest, empty and hollow inside, rounded furnace-iron plates with bronze trim, heavy gauntlets, hollow helm with two burning eyes, monumental silhouette",
     "Dread Brute": "a hulking humanoid brute, scarred dark-tan skin, rusted iron-brown armor plating on its shoulders and forearms, gripping a crude obsidian-black weapon with glowing red runes along the blade, a snarling expression",
     "Abyssal Lurker": "a twisted abyssal beast crouched low on multiple clawed limbs, slick dark teal hide with bioluminescent cyan markings, rows of glowing white eyes along its head, translucent membranous fins along its spine",
     "Carrion Bat": "(bat, feral, membranous wings:1.2), a giant carrion bat swooping beneath a full moon, leathery brown-purple wings spread wide and (backlit by moonlight, veins visible through the glowing membrane:1.2), a fanged snout open in a shriek, oversized pointed ears, glowing yellow eyes, patchy matted fur, silver moonlit clouds and a bone-littered ridge below",
@@ -925,8 +1252,8 @@ ENEMY_PORTRAIT_HINTS = {
     "Plague Harbinger": "a withered ghoul-priest in tattered grey-green burial robes, sickly pale-green rotting skin clearly lit on its gaunt face and hands, hollow sunken eyes glowing faint sickly yellow, clutching a rusted censer dripping dark plague vapor, hunched robed figure, dim crypt background",
     "Minotaur": "a towering minotaur standing upright, thick dark-brown fur covering a muscular humanoid body clearly lit, a bull's head with massive curved horns and a ring through its nose, gripping a huge stone battleaxe, glowing red eyes, torchlit labyrinth background",
     "Minotaur Juggernaut": "a massive armored minotaur juggernaut standing upright, dark-brown fur clearly lit beneath heavy plated bronze armor, a scarred bull's head with broken horns, gripping an enormous spiked maul, glowing crimson eyes, dust and rubble around its feet, torchlit arena background",
-    "Stone Sentinel": "a humanoid stone sentinel construct standing at attention, rough grey granite body clearly lit with visible cracked seams, glowing faint blue runes etched across its chest and arms, a blank featureless carved face, fists like boulders, ancient ruin background",
-    "Lesser Golem": "a humanoid clay golem standing stiffly, cracked sandy-brown clay body clearly lit with visible seams and patchwork repairs, a crude carved face with glowing dim orange eyes, simple blocky proportions, dusty workshop ruin background",
+    "Crypt Warden": "a skeletal knight with a completely bald pure-bone skull, verdigris copper-green plate armor with white pauldrons, gripping a long halberd, tattered burial cloak, grim silent guardian of the crypts",
+    "Animated Armor": "an empty suit of white-and-black plate armor standing animated with no one inside, closed visor, glowing blue filigree lines across the plates, sword and stance held by invisible force",
     "Naga": "a naga warrior with a humanoid torso and a long coiled serpent tail, scaled emerald-green skin clearly lit, a crowned hooded head with slitted golden eyes, wielding a trident, ornate gold armbands, mist-shrouded temple ruin background",
     "Death Knight": "an armored death knight standing tall, blackened plate armor clearly lit with glowing blue runic engravings, a closed helm with two piercing icy-blue eye slits, gripping a massive runed greatsword, a tattered dark cape, frosty battlefield background",
     "Giant": "a towering giant warrior standing upright, weathered tan-grey skin clearly lit over a massive muscular frame, a craggy brutish face with a braided beard, wrapped in crude furs and banded iron plates, gripping an uprooted tree as a club, mountain pass background",
@@ -954,10 +1281,10 @@ ENEMY_PORTRAIT_HINTS = {
     "Pit Fiend Commander": "a towering armored pit fiend commander standing upright, charred dark-red skin clearly lit beneath ornate spiked black armor and a commander's cape, large curved horns, gripping a flaming greatsword, glowing orange eyes, molten cavern-throne background",
 
     # beast/monster-style entries (MONSTER_STYLE) from the same pass
-    "Scarab Swarmlord": "a massive armored beetle-like scarab, glossy dark-purple chitin shell clearly visible with iridescent sheen, oversized mandibles, six clawed legs, glowing violet eyes, surrounded by smaller scarabs skittering at its sides, torchlit crypt floor background",
+    "Tomb Jackal Warden": "a jackal-headed tomb guardian with sleek black fur, ornate gold-and-lapis funerary armor, gold collar and bracers, gripping a ceremonial spear, glowing amber eyes, regal Anubis-like bearing",
     "Wyvern": "(wyvern, dragon, feral:1.2), a slate-grey wyvern rearing on a cliff at sunset, membranous wings spread wide and (backlit amber by the setting sun:1.2), visible wing veins, barbed tail coiled, bared fangs, glowing amber eyes, dramatic orange storm light across its scales, sunset thunderheads behind",
     "Wyvern Stormrider": "a fierce wyvern beast crackling with electricity, leathery storm-grey wings spread wide with faint blue lightning arcing along the membrane, a long barbed tail, bared fangs, glowing white eyes, stormy cliffside background",
-    "Chimera": "(chimera, multi-headed, feral:1.2), a monstrous chimera with a lion's maned body, a goat's head growing from its back, and a serpent-headed tail, (tawny golden fur clearly lit and visible:1.2), patchy goat-grey fur on the second head, bared fangs on all three heads, glowing amber eyes, well-lit rocky wasteland background at dusk",
+    "Nemean Lion": "(nemean lion, feral:1.2), a massive regal lion with an invulnerable golden hide, dark umber-red mane, glowing amber eyes, a small crown-shaped gem marking on its forehead, stalking low with bared fangs",
     "Hydra Spawn": "a young multi-headed hydra beast, three serpentine necks rising from a stocky scaled body, deep-green scales clearly visible with darker mottled patterns, each head baring fangs, glowing yellow eyes, swampy lair background",
     "Young Dragon": "a young dragon on all fours, quadruped, scales, horns, wings, fangs, mountain cave background",
     "Adult Dragon": "a massive adult dragon rearing up on powerful hind legs, overlapping dark-crimson and obsidian scales clearly visible with plate-like texture, large swept-back horns, enormous leathery wings spread wide, bared fangs with fire and smoke billowing from its jaws, blazing amber eyes, heavily scarred and battle-worn, rocky mountain peak background wreathed in flame",
@@ -973,7 +1300,7 @@ ENEMY_PORTRAIT_HINTS = {
     "Coral-Grown Husk": "(no humans, monster:1.2), a hulking dead creature entirely overgrown with sharp calcified deep-sea coral clearly lit, jagged pink-and-white coral plating covering a humanoid husk, faint glowing teal polyps, a barely-visible skull face within the coral, pitch-black abyssal water background",
     "Abyssal Lamprey": "(no humans, monster:1.2), a giant pale eel-like lamprey clearly lit, sickly translucent white flesh, a huge circular fanged sucker-mouth ringed with teeth, a long sinuous body, faint bioluminescent blue markings, no eyes, pitch-black deep-sea water background",
     "Marrow-Worm": "(no humans, monster:1.2), a disgusting segmented blind bone-worm clearly lit, pale ridged chitinous segments, a round fanged maw, no eyes, glistening slick skin, bursting out from within a colossal glowing white skeleton, pitch-black ocean-floor background",
-    "Sunken Wisp": "(no humans, monster:1.2), a floating bioluminescent anglerfish lure clearly lit, a glowing teal orb of light on a curved stalk trailing wispy tendrils, faint ghostly translucent form, drifting like a will-o-wisp, pitch-black abyssal water background",
+    "Drowned Shade": "the ghost of a drowned sailor, grey waterlogged skin and sodden tattered clothes, cyan spectral glow in the eyes and around the fraying edges of its form, kelp tangled in its hair, mournful hollow stare",
     "Galleon Captain": "an undead galleon captain clearly lit, waterlogged grey skin beneath a barnacle-covered naval officer's coat and tricorn hat, hollow glowing teal eyes, wielding a rusted ship's wheel as a shield and a curved saber, seaweed and chains draped over him, pitch-black abyssal water background",
     "Trench Stalker": "(no humans, monster:1.2), a pitch-black shark-like deep-sea predator clearly lit, sleek dark hide that blends into the water, an enormous gaping maw of jagged glowing teeth, cold dead eyes, a lure-lit angler stalk, sinuous powerful body, pitch-black deep-sea water background",
     "Bone-Grafted Goliath": "a hulking deep-sea giant clearly lit, muscular blue-grey humanoid body crudely fused with jagged pieces of colossal leviathan bone forming natural armor and bladed weapons on its arms, a grim barnacled face, glowing teal eyes, pitch-black ocean-floor background",
@@ -994,9 +1321,9 @@ ENEMY_PORTRAIT_HINTS = {
     "Vile Corvid": "(no humans, monster:1.2), a large sinister raven-like bird clearly lit, glossy black-and-purple feathers, a cruel hooked beak, beady glowing red eyes, ragged wings spread, clutching a stolen trinket in its talons, dark misty background",
     "Griffon": "(no humans, monster:1.2), a majestic griffon clearly lit, the head, wings and taloned forelegs of an eagle with golden-brown feathers, the muscular hindquarters and tail of a lion, fierce glowing amber eyes, wings spread wide, dark stormy sky background",
     "Dire Sabertooth": "(no humans, monster:1.2), a massive sabertooth big-cat clearly lit, powerful tawny-and-black striped muscular body, huge curved sabre fangs, glowing amber eyes, bristling fur, a snarling roar, dark rocky highland background",
-    "Elder Treant": "(no humans, monster:1.2), a towering ancient treant clearly lit, a walking tree with gnarled bark-skin, thick root-like legs, long branch-arms with clawed twig-fingers, glowing green eyes set in a knotted wooden face, moss and glowing fungi on its body, dark forest background",
+    "Dryad": "a forest dryad with pale birch-bark skin patterned with dark bark seams, hair of green leaves and thin branches, serene but unsettling wooden face, vines wrapped around her limbs, guardian of the deep woods",
     "Phoenix": "(no humans, monster:1.2), a magnificent phoenix clearly lit, a large majestic bird wreathed in brilliant orange-gold flames, radiant fiery plumage, glowing golden eyes, wings spread wide trailing embers and fire, dark background making the flames glow",
-    "Magma Colossus": "a towering magma colossus clearly lit, a hulking humanoid giant of blackened volcanic rock with glowing molten-orange lava coursing through the cracks in its body, a craggy head with burning eyes, massive stone fists, radiating heat and embers, dark volcanic background",
+    "Cinder Ogre": "a hulking ogre with ash-grey charcoal skin, faint ember-orange glow in the cracks of its hide, heavy jaw with tusks, ragged hide loincloth, massive fists trailing smoke and cinders",
     "Carapace Fiend": "a demonic carapace fiend clearly lit, a hulking demon humanoid encased in segmented insectoid chitin armor, glossy dark-red carapace plating, sharp mandible-like jaw, multiple glowing eyes, clawed pincer hands, curved horns, dark infernal background",
     "Void Horror": "(no humans, monster:1.2), an eldritch void horror clearly lit, a writhing mass of dark tentacles and too many eyes, shifting non-euclidean form, glowing purple void-energy seeping between its forms, a gaping fanged maw, an unsettling otherworldly presence, dark starless void background",
     "Dragonkin Warrior": "a fearsome dragonkin warrior clearly lit, a muscular dragon-headed humanoid with (dark crimson scaled skin:1.2), a reptilian snout with bared fangs, curved horns, glowing slit-pupil eyes, small folded wings, ornate dark plate armor, gripping a massive halberd, a long tail, dark background",
@@ -1011,7 +1338,7 @@ ENEMY_PORTRAIT_HINTS = {
     "Skeleton": "an animated skeleton warrior standing upright, bare bone clearly visible with no flesh, hollow dark eye sockets with faint blue glowing pinpricks, wielding a chipped rusty sword and a cracked wooden shield, tattered remnants of old armor, dim crypt corridor background",
     "Venomous Spider": "a sleek forest spider crouched on eight segmented legs, olive-brown and tan carapace with a distinctive darker stripe pattern clearly visible, rows of small eyes, dripping venomous fangs, dense forest undergrowth background, diffuse green-filtered light picking out the body texture",
     "Feral Ghoul": "a feral ghoul hunched forward, sickly grey-green rotting skin clearly lit, sunken yellow eyes, ragged torn clothing, long blackened claws, jaw stretched in a silent snarl, dim graveyard background",
-    "Gargoyle": "a winged stone gargoyle perched low, rough grey granite hide clearly visible with cracked weathered texture, curling ram-like horns, leathery stone wings spread, clawed hands and feet, glowing faint green eyes, moonlit cathedral rooftop background",
+    "Cave Shrieker": "(no humans, monster:1.2), a completely bald bat-faced cave horror, huge membranous ears, blind pale eyes, screaming fanged maw, ash-pale skin, enormous purple bat wings, long claws, hunched crawling posture",
     "Wraith": "a tall wraith draped in tattered grey-blue spectral robes clearly visible, a pale gaunt translucent face with hollow glowing blue eyes, clawed semi-transparent hands reaching forward, faint wisps trailing from its form, misty graveyard background",
     "Manticore": "a fearsome manticore beast with a lion's muscular tawny-furred body, large feathered wings, a spiked venomous scorpion tail curled over its back, a humanlike grimace with sharp fangs, glowing amber eyes, rocky desert background",
     "Elemental": "a swirling stone-and-magma elemental, jagged grey rock fragments clearly visible orbiting a glowing molten-orange core, cracks of lava light seeping between the rock plates, a roughly humanoid mass with no distinct face, rocky volcanic background",

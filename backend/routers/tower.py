@@ -86,6 +86,100 @@ def get_narrative(narrative_id: int):
         return {"ready": True, "narrative": "A fierce battle took place."}
 
 
+def _grant_survivor_progress(conn, result, floor_number, is_boss=False, is_miniboss=False,
+                             is_first_clear=False, fallback_heroes=None):
+    """XP / kills / stress / bonds / titles for everyone who walked out of a
+    resolved floor fight. This used to live inline in /floor/enter only —
+    Explore and Event floors run the SAME real combat but never granted any
+    of it (confirmed live: gold landed, xp stayed 0), so every combat path
+    now funnels through here. Returns (surviving_ids, combat_won)."""
+    from services.level_service import (recalculate_hero_level, level_up_summary,
+                                        kill_xp_reward, floor_clear_xp_reward)
+    from services.title_service import check_and_assign_titles
+
+    survivors = []
+    if result.get("combat") and "surviving_heroes" in result["combat"]:
+        survivors = result["combat"]["surviving_heroes"]
+    elif fallback_heroes and not result.get("run_over") and not result.get("awaiting_choice"):
+        survivors = fallback_heroes
+
+    combat_won = result.get("combat", {}).get("winner") == "heroes"
+    is_sole_survivor = combat_won and is_boss and len(survivors) == 1
+
+    # Mentorship boon (guild perk) lifts every hero's combat XP.
+    try:
+        boon_row = conn.execute("SELECT guild_hero_exp_pct FROM base WHERE id = 1").fetchone()
+        exp_boon = 1 + (boon_row["guild_hero_exp_pct"] or 0) / 100.0
+    except Exception:
+        exp_boon = 1.0
+
+    surviving_ids = []
+    for s in survivors:
+        hid = s["id"]
+        surviving_ids.append(hid)
+        kills_gained = s.get("kills_gained", 0)
+        stress_delta = s.get("stress_delta", 0)
+
+        # The leader bonus goes to the CROWNED leader (is_team_leader), not
+        # whoever happens to sit in slot 0 (Liam). Crowning is independent of
+        # formation position.
+        hero_row = conn.execute("SELECT is_team_leader FROM heroes WHERE id = ?", (hid,)).fetchone()
+        is_leader = bool(hero_row and hero_row["is_team_leader"])
+
+        u_sole = 1 if is_sole_survivor else 0
+        u_leader = 1 if (is_leader and combat_won) else 0
+        u_first = 1 if (is_first_clear and combat_won) else 0
+
+        # XP: per-kill always (you really did kill it, win or lose), plus a
+        # floor-clear bonus only on an actual win — this is what drives
+        # level (see recalculate_hero_level).
+        xp_gained = kills_gained * kill_xp_reward(floor_number, is_boss, is_miniboss)
+        if combat_won:
+            xp_gained += floor_clear_xp_reward(floor_number, is_boss, is_miniboss)
+        xp_gained = int(xp_gained * exp_boon)
+
+        conn.execute("""
+            UPDATE heroes SET
+                floors_survived = floors_survived + 1,
+                kills = kills + ?,
+                lifetime_kills = lifetime_kills + ?,
+                sole_survivor_boss_clears = sole_survivor_boss_clears + ?,
+                leader_clears = leader_clears + ?,
+                unique_floor_clears = unique_floor_clears + ?,
+                stress = MIN(100, MAX(0, stress + ?)),
+                xp = xp + ?
+            WHERE id = ?
+        """, (kills_gained, kills_gained, u_sole, u_leader, u_first, stress_delta, xp_gained, hid))
+
+        new_titles = check_and_assign_titles(conn, hid)
+        if new_titles:
+            result.setdefault("log", []).extend(new_titles)
+
+        hero_row = conn.execute("SELECT * FROM heroes WHERE id = ?", (hid,)).fetchone()
+        if hero_row:
+            hero_dict = dict(hero_row)
+            old_level = hero_dict.get("level", 1)
+            new_level = recalculate_hero_level(hero_dict)
+            if new_level != old_level:
+                conn.execute("UPDATE heroes SET level = ? WHERE id = ?", (new_level, hid))
+                result.setdefault("level_ups", []).extend(level_up_summary(old_level, new_level, hero_dict["name"]))
+
+    # Fighting side by side deepens bonds.
+    if len(surviving_ids) >= 2:
+        for i in range(len(surviving_ids)):
+            for j in range(i + 1, len(surviving_ids)):
+                a, b = min(surviving_ids[i], surviving_ids[j]), max(surviving_ids[i], surviving_ids[j])
+                conn.execute("""
+                    INSERT INTO hero_bonds (hero_a_id, hero_b_id, bond_level, floors_together, spar_sessions)
+                    VALUES (?, ?, 0, 1, 0)
+                    ON CONFLICT(hero_a_id, hero_b_id) DO UPDATE SET
+                        floors_together = floors_together + 1,
+                        bond_level = (floors_together + 1 + COALESCE(spar_sessions, 0)) / 5
+                """, (a, b))
+
+    return surviving_ids, combat_won
+
+
 def _resolve_real_combat(conn, hero_teams, floor_number, is_boss, is_miniboss, zone_theme,
                           boss_data_override, base_row, pending_legacies,
                           enemy_count_override=None, flavor_intro=None, difficulty_mult=1.0,
@@ -647,18 +741,8 @@ def enter_floor(req: EnterFloorRequest):
             (req.team_id,)
         )
 
-        from services.level_service import recalculate_hero_level, level_up_summary
-        surviving_ids = []
-        
-        survivors = []
-        if result.get("combat") and "surviving_heroes" in result["combat"]:
-            survivors = result["combat"]["surviving_heroes"]
-        elif not result.get("run_over") and not result.get("awaiting_choice"):
-            survivors = hero_list
-
         is_first_clear = req.floor_number > base_row["highest_floor"]
         combat_won = result.get("combat", {}).get("winner") == "heroes"
-        is_sole_survivor = combat_won and is_boss and len(survivors) == 1
 
         if combat_won:
             from services.quests_service import bump as bump_rite
@@ -674,81 +758,11 @@ def enter_floor(req: EnterFloorRequest):
             summary = f"Fought {', '.join(enemy_names) or 'enemies'} — party {outcome}."
             record_floor_history(conn, req.floor_number, result.get("floor_type", floor_type), summary)
 
-        from services.level_service import kill_xp_reward, floor_clear_xp_reward
-        # Mentorship boon (guild perk, synced from the world server via
-        # /base/guild_boons) lifts every hero's combat XP.
-        try:
-            boon_row = conn.execute("SELECT guild_hero_exp_pct FROM base WHERE id = 1").fetchone()
-            exp_boon = 1 + (boon_row["guild_hero_exp_pct"] or 0) / 100.0
-        except Exception:
-            exp_boon = 1.0
-        for s in survivors:
-            hid = s["id"]
-            surviving_ids.append(hid)
-            kills_gained = s.get("kills_gained", 0)
-            stress_delta = s.get("stress_delta", 0)
-
-            hero_row = conn.execute("SELECT team_position FROM heroes WHERE id = ?", (hid,)).fetchone()
-            is_leader = hero_row and hero_row["team_position"] == 0
-
-            u_sole = 1 if is_sole_survivor else 0
-            u_leader = 1 if (is_leader and combat_won) else 0
-            u_first = 1 if (is_first_clear and combat_won) else 0
-
-            # XP: per-kill always (you really did kill it, win or lose),
-            # plus a floor-clear bonus only on an actual win — this is what
-            # actually drives level now (see recalculate_hero_level), not
-            # floors_survived/kills directly anymore. Those two columns
-            # still get tracked below for titles/achievements/display.
-            xp_gained = kills_gained * kill_xp_reward(req.floor_number, is_boss, is_miniboss)
-            if combat_won:
-                xp_gained += floor_clear_xp_reward(req.floor_number, is_boss, is_miniboss)
-            xp_gained = int(xp_gained * exp_boon)
-
-            conn.execute("""
-                UPDATE heroes SET
-                    floors_survived = floors_survived + 1,
-                    kills = kills + ?,
-                    lifetime_kills = lifetime_kills + ?,
-                    sole_survivor_boss_clears = sole_survivor_boss_clears + ?,
-                    leader_clears = leader_clears + ?,
-                    unique_floor_clears = unique_floor_clears + ?,
-                    stress = MIN(100, MAX(0, stress + ?)),
-                    xp = xp + ?
-                WHERE id = ?
-            """, (kills_gained, kills_gained, u_sole, u_leader, u_first, stress_delta, xp_gained, hid))
-
-            from services.title_service import check_and_assign_titles
-            new_titles = check_and_assign_titles(conn, hid)
-            if new_titles:
-                result.setdefault("log", []).extend(new_titles)
-
-            # Recalculate level
-            hero_row = conn.execute("SELECT * FROM heroes WHERE id = ?", (hid,)).fetchone()
-            if hero_row:
-                hero_dict = dict(hero_row)
-                old_level = hero_dict.get("level", 1)
-                new_level = recalculate_hero_level(hero_dict)
-                if new_level != old_level:
-                    conn.execute("UPDATE heroes SET level = ? WHERE id = ?", (new_level, hid))
-                    level_msgs = level_up_summary(old_level, new_level, hero_dict["name"])
-                    result.setdefault("level_ups", []).extend(level_msgs)
-
-        if len(surviving_ids) >= 2:
-            for i in range(len(surviving_ids)):
-                for j in range(i + 1, len(surviving_ids)):
-                    a, b = min(surviving_ids[i], surviving_ids[j]), max(surviving_ids[i], surviving_ids[j])
-                    # Bond level combines time fought together AND time trained
-                    # together (spar_sessions) — sparring bonds must survive the
-                    # next shared fight instead of being overwritten. COALESCE
-                    # guards rows created before the spar_sessions column existed.
-                    conn.execute("""
-                        INSERT INTO hero_bonds (hero_a_id, hero_b_id, bond_level, floors_together, spar_sessions)
-                        VALUES (?, ?, 0, 1, 0)
-                        ON CONFLICT(hero_a_id, hero_b_id) DO UPDATE SET
-                            floors_together = floors_together + 1,
-                            bond_level = (floors_together + 1 + COALESCE(spar_sessions, 0)) / 5
-                    """, (a, b))
+        # XP / kills / bonds / titles — shared with the explore/event
+        # resolve paths, which run the same real combat.
+        surviving_ids, _ = _grant_survivor_progress(
+            conn, result, req.floor_number, is_boss=is_boss, is_miniboss=is_miniboss,
+            is_first_clear=is_first_clear, fallback_heroes=hero_list)
 
         # Between-floor recovery applied immediately since we return to base
         # instantly — HP fully heals on lobby return too (the tower trip is
@@ -766,8 +780,8 @@ def enter_floor(req: EnterFloorRequest):
             gems_reward = 500 if req.floor_number % 5 == 0 else 100
             conn.execute("UPDATE base SET highest_floor = ?, gems = gems + ? WHERE id = 1", (req.floor_number, gems_reward))
             result["gems_gained"] = gems_reward
-            if survivors:
-                ids_str = ",".join(str(s["id"]) for s in survivors)
+            if surviving_ids:
+                ids_str = ",".join(str(i) for i in surviving_ids)
                 conn.execute(f"UPDATE heroes SET unique_floors_cleared = unique_floors_cleared + 1 WHERE id IN ({ids_str})")
 
     for hero_dict, is_sacrifice in pending_legacies:
@@ -899,14 +913,17 @@ def resolve_event_floor(data: ResolveEventRequest):
 
         # Floor progress (floors_survived/level) only lands once the choice
         # is actually resolved — not on mere entry (see /floor/enter).
-        from services.level_service import recalculate_hero_level
-        for hero in hero_list:
-            conn.execute("UPDATE heroes SET floors_survived = floors_survived + 1 WHERE id = ?", (hero["id"],))
-            hero_row = conn.execute("SELECT * FROM heroes WHERE id = ?", (hero["id"],)).fetchone()
-            if hero_row:
-                new_level = recalculate_hero_level(dict(hero_row))
-                if new_level != hero_row["level"]:
-                    conn.execute("UPDATE heroes SET level = ? WHERE id = ?", (new_level, hero["id"]))
+        # trigger_combat events skip this: their fight's
+        # _grant_survivor_progress below already counts the floor.
+        if not effects.get("trigger_combat"):
+            from services.level_service import recalculate_hero_level
+            for hero in hero_list:
+                conn.execute("UPDATE heroes SET floors_survived = floors_survived + 1 WHERE id = ?", (hero["id"],))
+                hero_row = conn.execute("SELECT * FROM heroes WHERE id = ?", (hero["id"],)).fetchone()
+                if hero_row:
+                    new_level = recalculate_hero_level(dict(hero_row))
+                    if new_level != hero_row["level"]:
+                        conn.execute("UPDATE heroes SET level = ? WHERE id = ?", (new_level, hero["id"]))
 
         # The choice turned hostile — a real fight breaks out right after
         # the narrative beat, using the same engine/UI path as Explore
@@ -927,8 +944,12 @@ def resolve_event_floor(data: ResolveEventRequest):
             combat_result["event_narrative"] = narrative
             combat_result["effects"] = effects
 
-            survivors = combat_result.get("combat", {}).get("surviving_heroes", [])
-            _heal_survivors_after_combat(conn, [s["id"] for s in survivors])
+            # Event fights are real fights — same XP/kills/bonds grant as
+            # any combat floor.
+            surviving_ids, _ = _grant_survivor_progress(
+                conn, combat_result, data.floor_number,
+                is_first_clear=data.floor_number > base_row["highest_floor"])
+            _heal_survivors_after_combat(conn, surviving_ids)
 
             conn.execute("UPDATE floor_cache SET visited = 1 WHERE floor_number = ?", (data.floor_number,))
 
@@ -1025,8 +1046,12 @@ def resolve_explore_floor_choice(data: ResolveExploreRequest):
             f"Fought {', '.join(enemy_names) or 'enemies'} — party {outcome}.",
         )
 
-        survivors = result.get("combat", {}).get("surviving_heroes", [])
-        _heal_survivors_after_combat(conn, [s["id"] for s in survivors])
+        # Same XP/kills/bonds grant as any combat floor — explore fights are
+        # real fights (this was the "won a floor, got gold, no XP" bug).
+        surviving_ids, _ = _grant_survivor_progress(
+            conn, result, data.floor_number,
+            is_first_clear=data.floor_number > base_row["highest_floor"])
+        _heal_survivors_after_combat(conn, surviving_ids)
 
         # Loot is a bonus on top of the fight — only rolls if the fight was won.
         if not result.get("run_over"):

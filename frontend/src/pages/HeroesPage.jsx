@@ -11,6 +11,7 @@ import GiftModal from '../components/GiftModal'
 import { HeartIcon } from '../components/ActionIcons'
 import GameIcon from '../components/GameIcon'
 import Sigil from '../components/Sigil'
+import { classSigil } from '../classSigils'
 
 // Small % rolls are real now (a D-tier ring's 1.4% crit matters at that
 // level) — toFixed(0) rendered anything under 0.5% as a nonsense "+0%",
@@ -93,7 +94,9 @@ function DiamondArt({ hero, size = 38 }) {
         <img
           src={stage === 0 ? `/heroes/${hero.id}/card-image?mini=1` : `/${hero.portrait_path}`}
           alt={hero.name} draggable={false} onError={() => setStage(s => s + 1)}
-          style={{ width: '142%', height: '142%', objectFit: 'cover', transform: 'rotate(-45deg)', flex: 'none' }}
+          // top-anchored: the face sits at the top of the mini crop, and a
+          // centered cover-crop was slicing off the top of some heads (Torsten)
+          style={{ width: '142%', height: '142%', objectFit: 'cover', objectPosition: 'center', transform: 'rotate(-45deg)', flex: 'none' }}
         />
       ) : (
         <span style={{ transform: 'rotate(-45deg)', fontFamily: "'Cinzel',serif", fontWeight: 700, fontSize: Math.round(size * 0.34), color: accent }}>
@@ -115,8 +118,8 @@ function PanelArt({ hero, style }) {
   if (!hasArt || failed) {
     return (
       <div style={{ ...style, display: 'flex', alignItems: 'center', justifyContent: 'center', opacity: .3 }}>
-        <Sigil set="class-base" name={sigilNameOf(hero.hero_class)} size={52} color="var(--lavender)"
-          fallback={<GameIcon name="class_warrior" size={44} />} />
+        <Sigil set={classSigil(hero.hero_class).set} name={classSigil(hero.hero_class).name} size={52} color="var(--lavender)"
+          fallback={<Sigil set="class-base" name="CLASSLESS" size={52} color="var(--lavender)" />} />
       </div>
     )
   }
@@ -179,11 +182,31 @@ export default function HeroesPage({ onNavigate }) {
 
   const [filterBy, setFilterBy] = useState('ALL')
   const [sortBy, setSortBy] = useState('rarity')
+  // Roster pagination (no page scrolling — overflow becomes pages, paged
+  // from the footer bar). Page size is MEASURED: however many 4-wide rows
+  // the grid area actually fits, so big screens hold more heroes.
+  const ROSTER_ROW_H = 112, ROSTER_GAP = 12
+  const gridRef = React.useRef(null)
+  const [gridH, setGridH] = useState(0)
+  useEffect(() => {
+    const el = gridRef.current
+    if (!el) return
+    const ro = new ResizeObserver(entries => setGridH(entries[0]?.contentRect?.height || 0))
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [activeTab])
+  const rosterRows = Math.max(2, Math.floor((gridH + ROSTER_GAP) / (ROSTER_ROW_H + ROSTER_GAP)) || 6)
+  const pageSize = rosterRows * 4
+  const [rosterPage, setRosterPage] = useState(0)
+  useEffect(() => { setRosterPage(0) }, [filterBy, searchQuery, activeTab, sortBy])
   const [sortOpen, setSortOpen] = useState(false)
   const [filterOpen, setFilterOpen] = useState(false)
   const [assignOpen, setAssignOpen] = useState(false)
 
   const [expandedId, setExpandedId] = useState(null)
+  // Team-view spotlight: which hero the right panel renders full-body.
+  // null = the team leader (the default).
+  const [spotlightId, setSpotlightId] = useState(null)
   const [saving, setSaving] = useState(false)
   const [msg, setMsg] = useState(null)
   const [egoPreview, setEgoPreview] = useState(null)
@@ -511,6 +534,11 @@ export default function HeroesPage({ onNavigate }) {
     })
   }
 
+  // Slice the roster into measured pages so the grid always fits the screen.
+  const totalRosterPages = Math.max(1, Math.ceil(displayHeroes.length / pageSize))
+  const safeRosterPage = Math.min(rosterPage, totalRosterPages - 1)
+  const pagedHeroes = displayHeroes.slice(safeRosterPage * pageSize, (safeRosterPage + 1) * pageSize)
+
   async function handleToggleFavorite(heroId, e) {
     e.stopPropagation()
     // Optimistic flip — the roster reload would make the heart feel laggy.
@@ -530,41 +558,41 @@ export default function HeroesPage({ onNavigate }) {
         onClick={() => setExpandedId(hero.id)}
         className={dragOverHeroId === hero.id ? 'dragover' : ''}
         style={{
-          cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 11, padding: '9px 12px',
+          cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 16, padding: '16px 18px',
           border: sel ? '1px solid #c8a9f5' : (deployed ? '1px solid rgba(216,187,132,.5)' : '1px solid rgba(184,151,98,.25)'),
           background: sel ? 'linear-gradient(90deg,rgba(124,58,214,.2),rgba(12,7,24,.5))' : (deployed ? 'linear-gradient(90deg,rgba(184,151,98,.1),rgba(12,7,24,.5))' : 'rgba(12,7,24,.45)'),
           boxShadow: sel ? '0 0 14px rgba(124,58,214,.3)' : 'none',
           opacity: hero.condition === 'Retired' ? .6 : 1,
         }}>
-        <DiamondArt hero={hero} size={50} />
+        <DiamondArt hero={hero} size={76} />
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ display: 'flex', alignItems: 'baseline', gap: 6 }}>
-            <span style={{ fontFamily: "'Cinzel',serif", fontWeight: 700, fontSize: 13, letterSpacing: '.06em', color: 'var(--text-hi)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{hero.name}</span>
+            <span style={{ fontFamily: "'Cinzel',serif", fontWeight: 700, fontSize: 16, letterSpacing: '.06em', color: 'var(--text-hi)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{hero.name}</span>
             <span style={{ flex: 1 }} />
-            <span style={{ fontFamily: "'Cinzel',serif", fontSize: 9, letterSpacing: '.1em', color: '#c9bfa8' }}>LV {hero.level}</span>
+            <span style={{ fontFamily: "'Cinzel',serif", fontSize: 10, letterSpacing: '.1em', color: '#c9bfa8' }}>LV {hero.level}</span>
           </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginTop: 3 }}>
-            <span style={{ width: 18, height: 18, transform: 'rotate(45deg)', flex: 'none', border: `1px solid ${accent}66`, background: 'linear-gradient(135deg,#1c1030,#0e0918)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-              <Sigil set="class-base" name={sigilNameOf(hero.hero_class)} size={12} color={accent} style={{ transform: 'rotate(-45deg)' }}
-                fallback={<span style={{ transform: 'rotate(-45deg)', fontSize: 7, color: accent }}>{(hero.hero_class || '?').slice(0, 2).toUpperCase()}</span>} />
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 6 }}>
+            <span style={{ width: 22, height: 22, transform: 'rotate(45deg)', flex: 'none', border: `1px solid ${accent}66`, background: 'linear-gradient(135deg,#1c1030,#0e0918)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <Sigil set="class-base" name={sigilNameOf(hero.hero_class)} size={14} color={accent} style={{ transform: 'rotate(-45deg)' }}
+                fallback={<span style={{ transform: 'rotate(-45deg)', fontSize: 8, color: accent }}>{(hero.hero_class || '?').slice(0, 2).toUpperCase()}</span>} />
             </span>
-            <span style={{ fontFamily: "'Cinzel',serif", letterSpacing: '.2em', fontSize: 8, color: 'var(--muted)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{(hero.hero_class || '').toUpperCase()}</span>
-            {!!hero.is_team_leader && <span title="Team Leader" style={{ fontSize: 9, color: '#ffd88a' }}>♛</span>}
+            <span style={{ fontFamily: "'Cinzel',serif", letterSpacing: '.2em', fontSize: 9.5, color: 'var(--muted)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{(hero.hero_class || '').toUpperCase()}</span>
+            {!!hero.is_team_leader && <span title="Team Leader" style={{ fontSize: 10, color: '#ffd88a' }}>♛</span>}
           </div>
-          <div style={{ marginTop: 3 }}><StarSpan count={star} /></div>
+          <div style={{ marginTop: 6 }}><StarSpan count={star} size={11} /></div>
         </div>
         <button
           title={hero.is_favorite ? 'Remove from Favorites' : 'Add to Favorites'}
           onClick={(e) => handleToggleFavorite(hero.id, e)}
-          style={{ width: 16, height: 16, flex: 'none', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'none', border: 'none', cursor: 'pointer', color: hero.is_favorite ? '#e0708a' : 'rgba(154,134,184,.35)' }}>
-          <HeartIcon size={11} filled={!!hero.is_favorite} />
+          style={{ width: 20, height: 20, flex: 'none', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'none', border: 'none', cursor: 'pointer', color: hero.is_favorite ? '#e0708a' : 'rgba(154,134,184,.35)' }}>
+          <HeartIcon size={14} filled={!!hero.is_favorite} />
         </button>
         <button
           title={sel ? 'Deselect' : 'Select'}
           onClick={(e) => { e.stopPropagation(); toggleSelect(hero.id) }}
           style={{
-            width: 18, height: 18, flex: 'none', display: 'flex', alignItems: 'center', justifyContent: 'center',
-            fontSize: 10, cursor: 'pointer', color: sel ? '#0a0710' : '#8fbf9f',
+            width: 22, height: 22, flex: 'none', display: 'flex', alignItems: 'center', justifyContent: 'center',
+            fontSize: 11, cursor: 'pointer', color: sel ? '#0a0710' : '#8fbf9f',
             background: sel ? '#c8a9f5' : 'transparent',
             border: sel ? '1px solid #c8a9f5' : '1px solid rgba(154,134,184,.25)',
             borderRadius: sel ? 2 : '50%',
@@ -684,8 +712,9 @@ export default function HeroesPage({ onNavigate }) {
           </div>
         )}
 
-        {/* roster grid — the spec's 4-column compact rows */}
-        <div className="ent-2" style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: '9px 12px', alignContent: 'start' }}>
+        {/* roster grid — the spec's 4-column compact rows. Paged, never
+            scrolled: overflow past PAGE_SIZE becomes numbered pages below. */}
+        <div ref={gridRef} className="ent-2" style={{ flex: 1, minHeight: 0, overflow: 'hidden', display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: '9px 12px', alignContent: 'start' }}>
           {displayHeroes.length === 0 && (
             <div className="empty-state" style={{ gridColumn: '1 / -1' }}>
               <div className="empty-state-icon">{activeTab === 'favorites' ? '♡' : <GameIcon name="classless_runestone" size={52} />}</div>
@@ -701,16 +730,19 @@ export default function HeroesPage({ onNavigate }) {
               </div>
             </div>
           )}
-          {displayHeroes.map(hero => renderRosterRow(hero))}
+          {pagedHeroes.map(hero => renderRosterRow(hero))}
         </div>
       </>
     )
   }
 
-  // ── Party card (team view, 158×300 ornate frame) ──────────────────────────
-  function renderPartyCard(hero, teamIndex) {
+  // ── Formation face tile (team view) — FACES ONLY here (Liam: full body
+  // lives solely in Hero Detail and the spotlight panel). Click = spotlight
+  // the hero on the right; ♛ pip = crown; drag = reorder positions. ─────────
+  function renderFaceTile(hero, isSpotlit) {
     const star = hero.current_star || hero.birth_star || 1
-    const front = teamIndex < 2
+    const accent = STAR_ACCENT[Math.min(star, 7)] || '#9aa0ad'
+    const hasArt = hero.portrait_path && !hero.portrait_path.includes('default_')
     return (
       <div key={hero.id}
         draggable
@@ -718,52 +750,48 @@ export default function HeroesPage({ onNavigate }) {
         onDragOver={(e) => handleDragOver(e, hero.id)}
         onDrop={(e) => handleDrop(e, hero.id)}
         onDragEnd={() => { setDraggedHeroId(null); setDragOverHeroId(null) }}
-        onClick={() => setExpandedId(hero.id)}
+        onClick={() => setSpotlightId(hero.id)}
+        title={`${hero.name} — click to inspect, drag to reposition`}
         style={{
-          position: 'relative', width: 158, height: 300, flex: 'none', cursor: 'grab',
-          transform: dragOverHeroId === hero.id ? 'scale(1.03)' : 'none',
+          position: 'relative', display: 'flex', alignItems: 'center', gap: 15, width: 248, flex: 'none', cursor: 'grab', padding: '13px 14px',
+          border: `1px solid ${isSpotlit ? 'var(--gold-hi)' : `${accent}55`}`,
+          background: isSpotlit ? 'linear-gradient(120deg,rgba(184,151,98,.14),rgba(12,7,24,.6))' : 'rgba(12,7,24,.5)',
+          boxShadow: isSpotlit ? '0 0 14px rgba(184,151,98,.3)' : 'none',
+          transform: dragOverHeroId === hero.id ? 'scale(1.04)' : 'none',
           filter: draggedHeroId === hero.id ? 'brightness(1.2)' : 'none',
         }}>
-        <div style={{ position: 'absolute', inset: 0, border: '1px solid rgba(184,151,98,.55)', background: 'linear-gradient(#150c26,#0c0718)' }} />
-        <div style={{ position: 'absolute', inset: 6, border: '1px solid rgba(124,58,214,.5)', boxShadow: 'inset 0 0 24px rgba(124,58,214,.25)' }} />
-        {/* class medallion */}
-        <div style={{ position: 'absolute', top: -14, left: '50%', width: 30, height: 30, transform: 'translateX(-50%) rotate(45deg)', background: '#0c0718', border: '1px solid var(--gold)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 3 }}>
-          <Sigil set="class-base" name={sigilNameOf(hero.hero_class)} size={14} color="var(--gold-hi)" style={{ transform: 'rotate(-45deg)' }}
-            fallback={<span style={{ transform: 'rotate(-45deg)', color: 'var(--gold-hi)', fontFamily: "'Cinzel',serif", fontSize: 13 }}>⚔</span>} />
-        </div>
-        <PanelArt hero={hero} style={{ position: 'absolute', left: 12, top: 22, width: 'calc(100% - 24px)', height: 196 }} />
-        <div style={{ position: 'absolute', left: 12, right: 12, top: 22, height: 196, pointerEvents: 'none', boxShadow: 'inset 0 -46px 40px -20px #0c0718' }} />
-        {/* corner notches */}
-        <div style={{ position: 'absolute', left: 0, top: 0, width: 10, height: 10, borderLeft: '2px solid var(--gold-hi)', borderTop: '2px solid var(--gold-hi)' }} />
-        <div style={{ position: 'absolute', right: 0, top: 0, width: 10, height: 10, borderRight: '2px solid var(--gold-hi)', borderTop: '2px solid var(--gold-hi)' }} />
-        {/* front/back + level */}
-        <div style={{ position: 'absolute', top: 26, left: 16, fontFamily: "'Cinzel',serif", fontSize: 8, letterSpacing: '.2em', color: front ? '#ffd88a' : '#8fbf9f', background: 'rgba(10,7,16,.8)', border: `1px solid ${front ? 'rgba(255,216,138,.4)' : 'rgba(143,191,159,.4)'}`, padding: '2px 6px', zIndex: 3 }}>
-          {front ? 'FRONT' : 'BACK'}
-        </div>
-        <div style={{ position: 'absolute', top: 26, right: 16, fontFamily: "'Cinzel',serif", fontSize: 11, letterSpacing: '.14em', color: '#e7ddc9', background: 'rgba(10,7,16,.8)', border: '1px solid rgba(184,151,98,.5)', padding: '2px 7px', zIndex: 3 }}>
-          LV {hero.level}
-        </div>
-        {/* name plate — lifted a touch so the bottom crown never touches the class line */}
-        <div style={{ position: 'absolute', left: 6, right: 6, bottom: 16 }}>
-          <div style={{ textAlign: 'center', fontSize: 12, letterSpacing: '.2em', marginBottom: 3 }}><StarSpan count={star} size={12} /></div>
-          <div style={{ background: '#0a0710', borderTop: '1px solid var(--gold)', borderBottom: '1px solid var(--gold)', padding: '7px 0', textAlign: 'center', clipPath: 'polygon(8px 0,calc(100% - 8px) 0,100% 50%,calc(100% - 8px) 100%,8px 100%,0 50%)' }}>
-            <div style={{ fontFamily: "'Cinzel',serif", fontWeight: 700, letterSpacing: '.12em', fontSize: 15, color: 'var(--text-hi)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', padding: '0 10px' }}>{hero.name?.toUpperCase()}</div>
-            <div style={{ fontFamily: "'Cinzel',serif", letterSpacing: '.3em', fontSize: 9, color: 'var(--muted)', marginTop: 2 }}>{(hero.hero_class || '').toUpperCase()}</div>
+        {/* diamond portrait — same size + centered crop as the roster's DiamondArt */}
+        <span style={{ position: 'relative', width: 74, height: 74, transform: 'rotate(45deg)', flex: 'none', border: `1px solid ${accent}`, background: 'linear-gradient(135deg,#1a0f2e,#0c0718)', overflow: 'hidden', boxShadow: '0 0 8px rgba(0,0,0,.4)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          {hasArt ? (
+            <img src={`/heroes/${hero.id}/card-image?mini=1`} alt={hero.name} draggable={false}
+              onError={(e) => { if (!e.currentTarget.dataset.fb) { e.currentTarget.dataset.fb = '1'; e.currentTarget.src = `/${hero.portrait_path}` } }}
+              style={{ width: '142%', height: '142%', objectFit: 'cover', objectPosition: 'center', transform: 'rotate(-45deg)', flex: 'none', pointerEvents: 'none' }} />
+          ) : (
+            <span style={{ transform: 'rotate(-45deg)', display: 'flex', alignItems: 'center', justifyContent: 'center', width: '100%', height: '100%', opacity: .5 }}>
+              <Sigil set="class-base" name={sigilNameOf(hero.hero_class)} size={30} color="var(--lavender)"
+                fallback={<span style={{ color: 'var(--lavender)', fontFamily: "'Cinzel',serif", fontSize: 22 }}>{hero.name?.[0]}</span>} />
+            </span>
+          )}
+        </span>
+        {/* text column */}
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ display: 'flex', alignItems: 'baseline', gap: 6 }}>
+            <span style={{ fontFamily: "'Cinzel',serif", fontWeight: 700, fontSize: 14, letterSpacing: '.06em', color: 'var(--text-hi)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{hero.name?.toUpperCase()}</span>
+            <span style={{ flex: 1 }} />
+            <span style={{ fontFamily: "'Cinzel',serif", fontSize: 10, letterSpacing: '.1em', color: '#c9bfa8', flex: 'none' }}>LV {hero.level}</span>
           </div>
+          <div style={{ marginTop: 6 }}><StarSpan count={star} size={11} /></div>
+          <div style={{ fontFamily: "'Cinzel',serif", letterSpacing: '.18em', fontSize: 9, color: 'var(--muted)', marginTop: 6, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{(hero.hero_class || '').toUpperCase()}</div>
         </div>
-        {/* leader crown — a BOTTOM medallion mirroring the class sigil on top
-            (symmetry). Filled + glowing on the current leader, faint click-to-
-            promote on everyone else. */}
+        {/* crown pip — bottom-right corner so it never overlaps the LV text */}
         <button
           title={hero.is_team_leader ? 'Team Leader' : `Make ${hero.name} the leader`}
           onClick={(e) => { e.stopPropagation(); if (!hero.is_team_leader) handleAssignLeader(hero.id, e) }}
-          style={{ position: 'absolute', bottom: -18, left: '50%', transform: 'translateX(-50%) rotate(45deg)', zIndex: 4,
-            width: 30, height: 30, padding: 0, display: 'flex', alignItems: 'center', justifyContent: 'center',
-            background: hero.is_team_leader ? 'linear-gradient(135deg,#241a10,#120d08)' : '#0c0718',
-            border: `1px solid ${hero.is_team_leader ? 'var(--gold-hi)' : 'rgba(184,151,98,.4)'}`,
-            boxShadow: hero.is_team_leader ? '0 0 12px rgba(184,151,98,.4)' : 'none',
+          style={{ position: 'absolute', bottom: 4, right: 4, width: 20, height: 20, padding: 0, display: 'flex', alignItems: 'center', justifyContent: 'center',
+            background: hero.is_team_leader ? 'linear-gradient(135deg,#241a10,#120d08)' : 'rgba(10,7,16,.6)',
+            border: `1px solid ${hero.is_team_leader ? 'var(--gold-hi)' : 'rgba(184,151,98,.3)'}`,
             cursor: hero.is_team_leader ? 'default' : 'pointer' }}>
-          <span style={{ transform: 'rotate(-45deg)', fontSize: 13, color: hero.is_team_leader ? '#ffd88a' : 'rgba(201,191,168,.55)', textShadow: hero.is_team_leader ? '0 0 8px rgba(255,216,138,.7)' : 'none' }}>♛</span>
+          <span style={{ fontSize: 11, color: hero.is_team_leader ? '#ffd88a' : 'rgba(201,191,168,.45)', textShadow: hero.is_team_leader ? '0 0 6px rgba(255,216,138,.7)' : 'none' }}>♛</span>
         </button>
       </div>
     )
@@ -792,7 +820,7 @@ export default function HeroesPage({ onNavigate }) {
         onDragOver={(e) => { if (draggedHeroId) { e.preventDefault(); setDragOverLeader(true) } }}
         onDragLeave={() => setDragOverLeader(false)}
         onDrop={(e) => { e.preventDefault(); setDragOverLeader(false); const id = draggedHeroId; setDraggedHeroId(null); setDragOverHeroId(null); if (id && id !== leader.id) handleAssignLeader(id) }}
-        style={{ position: 'relative', display: 'flex', flex: '1 1 620px', minWidth: 540, minHeight: 540, overflow: 'hidden',
+        style={{ position: 'relative', display: 'flex', flex: '1 1 620px', minWidth: 540, minHeight: 440, overflow: 'hidden',
           outline: dragOverLeader ? '2px dashed var(--gold-hi)' : 'none', outlineOffset: -4,
           background: dragOverLeader ? 'radial-gradient(60% 60% at 50% 40%, rgba(184,151,98,.12), transparent 70%)' : 'none',
           transition: 'outline-color .12s' }}>
@@ -863,11 +891,28 @@ export default function HeroesPage({ onNavigate }) {
             )}
           </div>
           <span style={{ flex: 1, minHeight: 12 }} />
-          {/* leader badge */}
-          <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8, padding: '7px 14px', border: '1px solid rgba(255,216,138,.5)', background: 'rgba(184,151,98,.1)', clipPath: 'polygon(8px 0,100% 0,calc(100% - 8px) 100%,0 100%)', alignSelf: 'flex-start' }}>
-            <span style={{ color: '#ffd88a', fontSize: 13, textShadow: '0 0 8px rgba(255,216,138,.7)' }}>♛</span>
-            <span style={{ fontFamily: "'Cinzel',serif", fontWeight: 700, letterSpacing: '.2em', fontSize: 10, color: '#ffd88a' }}>TEAM LEADER</span>
-            <span style={{ fontFamily: "'Cinzel',serif", fontSize: 9, letterSpacing: '.1em', color: 'var(--muted)' }}>· ♛ any card to reassign</span>
+          {/* leader badge / crown + REMOVE FROM TEAM (Liam QoL) */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+            {leader.is_team_leader ? (
+              <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8, padding: '7px 14px', border: '1px solid rgba(255,216,138,.5)', background: 'rgba(184,151,98,.1)', clipPath: 'polygon(8px 0,100% 0,calc(100% - 8px) 100%,0 100%)' }}>
+                <span style={{ color: '#ffd88a', fontSize: 13, textShadow: '0 0 8px rgba(255,216,138,.7)' }}>♛</span>
+                <span style={{ fontFamily: "'Cinzel',serif", fontWeight: 700, letterSpacing: '.2em', fontSize: 10, color: '#ffd88a' }}>TEAM LEADER</span>
+              </div>
+            ) : (
+              <button onClick={(e) => handleAssignLeader(leader.id, e)}
+                style={{ display: 'inline-flex', alignItems: 'center', gap: 8, padding: '7px 14px', cursor: 'pointer', border: '1px solid rgba(184,151,98,.45)', background: 'rgba(12,7,24,.5)', clipPath: 'polygon(8px 0,100% 0,calc(100% - 8px) 100%,0 100%)' }}>
+                <span style={{ color: 'rgba(255,216,138,.7)', fontSize: 13 }}>♛</span>
+                <span style={{ fontFamily: "'Cinzel',serif", fontWeight: 700, letterSpacing: '.2em', fontSize: 10, color: '#c9bfa8' }}>CROWN AS LEADER</span>
+              </button>
+            )}
+            <button onClick={async () => {
+              try { await removeHeroFromTeam(leader.id); setSpotlightId(null); setMsg(`${leader.name} stood down from Team ${ROMAN[activeTab]}.`); await load() }
+              catch (err) { setMsg(err.message) }
+            }} title={`Remove ${leader.name} from this team`}
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 7, padding: '7px 14px', cursor: 'pointer', border: '1px solid rgba(192,64,64,.4)', background: 'rgba(12,7,24,.5)' }}>
+              <span style={{ color: '#e08585', fontSize: 12 }}>✕</span>
+              <span style={{ fontFamily: "'Cinzel',serif", fontWeight: 700, letterSpacing: '.2em', fontSize: 10, color: '#e08585' }}>REMOVE FROM TEAM</span>
+            </button>
           </div>
         </div>
 
@@ -892,14 +937,35 @@ export default function HeroesPage({ onNavigate }) {
     )
   }
 
-  // ── TEAM view — the mock's spotlight layout: left column (title, DEPLOY/
-  // MANAGE, the 4 party cards) + the big leader panel on the right. ──────────
+  // ── TEAM view — left column (title, DEPLOY/MANAGE, the formation as
+  // compact FACE tiles, left→right: rear guard | vanguard) + the spotlight
+  // panel on the right (full body — defaults to the leader, or whichever
+  // face was clicked). Full-body art appears NOWHERE else on this screen. ───
   function renderTeamView() {
     const teamHeroes = displayHeroes
     const leader = teamHeroes.find(h => h.is_team_leader) || teamHeroes[0] || null
-    const party = teamHeroes.filter(h => h !== leader).slice(0, 4)
+    // Positions 0-1 are the frontline (team_position order), 2-4 the back.
+    const front = teamHeroes.slice(0, 2)
+    const back = teamHeroes.slice(2, 5)
+    const spotlight = teamHeroes.find(h => h.id === spotlightId) || leader
     const goManage = () => { setAssignTargetTeam(activeTab); setActiveTab('all'); setFilterBy('AVAILABLE') }
-    const emptyPartySlots = leader ? Math.max(0, 4 - party.length) : 0
+
+    const emptySlotTile = (key) => (
+      <div key={key} onClick={goManage}
+        style={{ position: 'relative', display: 'flex', alignItems: 'center', gap: 15, width: 248, flex: 'none', cursor: 'pointer', padding: '13px 14px', border: '1px dashed rgba(150,110,230,.4)', background: 'rgba(12,7,24,.3)' }}>
+        <span style={{ width: 74, height: 74, transform: 'rotate(45deg)', flex: 'none', border: '1px dashed rgba(200,169,245,.5)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <span style={{ transform: 'rotate(-45deg)', color: 'var(--lavender)', fontFamily: "'Cinzel',serif" }}>+</span>
+        </span>
+        <span style={{ fontFamily: "'Cinzel',serif", fontSize: 10, letterSpacing: '.22em', color: '#6f628c' }}>ASSIGN</span>
+      </div>
+    )
+    const clusterHead = (label, color) => (
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
+        <span style={{ width: 7, height: 7, transform: 'rotate(45deg)', background: color, display: 'inline-block' }} />
+        <span style={{ fontFamily: "'Cinzel',serif", letterSpacing: '.26em', fontSize: 10, color, whiteSpace: 'nowrap' }}>{label}</span>
+        <span style={{ height: 1, flex: 1, minWidth: 10, background: `${color}44` }} />
+      </div>
+    )
 
     return (
       <div className="ent-1" style={{ display: 'flex', gap: 26, alignItems: 'stretch', flexWrap: 'wrap' }}>
@@ -921,43 +987,45 @@ export default function HeroesPage({ onNavigate }) {
               </button>
             </div>
             <span style={{ flex: 1 }} />
-            <div style={{ display: 'flex', gap: 14 }}>
-              <button onClick={() => onNavigate && onNavigate('tower')} disabled={teamHeroes.length === 0}
-                style={{ cursor: teamHeroes.length ? 'pointer' : 'not-allowed', opacity: teamHeroes.length ? 1 : .5, fontFamily: "'Cinzel',serif", fontWeight: 700, letterSpacing: '.28em', fontSize: 15, color: '#0a0710', background: 'linear-gradient(120deg,#c8a9f5,#8b46d6)', border: 'none', padding: '11px 26px 11px 22px', clipPath: 'polygon(10px 0,100% 0,calc(100% - 10px) 100%,0 100%)', boxShadow: '0 8px 24px rgba(124,58,214,.4)' }}>
-                DEPLOY
-              </button>
-              <button onClick={goManage}
-                style={{ cursor: 'pointer', fontFamily: "'Cinzel',serif", fontWeight: 600, letterSpacing: '.28em', fontSize: 15, color: '#cdbfe4', background: 'none', border: '1px solid rgba(150,110,230,.4)', padding: '11px 24px', clipPath: 'polygon(10px 0,100% 0,calc(100% - 10px) 100%,0 100%)' }}>
-                MANAGE
-              </button>
-            </div>
+            {/* Arranging happens in-place (drag, crown, click-to-inspect);
+                "go fight" is the Tower nav tab. The one action worth a button
+                is comparing this team against another. */}
+            <button onClick={() => { setCompareTeamB(activeTab === 1 ? 2 : 1); setCompareTeamA(activeTab); setCompareTeamsOpen(true) }}
+              title="Compare this team's totals against another"
+              style={{ cursor: 'pointer', fontFamily: "'Cinzel',serif", fontWeight: 600, letterSpacing: '.24em', fontSize: 13, color: '#cdbfe4', background: 'none', border: '1px solid rgba(150,110,230,.4)', padding: '10px 20px', clipPath: 'polygon(10px 0,100% 0,calc(100% - 10px) 100%,0 100%)' }}>
+              ⇄ COMPARE TEAMS
+            </button>
           </div>
 
           {msg && <div style={{ fontStyle: 'italic', fontSize: 14, marginTop: 8, color: '#8fbf9f' }}>{msg}</div>}
           <div style={{ fontStyle: 'italic', color: 'var(--muted)', fontSize: 13, marginTop: 12 }}>
             {teamHeroes.length > 0
-              ? 'Drag the cards to rearrange — the first two positions hold the frontline. ♛ makes a hero the leader.'
-              : `Team ${ROMAN[activeTab]} is empty. Use MANAGE to draw heroes from the roster.`}
+              ? 'Click a face to inspect them on the right. Drag between positions — the vanguard takes the hits. ♛ crowns the leader.'
+              : `Team ${ROMAN[activeTab]} is empty. Click any slot below to draw heroes from the roster.`}
           </div>
 
-          {/* party cards (the 4 non-leader members) */}
-          <div style={{ display: 'flex', alignItems: 'flex-end', gap: 16, marginTop: 32, flexWrap: 'wrap', rowGap: 30 }}>
-            {party.map(h => renderPartyCard(h, teamHeroes.indexOf(h)))}
-            {Array.from({ length: emptyPartySlots }).map((_, i) => (
-              <div key={`empty-${i}`} onClick={goManage}
-                style={{ position: 'relative', width: 158, height: 300, flex: 'none', cursor: 'pointer', border: '1px dashed rgba(150,110,230,.4)', background: 'rgba(12,7,24,.3)', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 10 }}>
-                <span style={{ width: 26, height: 26, transform: 'rotate(45deg)', border: '1px dashed rgba(200,169,245,.5)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                  <span style={{ transform: 'rotate(-45deg)', color: 'var(--lavender)', fontFamily: "'Cinzel',serif" }}>+</span>
-                </span>
-                <span style={{ fontFamily: "'Cinzel',serif", fontSize: 10, letterSpacing: '.22em', color: '#6f628c' }}>ASSIGN</span>
+          {/* the formation — a top-down battle layout: REAR GUARD column
+              (3 stacked) on the left, VANGUARD column (2 stacked) on the
+              right toward the enemy. Same shape the combat screen uses.
+              Row stretches so the vanguard's 2 tiles center against the 3. */}
+          <div style={{ display: 'flex', gap: 20, marginTop: 28, alignItems: 'stretch' }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+              {clusterHead('REAR GUARD', 'var(--lavender)')}
+              {[0, 1, 2].map(i => back[i] ? renderFaceTile(back[i], spotlight?.id === back[i].id) : emptySlotTile(`back-empty-${i}`))}
+            </div>
+            <div style={{ width: 1, background: 'linear-gradient(rgba(184,151,98,0),rgba(184,151,98,.35),rgba(184,151,98,0))' }} />
+            <div style={{ display: 'flex', flexDirection: 'column' }}>
+              {clusterHead('VANGUARD', '#ffd88a')}
+              <div style={{ flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: 10 }}>
+                {[0, 1].map(i => front[i] ? renderFaceTile(front[i], spotlight?.id === front[i].id) : emptySlotTile(`front-empty-${i}`))}
               </div>
-            ))}
+            </div>
           </div>
         </div>
 
-        {/* ── RIGHT: leader spotlight ── */}
-        {leader ? renderLeaderPanel(leader) : (
-          <div className="ent-3" style={{ flex: '1 1 460px', minWidth: 420, minHeight: 540, border: '1px dashed rgba(150,110,230,.35)', background: 'rgba(12,7,24,.3)', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 12 }}>
+        {/* ── RIGHT: the spotlight — leader by default, or the clicked face ── */}
+        {spotlight ? renderLeaderPanel(spotlight) : (
+          <div className="ent-3" style={{ flex: '1 1 460px', minWidth: 420, minHeight: 440, border: '1px dashed rgba(150,110,230,.35)', background: 'rgba(12,7,24,.3)', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 12 }}>
             <span style={{ width: 40, height: 40, transform: 'rotate(45deg)', border: '1px dashed rgba(200,169,245,.4)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
               <span style={{ transform: 'rotate(-45deg)', color: 'var(--lavender)', fontSize: 18 }}>♛</span>
             </span>
@@ -970,7 +1038,7 @@ export default function HeroesPage({ onNavigate }) {
   }
 
   return (
-    <div className="page" style={{ display: 'flex', flexDirection: 'column', minHeight: 'calc(100vh - 120px)' }}>
+    <div className="page" style={{ display: 'flex', flexDirection: 'column' }}>
       {isTeamTab ? renderTeamView() : renderAllView()}
 
       {synthChamberOpen && (
@@ -1282,7 +1350,7 @@ export default function HeroesPage({ onNavigate }) {
         ].map(t => {
           const active = activeTab === t.id
           return (
-            <span key={t.id} onClick={() => { setActiveTab(t.id); setSelected(new Set()); setMsg(null) }}
+            <span key={t.id} onClick={() => { setActiveTab(t.id); setSelected(new Set()); setMsg(null); setSpotlightId(null) }}
               style={{ cursor: 'pointer', fontFamily: 'Cinzel, serif', fontWeight: active ? 700 : 500,
                 letterSpacing: '.28em', fontSize: 13, textTransform: 'uppercase',
                 color: active ? 'var(--text-hi)' : (t.id === 'favorites' ? '#e0708a' : 'var(--text-dim)'),
@@ -1292,6 +1360,35 @@ export default function HeroesPage({ onNavigate }) {
           )
         })}
         <span style={{ flex: 1 }} />
+        {/* roster page controls — footer-resident, only when the roster overflows */}
+        {!isTeamTab && totalRosterPages > 1 && (
+          <span style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <button onClick={() => setRosterPage(Math.max(0, safeRosterPage - 1))} disabled={safeRosterPage === 0}
+              style={{ background: 'none', border: 'none', cursor: safeRosterPage === 0 ? 'default' : 'pointer', fontFamily: 'Cinzel, serif', fontSize: 15, color: safeRosterPage === 0 ? 'rgba(154,134,184,.3)' : '#c9bfa8', padding: '0 4px' }}>‹</button>
+            {totalRosterPages <= 9 ? (
+              Array.from({ length: totalRosterPages }, (_, i) => {
+                const active = i === safeRosterPage
+                return (
+                  <span key={i} onClick={() => setRosterPage(i)}
+                    style={{ cursor: 'pointer', width: 20, height: 20, transform: 'rotate(45deg)', flex: 'none',
+                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      border: `1px solid ${active ? 'var(--gold-hi)' : 'rgba(184,151,98,.35)'}`,
+                      background: active ? 'linear-gradient(135deg,#241a10,#120d08)' : 'rgba(12,7,24,.5)',
+                      boxShadow: active ? '0 0 8px rgba(184,151,98,.35)' : 'none' }}>
+                    <span style={{ transform: 'rotate(-45deg)', fontFamily: "'Cinzel',serif", fontWeight: active ? 700 : 500, fontSize: 9, color: active ? '#ffd88a' : 'var(--text-dim)' }}>{i + 1}</span>
+                  </span>
+                )
+              })
+            ) : (
+              <span style={{ fontFamily: 'Cinzel, serif', letterSpacing: '.2em', fontSize: 11, color: 'var(--text-dim)' }}>
+                PAGE <span style={{ color: '#ffd88a' }}>{safeRosterPage + 1}</span> / {totalRosterPages}
+              </span>
+            )}
+            <button onClick={() => setRosterPage(Math.min(totalRosterPages - 1, safeRosterPage + 1))} disabled={safeRosterPage >= totalRosterPages - 1}
+              style={{ background: 'none', border: 'none', cursor: safeRosterPage >= totalRosterPages - 1 ? 'default' : 'pointer', fontFamily: 'Cinzel, serif', fontSize: 15, color: safeRosterPage >= totalRosterPages - 1 ? 'rgba(154,134,184,.3)' : '#c9bfa8', padding: '0 4px' }}>›</button>
+            <span style={{ width: 1, height: 16, background: 'rgba(184,151,98,.3)', margin: '0 6px' }} />
+          </span>
+        )}
         <span style={{ fontFamily: 'Cinzel, serif', letterSpacing: '.24em', fontSize: 12, color: 'var(--muted)' }}>
           {heroes.filter(h => h.is_alive).length} HEROES · <span style={{ color: 'var(--gold-hi)' }}>{heroes.filter(h => h.is_alive && h.is_on_team).length} DEPLOYED</span>
         </span>

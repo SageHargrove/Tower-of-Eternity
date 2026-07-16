@@ -1,18 +1,21 @@
 import random
 import math
 
-# ── Gem pulls (1–7★) ─────────────────────────────────────────────────────────
+# ── Gem pulls (1–6★) ─────────────────────────────────────────────────────────
 # Baseline from the manhwa: 4★ = exactly 1%. 1★ included but at ~70% vs
 # gold's brutal 95%, so gems feel meaningfully better without being easy.
 # Game is meant to be hard. Total = 100 000.
+#
+# 7★ IS UNSUMMONABLE (manhwa rule, Liam 2026-07-12): the Gate never grants
+# one. The only path is transcendence — evolving a maxed 6★ with an extreme
+# material cost (see routers/heroes.py EVOLUTION_* tables + Eternal Shards).
 GEM_WEIGHTS = {
-    1: 70859,  # 70.859%  ← bulk commons
+    1: 70860,  # 70.860%  ← bulk commons (absorbed the old 7★ sliver)
     2: 20000,  # 20.000%
     3:  8000,  #  8.000%
     4:  1000,  #  1.000%  ← manhwa baseline
     5:   130,  #  0.130%  ← 7.7× rarer than 4★ (user: gap is fine)
-    6:    10,  #  0.010%  ← 13× rarer than 5★ — insane gap
-    7:     1,  #  0.001%  ← 10× rarer than 6★ — near-mythical
+    6:    10,  #  0.010%  ← 13× rarer than 5★ — the summonable ceiling
 }
 
 # ── Gold pulls (1–4★) ────────────────────────────────────────────────────────
@@ -29,7 +32,7 @@ GOLD_WEIGHTS = {
 RARITY_WEIGHTS = {**GOLD_WEIGHTS, **{k: v for k, v in GEM_WEIGHTS.items() if k not in GOLD_WEIGHTS}}
 TOTAL_WEIGHT = sum(RARITY_WEIGHTS.values())
 
-def pull_rarity(min_star: int = 1, max_star: int = 7, currency: str = "gem",
+def pull_rarity(min_star: int = 1, max_star: int = 6, currency: str = "gem",
                 weights: dict = None) -> int:
     """Roll a birth star rarity using the appropriate weight table for the
     given currency ('gem' or 'gold').  min_star/max_star are still respected

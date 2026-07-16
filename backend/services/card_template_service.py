@@ -17,6 +17,38 @@ import os
 from io import BytesIO
 from PIL import Image, ImageDraw, ImageFont, ImageFilter
 
+try:
+    import numpy as _np
+except Exception:
+    _np = None
+
+
+def _face_center_x(portrait, left, top, right, bottom):
+    """Best-effort horizontal center of the FACE for the mini crop, via a
+    skin-tone (YCbCr) centroid over the upper ~42% of the character. The
+    plain head-bounding-box center fails when hair/cape is asymmetric — it
+    tracks the silhouette, not the face — so a few heroes framed off to one
+    side (Sajida/Aria right, Thalia left). The skin median finds the face
+    regardless of what the hair does. Falls back to the head-band bbox
+    center when numpy is missing or too little skin is found (e.g. a fully
+    helmeted/masked unit)."""
+    ch = bottom - top
+    band = portrait.crop((left, top, right, top + max(1, int(ch * 0.18))))
+    bb = band.getbbox()
+    head_cx = left + (bb[0] + bb[2]) // 2 if bb else (left + right) // 2
+    if _np is None:
+        return head_cx
+    y1 = top + int(ch * 0.42)
+    reg = portrait.crop((left, top, right, y1))
+    ycc = _np.asarray(reg.convert("YCbCr"), dtype=_np.int16)
+    Y, Cb, Cr = ycc[..., 0], ycc[..., 1], ycc[..., 2]
+    alpha = _np.asarray(reg.split()[-1])
+    skin = (Cb >= 77) & (Cb <= 130) & (Cr >= 133) & (Cr <= 180) & (Y > 50) & (Y < 235) & (alpha > 200)
+    xs = _np.where(skin)[1]
+    if len(xs) < 80:
+        return head_cx
+    return left + int(_np.median(xs))
+
 CANVAS_SIZE = (700, 1050)
 TEMPLATE_DIR = os.path.join("static", "card_templates")
 CARD_CACHE_DIR = os.path.join("static", "portraits", "cards")
@@ -296,7 +328,7 @@ for _icon, _members in _CLASS_ICON_FAMILIES.items():
 
 # Bump when the card drawing itself changes — invalidates every cached
 # composite without touching portraits/names (the other cache-key inputs).
-CARD_STYLE_VERSION = 2
+CARD_STYLE_VERSION = 7
 
 
 def composite_card(hero_id: int, portrait_path: str, birth_star: int, hero_name: str = "", crop_face: bool = False, hero_class: str = "") -> str:
@@ -322,17 +354,47 @@ def composite_card(hero_id: int, portrait_path: str, birth_star: int, hero_name:
     if os.path.exists(out_path):
         return out_path
 
+    if crop_face:
+        # Mini = a SQUARE, HEAD-CENTERED thumbnail, no card template. Squares
+        # render identically in every container the UI uses (square, rotated
+        # diamond, circle). The horizontal center comes from the HEAD band,
+        # NOT the whole-body bbox — an asymmetric pose (cape/weapon off to one
+        # side) pushed the body's center away from the face, so face-in-body-
+        # center looked "right-angled" (Davit/Aria). Vertically the square is
+        # placed so the face sits mid-frame rather than up near the top edge.
+        portrait = Image.open(portrait_path).convert("RGBA")
+        bbox = portrait.getbbox() or (0, 0, portrait.width, portrait.height)
+        left, top, right, bottom = bbox
+        content_h = max(1, bottom - top)
+        # Horizontal center = the FACE (skin-tone centroid), not the body's
+        # silhouette — asymmetric hair/cape otherwise pushed the crop off to
+        # one side. Vertical = the head top, so eyes/nose land mid-frame.
+        cx = _face_center_x(portrait, left, top, right, bottom)
+        side = max(48, int(content_h * 0.30))
+        face_y = top + int(content_h * 0.12)
+        y0 = max(0, face_y - side // 2)
+        x0 = max(0, cx - side // 2)
+        face = portrait.crop((x0, y0, x0 + side, y0 + side))
+        face = face.resize((400, 400), Image.LANCZOS)
+        # Ink backdrop (matches the app's panel ink) behind the transparency.
+        canvas = Image.new("RGBA", (400, 400), (16, 10, 28, 255))
+        canvas.alpha_composite(face)
+        canvas.save(out_path, format="PNG")
+        stale_prefix = f"{hero_id}_{variant}_"
+        for f in os.listdir(CARD_CACHE_DIR):
+            if f.startswith(stale_prefix) and f != os.path.basename(out_path):
+                try:
+                    os.remove(os.path.join(CARD_CACHE_DIR, f))
+                except OSError:
+                    pass
+        return out_path
+
     template = get_template(tier).convert("RGBA")
     portrait = Image.open(portrait_path).convert("RGBA")
 
-    # Portraits are now full-body (head-to-feet). Both card variants anchor
-    # at the TOP of the image, where the head/torso are — never center, which
-    # on a full body would frame the waist and cut the head off.
-    if crop_face:
-        # Grid/mini card: a tight head-and-chest slice off the top of the
-        # full body, so the face fills the tiny thumbnail's pixel budget.
-        crop_h = int(portrait.height * 0.34)
-        portrait = portrait.crop((0, 0, portrait.width, crop_h))
+    # Portraits are full-body (head-to-feet). The full card anchors at the
+    # TOP of the image, where the head/torso are — never center, which on a
+    # full body would frame the waist and cut the head off.
 
     w, h = template.size
 
@@ -354,56 +416,61 @@ def composite_card(hero_id: int, portrait_path: str, birth_star: int, hero_name:
     canvas = portrait.copy()
     canvas.alpha_composite(template, (0, 0))
 
-    # Add class icon and name text over the border
+    # Add class icon and name text over the border — FULL cards only. The
+    # mini (crop_face) variant is a plain face-over-backdrop thumbnail: the
+    # medallion/stars/nameplate at thumbnail size read as broken clutter
+    # (the "little circle" Liam flagged in the Hearth) — the UI around a
+    # mini always draws the name/class itself.
     draw = ImageDraw.Draw(canvas, "RGBA")
     margin = 18
 
-    cx = w // 2
+    if not crop_face:
+        cx = w // 2
 
-    # Class icon medallion at the top — the SAME PNG class-family art the
-    # frontend's ClassBadge shows next to the class name, so the medallion
-    # and the badge always match (the old emoji glyphs did not). Falls back
-    # to the emoji glyph path only if the icon file is somehow missing.
-    icon_y = margin + 38
-    icon_color = _tier_color_at(tier, 0.6)
-    draw.ellipse([cx - 32, icon_y - 32, cx + 32, icon_y + 32], fill=(20, 20, 24, 255), outline=(*icon_color, 255), width=4)
-    icon_file = CLASS_ICON_FILES.get(hero_class)
-    icon_path = os.path.join("static", "icons", "classes", f"{icon_file}.png") if icon_file else None
-    if icon_path and os.path.exists(icon_path):
-        icon_img = Image.open(icon_path).convert("RGBA")
-        icon_img.thumbnail((46, 46), Image.LANCZOS)
-        iw, ih = icon_img.size
-        canvas.alpha_composite(icon_img, (int(cx - iw / 2), int(icon_y - ih / 2)))
-    elif hero_class == "Classless":
-        _draw_sparkle(draw, cx, icon_y, 16, icon_color)
-    else:
-        from services.class_service import get_class_icon
-        glyph_img = _render_emoji_glyph(get_class_icon(hero_class), 34)
-        gw, gh = glyph_img.size
-        canvas.alpha_composite(glyph_img, (int(cx - gw / 2), int(icon_y - gh / 2)))
+        # Class icon medallion at the top — the SAME PNG class-family art the
+        # frontend's ClassBadge shows next to the class name, so the medallion
+        # and the badge always match (the old emoji glyphs did not). Falls back
+        # to the emoji glyph path only if the icon file is somehow missing.
+        icon_y = margin + 38
+        icon_color = _tier_color_at(tier, 0.6)
+        draw.ellipse([cx - 32, icon_y - 32, cx + 32, icon_y + 32], fill=(20, 20, 24, 255), outline=(*icon_color, 255), width=4)
+        icon_file = CLASS_ICON_FILES.get(hero_class)
+        icon_path = os.path.join("static", "icons", "classes", f"{icon_file}.png") if icon_file else None
+        if icon_path and os.path.exists(icon_path):
+            icon_img = Image.open(icon_path).convert("RGBA")
+            icon_img.thumbnail((46, 46), Image.LANCZOS)
+            iw, ih = icon_img.size
+            canvas.alpha_composite(icon_img, (int(cx - iw / 2), int(icon_y - ih / 2)))
+        elif hero_class == "Classless":
+            _draw_sparkle(draw, cx, icon_y, 16, icon_color)
+        else:
+            from services.class_service import get_class_icon
+            glyph_img = _render_emoji_glyph(get_class_icon(hero_class), 34)
+            gw, gh = glyph_img.size
+            canvas.alpha_composite(glyph_img, (int(cx - gw / 2), int(icon_y - gh / 2)))
 
-    band_top = int(h * 0.86)
-    band_bot = int(h * 0.94)
+        band_top = int(h * 0.86)
+        band_bot = int(h * 0.94)
 
-    # Star row — exactly birth_star icons, positioned directly above the
-    # nameplate band (was at the top of the portrait, where it competed
-    # with the class medallion and read too small to register at a glance).
-    star_y = band_top - 22
-    star_spacing = 34
-    total_w = star_spacing * max(0, birth_star - 1)
-    start_x = cx - total_w / 2
-    for i in range(birth_star):
-        sx = start_x + i * star_spacing
-        _draw_star(draw, sx, star_y, 13, _tier_color_at(tier, 0.5))
-    if hero_name:
-        name_text = hero_name.upper()
-        band_inner_w = (w - margin - 30) - (margin + 30) - 24
-        font = _fit_name_font(draw, name_text, band_inner_w)
-        bbox = draw.textbbox((0, 0), name_text, font=font)
-        text_w, text_h = bbox[2] - bbox[0], bbox[3] - bbox[1]
-        text_x = (w - text_w) // 2 - bbox[0]
-        text_y = (band_top + band_bot) // 2 - text_h // 2 - bbox[1]
-        draw.text((text_x, text_y), name_text, font=font, fill=(235, 235, 235, 255))
+        # Star row — exactly birth_star icons, positioned directly above the
+        # nameplate band (was at the top of the portrait, where it competed
+        # with the class medallion and read too small to register at a glance).
+        star_y = band_top - 22
+        star_spacing = 34
+        total_w = star_spacing * max(0, birth_star - 1)
+        start_x = cx - total_w / 2
+        for i in range(birth_star):
+            sx = start_x + i * star_spacing
+            _draw_star(draw, sx, star_y, 13, _tier_color_at(tier, 0.5))
+        if hero_name:
+            name_text = hero_name.upper()
+            band_inner_w = (w - margin - 30) - (margin + 30) - 24
+            font = _fit_name_font(draw, name_text, band_inner_w)
+            bbox = draw.textbbox((0, 0), name_text, font=font)
+            text_w, text_h = bbox[2] - bbox[0], bbox[3] - bbox[1]
+            text_x = (w - text_w) // 2 - bbox[0]
+            text_y = (band_top + band_bot) // 2 - text_h // 2 - bbox[1]
+            draw.text((text_x, text_y), name_text, font=font, fill=(235, 235, 235, 255))
 
     # Mask everything outside the rounded rectangle to be fully transparent
     mask = Image.new('L', (w, h), 0)

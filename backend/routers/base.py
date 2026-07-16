@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Body
 from database import db
 from pydantic import BaseModel
 import json
@@ -32,13 +32,54 @@ def get_base():
         process_training(conn)
         row = conn.execute("SELECT * FROM base WHERE id = 1").fetchone()
         result = dict(row)
-        # Locked once per profile on first load — a 50/50 roll that then
-        # persists for the lifetime of this save, rather than re-rolling
-        # randomly on every page load.
-        if not result.get("fairy_gender"):
-            result["fairy_gender"] = random.choice(["male", "female"])
-            conn.execute("UPDATE base SET fairy_gender = ? WHERE id = 1", (result["fairy_gender"],))
+        # fairy_gender is left NULL until the player picks one on the intro
+        # screen (POST /base/fairy). Null signals the frontend to show the
+        # chooser; tips fall back to 'female' visually until then.
+        #
+        # World name: every profile is its own universe, and the universe
+        # names itself — rolled once on first load, never player-editable
+        # (players customize their master name / teams / guild, not the
+        # world). 'The Hollow Spire' is the un-rolled schema default.
+        if not result.get("name") or result["name"] == "The Hollow Spire":
+            result["name"] = _generate_world_name(conn)
+            conn.execute("UPDATE base SET name = ? WHERE id = 1", (result["name"],))
     return result
+
+
+# Syllabic fantasy world names in the Pick-Me-Up register (Niflheimr, Townia,
+# Taonere...): stem + terminal, occasionally a linking vowel. ~40x14x2 forms.
+_WORLD_STEMS = [
+    "Nifl", "Thal", "Vael", "Aer", "Torv", "Ish", "Kael", "Mor", "Eryn", "Vosk",
+    "Ael", "Bryn", "Cind", "Drav", "Elm", "Fenn", "Gal", "Hollow", "Ilv", "Jor",
+    "Kryst", "Lorn", "Myr", "Nav", "Oth", "Pell", "Quor", "Rav", "Sol", "Tarn",
+    "Uld", "Vint", "Wyrd", "Xan", "Ymir", "Zephyr", "Ostr", "Grim", "Ard", "Sylv",
+]
+_WORLD_ENDS = [
+    "heimr", "ia", "onia", "ere", "gard", "mir", "eth", "ande", "oria", "wyn",
+    "fell", "reach", "mark", "vale",
+]
+
+def _generate_world_name(conn) -> str:
+    import random as _r
+    for _ in range(12):
+        stem = _r.choice(_WORLD_STEMS)
+        end = _r.choice(_WORLD_ENDS)
+        link = _r.choice(["", "a", "e", "o"]) if stem[-1] not in "aeiou" and end[0] not in "aeiou" else ""
+        name = stem + link + end
+        if len(name) <= 12:
+            return name.capitalize()
+    return "Niflheimr"
+
+@router.post("/fairy")
+def choose_fairy(payload: dict = Body(...)):
+    """Player picks their tutorial fairy guide (male/female) on first launch.
+    Idempotent-ish: allows changing until the tutorial is completed."""
+    gender = payload.get("fairy_gender")
+    if gender not in ("male", "female"):
+        raise HTTPException(status_code=400, detail="fairy_gender must be 'male' or 'female'")
+    with db() as conn:
+        conn.execute("UPDATE base SET fairy_gender = ? WHERE id = 1", (gender,))
+    return {"ok": True, "fairy_gender": gender}
 
 @router.post("/upgrade")
 def upgrade_base():
@@ -59,11 +100,9 @@ class RenameRequest(BaseModel):
 
 @router.post("/rename")
 def rename_base(req: RenameRequest):
-    if not req.name or len(req.name.strip()) == 0:
-        raise HTTPException(status_code=400, detail="Name cannot be empty.")
-    with db() as conn:
-        conn.execute("UPDATE base SET name = ? WHERE id = 1", (req.name.strip()[:30],))
-    return {"ok": True, "name": req.name.strip()[:30]}
+    # World names are granted by the Tower (randomly generated), never chosen.
+    # Players customize master name / team names / guild names only.
+    raise HTTPException(status_code=403, detail="The Tower names every world. Yours is already spoken.")
 
 class MasterNameRequest(BaseModel):
     name: str
@@ -901,12 +940,26 @@ def run_daily_dungeon(dungeon_type: str, tier: int = 1):
             return {"ok": True, "type": "gold", "tier": tier, "reward": gold_reward, "message": f"Dungeon cleared! Gained {gold_reward} Gold."}
 
         elif dungeon_type == "materials":
-            mats = ["iron_shard", "dark_crystal", "worn_leather", "spirit_dust", "ancient_bone", "elemental_stone"]
+            # THE evolution-materials dungeon (Liam's design): each gate tier
+            # drops the real materials the matching evolution bands eat, so
+            # once a tier is open, those star-ups stop being a bottleneck.
+            #   Tier I   (open)      → 1★→2★→3★ mats, generous
+            #   Tier II  (floor 30+) → 3★→4★→5★ mats
+            #   Tier III (floor 60+) → 5★→6★ mats + the 6★→7★ BULK legendaries
+            # Eternal Shards are deliberately absent — transcendence's key
+            # material comes from floor-80+ bosses only, never a daily.
+            # (The old list here was snake_case junk no recipe recognized.)
+            GATE_MATERIAL_POOLS = {
+                1: ["Iron Ore", "Iron Ore", "Dark Crystal", "Monster Bone", "Goblin Ear", "Mystic Dust", "Wolf Pelt"],
+                2: ["Refined Iron", "Hardened Bone", "Mystic Dust", "Goblin Ear", "Wyvern Scale", "Enchanted Steel", "Runed Crystal", "Demon Ichor"],
+                3: ["Wyvern Scale", "Enchanted Steel", "Runed Crystal", "Demon Ichor", "Mithril", "Adamantine", "Dragon Scale", "Phoenix Feather"],
+            }
             import random
+            mats = GATE_MATERIAL_POOLS[tier]
             drops = {}
-            for _ in range(int(random.randint(2, 4 + (scale // 2)) * mult)):
+            for _ in range(int(random.randint(3, 5 + (scale // 2)) * mult)):
                 mat = random.choice(mats)
-                drops[mat] = drops.get(mat, 0) + random.randint(1, 3 + (scale // 3))
+                drops[mat] = drops.get(mat, 0) + random.randint(2, 4 + (scale // 3))
 
             current_mats = json.loads(base_row["materials"]) if base_row["materials"] else {}
             for mat, qty in drops.items():

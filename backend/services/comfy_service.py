@@ -21,9 +21,13 @@ RESCALE_MULT = float(os.getenv("COMFY_RESCALE_CFG", "0.7"))
 # Impact Pack FaceDetailer pass (installed 2026-07). COMFY_FACE_DETAILER=0
 # disables; if the packs are missing, generation retries without it anyway.
 FACE_DETAIL = os.getenv("COMFY_FACE_DETAILER", "1") == "1"
+# xinsir union ControlNet (installed in ComfyUI/models/controlnet) — used to
+# lock the body plan of non-humanoid monsters against the human-trained
+# checkpoint's tendency to humanise them. See _build_workflow's control path.
+CONTROLNET_MODEL = os.getenv("COMFY_CONTROLNET", "xinsir-union-promax.safetensors")
 
 
-def _build_workflow(prompt: str, negative: str = "", seed: int = None, init_image_name: str = None, denoise: float = 0.45, width: int = 832, height: int = 1216, hires: bool = False, hires_denoise: float = 0.62, lora_override: str = None, lora_strength_override: float = None, face_detail: bool = None) -> dict:
+def _build_workflow(prompt: str, negative: str = "", seed: int = None, init_image_name: str = None, denoise: float = 0.45, width: int = 832, height: int = 1216, hires: bool = False, hires_denoise: float = 0.62, lora_override: str = None, lora_strength_override: float = None, face_detail: bool = None, control_image_name: str = None, control_strength: float = 0.55, control_end: float = 0.5, control_mode: str = 'canny') -> dict:
     if face_detail is None:
         face_detail = FACE_DETAIL
     if seed is None:
@@ -122,6 +126,64 @@ def _build_workflow(prompt: str, negative: str = "", seed: int = None, init_imag
         "inputs": {"text": neg, "clip": clip_source},
         "class_type": "CLIPTextEncode"
     }
+
+    # ── ControlNet (body-plan lock for non-humanoid monsters) ──────────────
+    # The human-trained checkpoint humanises quadrupeds/dragons/insects (mw1
+    # bug — Liam). A structural map of a reference of the RIGHT body plan, fed
+    # through the xinsir union ControlNet, holds the silhouette so a spider
+    # stays eight-legged, a dragon stays a dragon. control_mode picks the
+    # preprocessor: 'depth' (DepthAnything — TONE-AGNOSTIC, so the model lights
+    # the subject freely per the prompt: fixes the dark-render problem canny
+    # had, since canny from a dark ref dragged the shading dark), 'lineart'
+    # (clean anime outlines), or 'canny' (core node, raw edges). control_end
+    # < 1.0 releases control partway so the LoRA/prompt still drive style.
+    pos_src, neg_src = ["6", 0], ["7", 0]
+    if control_image_name:
+        workflow["40"] = {
+            "inputs": {"image": control_image_name, "upload": "image"},
+            "class_type": "LoadImage"
+        }
+        if control_mode == "depth":
+            workflow["41"] = {
+                "inputs": {"image": ["40", 0], "ckpt_name": "depth_anything_v2_vitl.pth", "resolution": 1024},
+                "class_type": "DepthAnythingV2Preprocessor"
+            }
+            union_type = "depth"
+        elif control_mode == "lineart":
+            workflow["41"] = {
+                "inputs": {"image": ["40", 0], "resolution": 1024},
+                "class_type": "AnimeLineArtPreprocessor"
+            }
+            union_type = "canny/lineart/anime_lineart/mlsd"
+        else:  # canny (core node)
+            workflow["41"] = {
+                "inputs": {"image": ["40", 0], "low_threshold": 0.35, "high_threshold": 0.75},
+                "class_type": "Canny"
+            }
+            union_type = "canny/lineart/anime_lineart/mlsd"
+        workflow["42"] = {
+            "inputs": {"control_net_name": CONTROLNET_MODEL},
+            "class_type": "ControlNetLoader"
+        }
+        workflow["44"] = {
+            "inputs": {"type": union_type, "control_net": ["42", 0]},
+            "class_type": "SetUnionControlNetType"
+        }
+        workflow["43"] = {
+            "inputs": {
+                "strength": control_strength,
+                "start_percent": 0.0,
+                "end_percent": control_end,
+                "positive": ["6", 0],
+                "negative": ["7", 0],
+                "control_net": ["44", 0],
+                "image": ["41", 0],
+                "vae": ["4", 2],
+            },
+            "class_type": "ControlNetApplyAdvanced"
+        }
+        pos_src, neg_src = ["43", 0], ["43", 1]
+
     if init_image_name:
         workflow["11"] = {
             "inputs": {"image": init_image_name, "upload": "image"},
@@ -166,8 +228,8 @@ def _build_workflow(prompt: str, negative: str = "", seed: int = None, init_imag
             "scheduler": "normal",
             "denoise": denoise_val,
             "model": model_source,
-            "positive": ["6", 0],
-            "negative": ["7", 0],
+            "positive": pos_src,
+            "negative": neg_src,
             "latent_image": latent_image_source
         },
         "class_type": "KSampler"
@@ -193,8 +255,8 @@ def _build_workflow(prompt: str, negative: str = "", seed: int = None, init_imag
                 "scheduler": "normal",
                 "denoise": hires_denoise,
                 "model": model_source,
-                "positive": ["6", 0],
-                "negative": ["7", 0],
+                "positive": pos_src,
+                "negative": neg_src,
                 "latent_image": ["13", 0]
             },
             "class_type": "KSampler"
@@ -324,7 +386,7 @@ def _upload_image(file_path: str) -> str | None:
         return None
 
 
-def generate_portrait_comfy(prompt: str, save_path: str, init_image_path: str = None, denoise: float = 0.45, negative: str = "", width: int = 832, height: int = 1216, hires: bool = False, hires_denoise: float = 0.62, lora_override: str = None, lora_strength_override: float = None, _noise_retry: bool = False) -> bool:
+def generate_portrait_comfy(prompt: str, save_path: str, init_image_path: str = None, denoise: float = 0.45, negative: str = "", width: int = 832, height: int = 1216, hires: bool = False, hires_denoise: float = 0.62, lora_override: str = None, lora_strength_override: float = None, _noise_retry: bool = False, control_image_path: str = None, control_strength: float = 0.55, control_end: float = 0.5, control_mode: str = 'canny') -> bool:
     if not is_comfy_running():
         print("[ComfyUI] Server not running — skipping.")
         return False
@@ -333,13 +395,27 @@ def generate_portrait_comfy(prompt: str, save_path: str, init_image_path: str = 
     if init_image_path and os.path.exists(init_image_path):
         init_image_name = _upload_image(init_image_path)
 
-    workflow = _build_workflow(prompt, negative=negative, init_image_name=init_image_name, denoise=denoise, width=width, height=height, hires=hires, hires_denoise=hires_denoise, lora_override=lora_override, lora_strength_override=lora_strength_override)
+    control_image_name = None
+    if control_image_path and os.path.exists(control_image_path):
+        control_image_name = _upload_image(control_image_path)
+
+    def _wf(fd=None):
+        return _build_workflow(prompt, negative=negative, init_image_name=init_image_name, denoise=denoise, width=width, height=height, hires=hires, hires_denoise=hires_denoise, lora_override=lora_override, lora_strength_override=lora_strength_override, face_detail=fd, control_image_name=control_image_name, control_strength=control_strength, control_end=control_end, control_mode=control_mode)
+
+    workflow = _wf()
     prompt_id = _queue_prompt(workflow)
     if not prompt_id and FACE_DETAIL:
         # Most likely the Impact Pack nodes aren't available — retry the
         # same generation without the FaceDetailer pass rather than failing.
         print("[ComfyUI] Queue failed with FaceDetailer — retrying without it.")
-        workflow = _build_workflow(prompt, negative=negative, init_image_name=init_image_name, denoise=denoise, width=width, height=height, hires=hires, hires_denoise=hires_denoise, lora_override=lora_override, lora_strength_override=lora_strength_override, face_detail=False)
+        workflow = _wf(fd=False)
+        prompt_id = _queue_prompt(workflow)
+    if not prompt_id and control_image_name:
+        # ControlNet nodes rejected (model/nodes missing?) — fall back to a
+        # plain prompt-only generation rather than failing the whole subject.
+        print("[ComfyUI] Queue failed with ControlNet — retrying prompt-only.")
+        control_image_name = None
+        workflow = _wf()
         prompt_id = _queue_prompt(workflow)
     if not prompt_id:
         return False
@@ -362,7 +438,8 @@ def generate_portrait_comfy(prompt: str, save_path: str, init_image_path: str = 
                                        denoise=denoise, negative=negative, width=width, height=height,
                                        hires=hires, hires_denoise=hires_denoise,
                                        lora_override=lora_override, lora_strength_override=lora_strength_override,
-                                       _noise_retry=True)
+                                       _noise_retry=True, control_image_path=control_image_path,
+                                       control_strength=control_strength, control_end=control_end, control_mode=control_mode)
     return True
 
 

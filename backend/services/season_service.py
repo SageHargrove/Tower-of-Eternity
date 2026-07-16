@@ -18,14 +18,15 @@ from datetime import date, datetime, timezone
 # ── Boosted gem table — a rate-up over the standard GEM_WEIGHTS. Same shape,
 # but the high stars are pulled up several-fold (still brutal, just kinder).
 # Total renormalizes automatically; only the ratios matter.
+# 7★ is unsummonable everywhere, seasonal banners included — transcendence
+# (6★ evolution) is the only way to a seventh star.
 SEASONAL_GEM_WEIGHTS = {
-    1: 60000,  # trimmed from 70859
+    1: 60000,  # trimmed from 70860
     2: 22000,
     3: 12000,
     4:  4500,  # 4.5% vs standard 1.0%
     5:  1000,  # 1.0% vs standard 0.13% — the real draw
-    6:   400,  # 0.40% vs 0.010%
-    7:   100,  # 0.10% vs 0.001%
+    6:   500,  # 0.50% vs 0.010% (absorbed the old 7★ share)
 }
 
 SEASONS = {

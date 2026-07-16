@@ -32,8 +32,9 @@ function HeroDiamond({ hero, size = 26, accent = 'var(--gold-hi)' }) {
   return (
     <span style={{ width: size, height: size, transform: 'rotate(45deg)', flex: 'none', border: `1px solid ${accent}`, background: '#140b22', display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}>
       {hero?.portrait_path && !hero.portrait_path.includes('default_') ? (
-        <img src={`/${hero.portrait_path}`} alt={hero.name} draggable={false}
-          style={{ width: '142%', height: '142%', objectFit: 'cover', objectPosition: 'center 15%', transform: 'rotate(-45deg)', flex: 'none', pointerEvents: 'none' }} />
+        <img src={`/heroes/${hero.id}/card-image?mini=1`} alt={hero.name} draggable={false}
+          onError={(e) => { if (!e.currentTarget.dataset.fb) { e.currentTarget.dataset.fb = '1'; e.currentTarget.src = `/${hero.portrait_path}` } }}
+          style={{ width: '142%', height: '142%', objectFit: 'cover', objectPosition: 'center', transform: 'rotate(-45deg)', flex: 'none', pointerEvents: 'none' }} />
       ) : (
         <span style={{ transform: 'rotate(-45deg)', fontFamily: "'Cinzel',serif", fontSize: Math.round(size * 0.36), color: accent }}>{hero?.name?.[0] || '?'}</span>
       )}

@@ -54,6 +54,7 @@ class CombatUnit:
     level: int = 1
     battle_tendency: str = "Stoic"
     is_team_leader: bool = False
+    team_position: int = 0     # the hero's slot in the team formation (0 = first)
     isolated_rounds: int = 0   # Reckless panic response — exposed, takes bonus damage, preferred enemy target
     bracing_rounds: int = 0    # Calculating panic response — forgoes their strength to brace defensively
     spawn_template: str = ""  # name of the weak add this unit's "summon_add" ability spawns, if any
@@ -126,9 +127,9 @@ ENEMY_TYPES = [
     ("Grave Scarab", 1.0, 1.0, 1.6, "swarm", "advanced"),
     ("Rotting Ghoul", 1.1, 0.9, 1.2, "pack", "advanced"),
     ("Bone Warden", 1.0, 1.3, 0.8, "normal", "advanced"),
-    ("Gargoyle", 1.1, 1.4, 0.9, "normal", "advanced"),
+    ("Cave Shrieker", 1.1, 1.4, 0.9, "normal", "advanced"),  # was Gargoyle (concept dead, Liam-approved swap 07-14)
     ("Wraith", 0.9, 0.7, 1.3, "normal", "advanced"),
-    ("Scarab Swarmlord", 1.2, 1.1, 1.4, "elite", "advanced"),
+    ("Tomb Jackal Warden", 1.2, 1.1, 1.4, "elite", "advanced"),  # was Scarab Swarmlord
     ("Plague Harbinger", 1.3, 1.0, 1.0, "elite", "advanced"),
     # --- mighty (floor 41+) — checklist: "Minotaurs, Manticores, Wyverns,
     # Elementals" ---
@@ -136,10 +137,10 @@ ENEMY_TYPES = [
     ("Wyvern", 1.1, 0.8, 1.6, "normal", "mighty"),
     ("Manticore", 1.3, 1.0, 1.2, "normal", "mighty"),
     ("Elemental", 1.2, 1.3, 0.8, "normal", "mighty"),
-    ("Chimera", 1.2, 1.0, 1.1, "normal", "mighty"),  # relocated from mythic (sea re-theme)
+    ("Nemean Lion", 1.2, 1.0, 1.1, "normal", "mighty"),  # was Chimera (concept dead after ~10 fails); relocated from mythic (sea re-theme)
     ("Griffon", 1.2, 0.9, 1.4, "normal", "mighty"),         # ref add 2026-07-10
     ("Dire Sabertooth", 1.3, 0.8, 1.3, "normal", "mighty"), # ref add 2026-07-10
-    ("Elder Treant", 1.0, 1.7, 0.4, "normal", "mighty"),    # ref add 2026-07-10
+    ("Dryad", 1.0, 1.7, 0.4, "normal", "mighty"),    # was Elder Treant (concept dead); ref add 2026-07-10
     ("Minotaur Juggernaut", 1.7, 1.4, 0.6, "elite", "mighty"),
     ("Phoenix", 1.4, 0.9, 1.3, "elite", "mighty"),          # ref add 2026-07-10 (rebirth = self_regen)
     ("Wyvern Stormrider", 1.4, 1.0, 1.8, "elite", "mighty"),
@@ -147,13 +148,13 @@ ENEMY_TYPES = [
     # Golems, Naga" (Golems covered by Stone Sentinel/Lesser Golem here;
     # Chimera/Naga land in mythic below since the checklist's 51-70 range
     # spans both this tier and the next) ---
-    ("Stone Sentinel", 1.3, 1.6, 0.5, "normal", "ascendant"),
-    ("Lesser Golem", 1.1, 1.3, 0.5, "normal", "ascendant"),
+    ("Crypt Warden", 1.3, 1.6, 0.5, "normal", "ascendant"),   # was Stone Sentinel
+    ("Animated Armor", 1.1, 1.3, 0.5, "normal", "ascendant"), # was Lesser Golem
     ("Vampire Spawn", 1.2, 0.9, 1.3, "normal", "ascendant"),
     ("Blood Thrall", 1.0, 0.9, 1.1, "normal", "ascendant"),      # variety add 2026-07-10
     ("Obsidian Tortoise", 0.8, 1.7, 0.5, "normal", "ascendant"), # variety add 2026-07-10
-    ("Magma Colossus", 1.3, 1.4, 0.6, "normal", "ascendant"),    # ref add 2026-07-10
-    ("Stone Golem", 1.5, 1.8, 0.5, "elite", "ascendant"),
+    ("Cinder Ogre", 1.3, 1.4, 0.6, "normal", "ascendant"),    # was Magma Colossus; ref add 2026-07-10
+    ("Iron Juggernaut", 1.5, 1.8, 0.5, "elite", "ascendant"),  # was Stone Golem
     ("Dread Brute", 1.8, 1.2, 0.7, "elite", "ascendant"),
     ("Obsidian Behemoth", 2.0, 1.6, 0.4, "elite", "ascendant"),
     ("Primordial Vampire", 1.5, 1.0, 1.5, "elite", "ascendant"),
@@ -168,7 +169,7 @@ ENEMY_TYPES = [
     ("Coral-Grown Husk", 0.8, 1.8, 0.5, "normal", "mythic"),
     ("Abyssal Lamprey", 1.4, 0.6, 1.7, "pack", "mythic"),
     ("Marrow-Worm", 0.9, 0.8, 1.6, "swarm", "mythic"),
-    ("Sunken Wisp", 1.1, 0.6, 1.5, "pack", "mythic"),
+    ("Drowned Shade", 1.1, 0.6, 1.5, "pack", "mythic"),  # was Sunken Wisp
     ("Abyssal Serpent", 1.1, 0.9, 1.3, "normal", "mythic"),  # ref add 2026-07-10 (giant_serpent)
     ("Galleon Captain", 1.1, 1.4, 0.8, "elite", "mythic"),
     ("Trench Stalker", 1.6, 0.8, 1.9, "elite", "mythic"),
@@ -226,12 +227,12 @@ ENEMY_WAVE = {
     "Bandit": 2, "Harpy": 2, "Orc": 2, "Ogre": 2, "Troll": 2,
     "Kobold": 2, "Skeleton": 2, "Venomous Spider": 2, "Vile Corvid": 2,
     "Hobgoblin": 3, "Lizardman": 3, "Feral Ghoul": 3, "Hobgoblin Berserker": 3, "Lizardman Stalker": 3, "Gnoll Marauder": 3, "Crawling Hand": 3,
-    "Grave Scarab": 4, "Rotting Ghoul": 4, "Bone Warden": 4, "Gargoyle": 4, "Wraith": 4, "Scarab Swarmlord": 4, "Plague Harbinger": 4,
-    "Minotaur": 5, "Wyvern": 5, "Manticore": 5, "Elemental": 5, "Minotaur Juggernaut": 5, "Wyvern Stormrider": 5, "Chimera": 5, "Griffon": 5, "Dire Sabertooth": 5, "Elder Treant": 5, "Phoenix": 5,
-    "Stone Sentinel": 6, "Lesser Golem": 6, "Vampire Spawn": 6, "Stone Golem": 6, "Obsidian Behemoth": 6, "Dread Brute": 6, "Primordial Vampire": 6, "Frost Wight": 6, "Blood Thrall": 6, "Obsidian Tortoise": 6, "Magma Colossus": 6,
+    "Grave Scarab": 4, "Rotting Ghoul": 4, "Bone Warden": 4, "Cave Shrieker": 4, "Wraith": 4, "Tomb Jackal Warden": 4, "Plague Harbinger": 4,
+    "Minotaur": 5, "Wyvern": 5, "Manticore": 5, "Elemental": 5, "Minotaur Juggernaut": 5, "Wyvern Stormrider": 5, "Nemean Lion": 5, "Griffon": 5, "Dire Sabertooth": 5, "Dryad": 5, "Phoenix": 5,
+    "Crypt Warden": 6, "Animated Armor": 6, "Vampire Spawn": 6, "Iron Juggernaut": 6, "Obsidian Behemoth": 6, "Dread Brute": 6, "Primordial Vampire": 6, "Frost Wight": 6, "Blood Thrall": 6, "Obsidian Tortoise": 6, "Cinder Ogre": 6,
     "Abyssal Serpent": 7,
     # wave 7 = Leviathan's Graveyard (sea band, floors 61-70)
-    "Drowned Deckhand": 7, "Bone-Crab Scavenger": 7, "Coral-Grown Husk": 7, "Abyssal Lamprey": 7, "Marrow-Worm": 7, "Sunken Wisp": 7, "Galleon Captain": 7, "Trench Stalker": 7, "Bone-Grafted Goliath": 7,
+    "Drowned Deckhand": 7, "Bone-Crab Scavenger": 7, "Coral-Grown Husk": 7, "Abyssal Lamprey": 7, "Marrow-Worm": 7, "Drowned Shade": 7, "Galleon Captain": 7, "Trench Stalker": 7, "Bone-Grafted Goliath": 7,
     "Death Knight": 8, "Giant": 8, "Hydra": 8, "Hydra Spawn": 8, "Black Knight Commander": 8, "Naga": 8, "Abyssal Lurker": 8, "Dragonkin Warrior": 8,
     "Demon": 9, "Imp": 9, "Demon Lord": 9, "Pit Fiend": 9, "Wraith Sovereign": 9, "Shrouded Reaper": 9, "Hellhound": 9, "Cambion": 9, "Succubus": 9, "Carapace Fiend": 9, "Void Horror": 9,
     "Lich Acolyte": 10, "Young Dragon": 10, "Adult Dragon": 10, "Archdemon": 10, "Ancient Guardian": 10, "Dracolich": 10, "Archdemon Enforcer": 10, "Drake": 10, "Ancient Revenant": 10,
@@ -250,7 +251,7 @@ ENEMY_ABILITY_OVERRIDES = {
     "Spider Queen": ["summon_add"],
     "Hobgoblin Berserker": ["enrage"],
     "Lizardman Stalker": ["self_regen"],
-    "Scarab Swarmlord": ["summon_add"],
+    "Tomb Jackal Warden": ["summon_add"],
     "Plague Harbinger": ["team_buff_aura"],
     "Minotaur Juggernaut": ["enrage"],
     "Hydra": ["self_regen"],
@@ -271,7 +272,7 @@ ENEMY_ABILITY_OVERRIDES = {
 # Which weak swarm-type a "summon_add" user calls in as reinforcements.
 ENEMY_SPAWN_TEMPLATE = {
     "Spider Queen": "Giant Spider",
-    "Scarab Swarmlord": "Grave Scarab",
+    "Tomb Jackal Warden": "Grave Scarab",
     "Thalassor, the Undead Leviathan": "Marrow-Worm",
     "Captain Iron-Lung": "Drowned Deckhand",
 }
@@ -447,6 +448,17 @@ def _make_swarm_add(name: str, floor_number: int, unit_id: int) -> CombatUnit:
         agility=int(10 * scale * 1.2),
         morale=100, stress=0, is_hero=False, portrait_path=portrait_path,
     )
+
+
+def _enemy_frontline_n(total: int) -> int:
+    """How many enemies form the FRONT LINE the party targets first. Scales
+    with the swarm (~the ally 2-of-5 = 40% ratio) so the front stays a
+    sensible fraction instead of a flat 2 that looks tiny behind a big horde
+    (Liam). Min 2 (matches the ally frontline on small fights); capped so a
+    30-50 survival swarm doesn't shove its whole roster up front."""
+    if total <= 0:
+        return 0
+    return min(6, max(2, round(total * 0.4)))
 
 
 def make_enemies(floor_number: int, count: int = None, difficulty_mult: float = 1.0) -> list[CombatUnit]:
@@ -2132,6 +2144,7 @@ def _resolve_combat_from_processed(processed, floor_number, is_boss, is_miniboss
             hero_star=get_hero_star(h),
             battle_tendency=h.get("battle_tendency") or "Stoic",
             is_team_leader=bool(h.get("is_team_leader")),
+            team_position=h.get("team_position", 0) or 0,
             equipped_consumable=h.get("equipped_consumable"),
             max_mana=hero_max_mana,
             mana=hero_max_mana // 2,  # start fights at 50%, not empty or full
@@ -2243,14 +2256,19 @@ def _resolve_combat_from_processed(processed, floor_number, is_boss, is_miniboss
         "heroes": [
             {"id": h.id, "name": h.name, "hero_class": h.hero_class, "max_health": h.max_health, "health": h.health,
              "portrait_path": h.portrait_path, "hero_star": h.hero_star, "level": h.level,
-             "power_stat": h.power_stat, "is_ranged": h.is_ranged,
+             "power_stat": h.power_stat, "is_ranged": h.is_ranged, "team_position": h.team_position,
+             "is_team_leader": h.is_team_leader,
              "max_mana": h.max_mana, "mana": h.mana}
             for h in combatants_heroes
         ],
         "enemies": [
             {"id": e.id, "name": e.name, "max_health": e.max_health, "health": e.health, "portrait_path": e.portrait_path, "level": e.level}
             for e in enemies
-        ]
+        ],
+        # How many of the enemies (front-of-list) are the targeted-first
+        # front line — the UI splits its enemy formation on this so the
+        # visual matches the actual targeting rule.
+        "enemy_frontline": _enemy_frontline_n(len(enemies)),
     }
 
     log.append(f"Floor {floor_number}: {len(combatants_heroes)} heroes vs {len(enemies)} enemies.")
@@ -2694,8 +2712,9 @@ def _resolve_combat_from_processed(processed, floor_number, is_boss, is_miniboss
                                 if h.alive:
                                     morale_changes[h.id] = morale_changes.get(h.id, 0) + random.randint(2, 5)
                 else:
-                    alive_frontline_enemies = [e for e in enemies[:2] if e.alive]
-                    alive_backline_enemies = [e for e in enemies[2:] if e.alive]
+                    _fl = _enemy_frontline_n(len(enemies))
+                    alive_frontline_enemies = [e for e in enemies[:_fl] if e.alive]
+                    alive_backline_enemies = [e for e in enemies[_fl:] if e.alive]
                     
                     if attacker.hero_class == "Assassin" and alive_backline_enemies:
                         target = random.choice(alive_backline_enemies)
@@ -3114,6 +3133,13 @@ def _apply_combat_drops(result: dict, floor_number: int, is_boss: bool, is_minib
             for _ in range(5):
                 mat = tiered_material_name(roll_material_name_for_enemies(floor_number, enemy_names), avg_luck=avg_luck)
                 drops[mat] = drops.get(mat, 0) + 1
+            # Eternal Shards — the transcendence (6★→7★) material. Boss
+            # kills at floor 80+ ONLY; never in gates, markets, or the
+            # generic drop pools. One per kill, two from the floor-100
+            # summit boss. Seven are needed per transcendence.
+            if floor_number >= 80:
+                shard_qty = 2 if floor_number >= 100 else 1
+                drops["Eternal Shard"] = drops.get("Eternal Shard", 0) + shard_qty
             result["materials_gained"] = drops
         elif is_miniboss:
             # Miniboss floors didn't have a bonus tier before — every

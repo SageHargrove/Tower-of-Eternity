@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react'
 import { StackedTitle, Panel, Meter, SectionHeader } from '../components/ilm/Ilm'
-import { getBase, getFacilities, buildFacility, upgradeFacility, assignFacility, removeFacility, restHeroes, listHeroes, configTraining, getMageTowerUpgrades, buyResearchUpgrade, craftMaterialEquipment, craftBandages, getBaseFloors, assignBaseFloor, getLegacies, getHearth, renameBase, upgradeBase, getMarketCatalog, purchaseMarketItem, getBaseUpgrades, buyBaseUpgrade, getMailList, claimMail, getShip, buildShip, renameShip, refitShip, buyRefitPoint, getSupportBoons } from '../api/client'
+import { getBase, getFacilities, buildFacility, upgradeFacility, assignFacility, removeFacility, listHeroes, configTraining, getMageTowerUpgrades, buyResearchUpgrade, craftMaterialEquipment, craftBandages, getBaseFloors, assignBaseFloor, getLegacies, getHearth, upgradeBase, getMarketCatalog, purchaseMarketItem, getBaseUpgrades, buyBaseUpgrade, getMailList, claimMail, getShip, buildShip, renameShip, refitShip, buyRefitPoint, getSupportBoons } from '../api/client'
 import MirrorOfFate from '../components/MirrorOfFate'
 import ItemIcon from '../components/ItemIcon'
 import TeamBanner from '../components/TeamBanner'
@@ -216,7 +216,6 @@ export default function BasePage({ onGoldChange, onSubTabChange, tourTargetSubTa
   const [base, setBase] = useState(null)
   const [facilitiesData, setFacilitiesData] = useState(null)
   const [baseHeroes, setBaseHeroes] = useState([])
-  const [resting, setResting] = useState(false)
   const [msg, setMsg] = useState(null)
   const [facilityLoading, setFacilityLoading] = useState(false)
   const [mageUpgrades, setMageUpgrades] = useState(null)
@@ -255,8 +254,14 @@ export default function BasePage({ onGoldChange, onSubTabChange, tourTargetSubTa
   const hasLoadedChatsOnce = React.useRef(false)
 
   function applyChats(data) {
-    const list = (data && data.lines) || []
-    const keyOf = (l) => `${l.speaker}|${l.created_at}`
+    // The Hearth now returns threaded CONVERSATIONS; flatten them (newest
+    // first, lines in spoken order) so the compact lobby feed shows one
+    // coherent recent exchange rather than scattered one-liners.
+    const convos = (data && data.conversations) || []
+    const list = convos.flatMap(c => (c.lines || []).map((l, i) => ({
+      ...l, location: c.location, created_at: c.created_at, _k: `${l.speaker}|${c.created_at}|${i}`,
+    })))
+    const keyOf = (l) => l._k
     const fresh = hasLoadedChatsOnce.current ? list.filter(l => !seenChatIds.current.has(keyOf(l))).map(keyOf) : []
     list.forEach(l => seenChatIds.current.add(keyOf(l)))
     hasLoadedChatsOnce.current = true
@@ -296,7 +301,7 @@ export default function BasePage({ onGoldChange, onSubTabChange, tourTargetSubTa
         listHeroes(true),
         getLegacies().catch(() => ({ legacies: [] })),
         getBaseFloors().catch(() => ({ floors: [], base_heroes: [] })),
-        getHearth().catch(() => ({ lines: [] })),
+        getHearth().catch(() => ({ conversations: [] })),
         getMarketCatalog().catch(() => ({})),
         getBaseUpgrades().catch(() => []),
         getMailList().catch(() => [])
@@ -320,30 +325,6 @@ export default function BasePage({ onGoldChange, onSubTabChange, tourTargetSubTa
       }
     } catch (e) {
       console.error(e)
-    }
-  }
-
-const handleRenameBase = async () => {
-    const newName = prompt("Enter a new name for your base:", base.name);
-    if (!newName) return;
-    try {
-      await renameBase(newName);
-      loadAll();
-    } catch(e) {
-      alertDialog(e.message || "Failed to rename base.");
-    }
-  };
-
-  const handleRest = async () => {
-    setResting(true)
-    try {
-      const data = await restHeroes()
-      alertDialog(`Rested ${data.rested} heroes — Health fully restored, morale/stress/trauma recovered. Cost: ${data.cost} ingredients.`)
-      loadAll()
-    } catch (e) {
-      alertDialog(e.message || "Cannot rest.")
-    } finally {
-      setResting(false)
     }
   }
 
@@ -709,8 +690,10 @@ const getGenRate = (fac) => {
             <div key={h.id} style={{ display: 'flex', alignItems: 'center', gap: 12, border: '1px solid rgba(184,151,98,.3)', background: 'rgba(12,7,24,.45)', padding: '8px 14px' }}>
               <span style={{ position: 'relative', width: 38, height: 38, transform: 'rotate(45deg)', flex: 'none', border: '1px solid rgba(216,187,132,.55)', background: 'linear-gradient(135deg,#1c1030,#0c0718)', display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}>
                 {h.portrait_path && !h.portrait_path.includes('default_') ? (
-                  <img src={`/${h.portrait_path}`} alt={h.name} draggable={false}
-                    style={{ width: '142%', height: '142%', objectFit: 'cover', objectPosition: 'center 15%', transform: 'rotate(-45deg)', flex: 'none' }} />
+                  /* face shot, not full body (Liam): backend mini = crop-only face; raw portrait only as fallback */
+                  <img src={`/heroes/${h.id}/card-image?mini=1`} alt={h.name} draggable={false}
+                    onError={(e) => { if (!e.currentTarget.dataset.fb) { e.currentTarget.dataset.fb = '1'; e.currentTarget.src = `/${h.portrait_path}` } }}
+                    style={{ width: '142%', height: '142%', objectFit: 'cover', objectPosition: 'center', transform: 'rotate(-45deg)', flex: 'none' }} />
                 ) : (
                   <span style={{ transform: 'rotate(-45deg)', fontFamily: "'Cinzel',serif", fontWeight: 700, fontSize: 13, color: 'var(--gold-hi)' }}>{h.name[0]}</span>
                 )}
@@ -1016,7 +999,7 @@ const getGenRate = (fac) => {
                 </div>
                 {chats.length === 0 && <div className="text-dim" style={{ fontSize: '0.85rem', fontStyle: 'italic' }}>The halls are quiet for now.</div>}
                 {chats.slice(0, 4).map(l => (
-                  <div key={`${l.speaker}|${l.created_at}`} className={`ilm-base-chatter ${newChatIds.has(`${l.speaker}|${l.created_at}`) ? 'fresh' : ''}`}
+                  <div key={l._k} className={`ilm-base-chatter ${newChatIds.has(l._k) ? 'fresh' : ''}`}
                     style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
                     <span style={{ padding: 5, flex: 'none' }}>
                       <DiamondPortrait heroId={l.hero_id} name={l.speaker} size={26} shaken={l.mood === 'shaken'} />
@@ -1036,64 +1019,61 @@ const getGenRate = (fac) => {
         <main className="ilm-base-main">
 
       {activeTab === 'lobby' && (() => {
-        // Recovery ladder: worst-off heroes surface individually, the rest
-        // fold into a single STEADY row (Home Base mockup).
+        // Weary check feeds a single pointer line — mending itself belongs to
+        // the facilities now (Dining Hall / rest between floors), so the old
+        // Rest & Recovery panel is gone per Liam.
         const hurting = baseHeroes
           .filter(h => (h.morale ?? 100) < 70 || (h.trauma ?? 0) > 30)
           .sort((a, b) => (a.morale ?? 100) - (b.morale ?? 100))
-          .slice(0, 3)
-        const steadyCount = baseHeroes.length - hurting.length
-        const now = Date.now() / 1000
-        const rem = Math.max(0, 300 - (now - (base.last_rest_time || 0)))
-        const isCooldown = rem > 0
-        const rowStyle = { display: 'flex', alignItems: 'center', gap: 12 }
         const recentLegacies = legacies.slice(0, 2)
+        const floor = base.highest_floor || 0
+        // 10-floor bands = zones; progress within the current band.
+        const bandStart = Math.floor(floor / 10) * 10
+        const bandPct = ((floor - bandStart) / 10) * 100
+        // What the Tower still holds locked: floor-gated facilities, nearest first.
+        const sealed = (facilitiesData?.available || [])
+          .filter(f => f.floor_restricted && f.unlock_floor > floor)
+          .sort((a, b) => a.unlock_floor - b.unlock_floor)
+          .slice(0, 4)
         return (
         <div style={{ display: 'flex', gap: 24, alignItems: 'flex-start', flexWrap: 'wrap' }}>
           {/* ── center column ── */}
           <div style={{ flex: '1.2 1 420px', minWidth: 380, display: 'flex', flexDirection: 'column', gap: 16 }}>
-            {/* rest & recovery */}
-            <div style={{ border: '1px solid rgba(184,151,98,.4)', background: 'linear-gradient(160deg,rgba(20,11,34,.5),rgba(12,7,24,.6))', padding: '16px 18px', clipPath: 'polygon(0 0,100% 0,100% 100%,12px 100%)' }}>
+            {/* the climb — tower progress + what the next floors unseal */}
+            <div style={{ border: '1px solid rgba(184,151,98,.4)', background: 'linear-gradient(160deg,rgba(20,11,34,.5),rgba(12,7,24,.6))', padding: '16px 18px' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
                 <span style={{ width: 7, height: 7, transform: 'rotate(45deg)', background: 'var(--gold)', display: 'inline-block' }} />
-                <span style={{ fontFamily: "'Cinzel',serif", letterSpacing: '.3em', fontSize: 11, color: 'var(--gold)' }}>REST & RECOVERY</span>
+                <span style={{ fontFamily: "'Cinzel',serif", letterSpacing: '.3em', fontSize: 11, color: 'var(--gold)' }}>THE CLIMB</span>
                 <span style={{ height: 1, flex: 1, background: 'rgba(184,151,98,.2)' }} />
+                <span style={{ fontFamily: "'Cinzel',serif", fontSize: 10, letterSpacing: '.18em', color: '#ffd88a' }}>DEEPEST · FLOOR {floor}</span>
               </div>
               <div style={{ fontSize: 14.5, fontStyle: 'italic', color: 'var(--muted)', marginTop: 8, lineHeight: 1.45 }}>
-                Heroes return from the Tower whole in body — it is the mind that takes longer.
+                {floor === 0
+                  ? 'The first floor waits. Everything the base becomes starts with the climb.'
+                  : 'Every floor taken feeds the base — and the Tower keeps its best rooms sealed above.'}
               </div>
-              <div style={{ marginTop: 12, display: 'flex', flexDirection: 'column', gap: 10 }}>
-                {hurting.map(h => {
-                  const morale = h.morale ?? 100
-                  const shaken = morale < 40
-                  const barColor = shaken ? '#c04040' : '#c9a84c'
-                  const border = shaken ? 'rgba(192,64,64,.4)' : 'rgba(184,151,98,.35)'
-                  return (
-                    <div key={h.id} style={rowStyle}>
-                      <span style={{ fontFamily: "'Cinzel',serif", fontSize: 12, letterSpacing: '.12em', color: 'var(--text-hi)', width: 84, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{h.name.toUpperCase()}</span>
-                      <div style={{ flex: 1, height: 5, background: 'rgba(0,0,0,.5)', border: `1px solid ${border}` }}>
-                        <div style={{ width: `${morale}%`, height: '100%', background: barColor }} />
-                      </div>
-                      <span style={{ fontFamily: "'Cinzel',serif", fontSize: 10, letterSpacing: '.16em', color: shaken ? '#d98a8a' : 'var(--gold-hi)', width: 90, textAlign: 'right' }}>{shaken ? 'SHAKEN' : 'WEARY'}</span>
-                    </div>
-                  )
-                })}
-                {steadyCount > 0 && (
-                  <div style={rowStyle}>
-                    <span style={{ fontFamily: "'Cinzel',serif", fontSize: 12, letterSpacing: '.12em', color: 'var(--muted)', width: 84 }}>{hurting.length > 0 ? 'OTHERS' : 'ROSTER'}</span>
-                    <div style={{ flex: 1, height: 5, background: 'rgba(0,0,0,.5)', border: '1px solid rgba(74,154,106,.35)' }}>
-                      <div style={{ width: '100%', height: '100%', background: '#4a9a6a' }} />
-                    </div>
-                    <span style={{ fontFamily: "'Cinzel',serif", fontSize: 10, letterSpacing: '.16em', color: '#8fbf9f', width: 90, textAlign: 'right' }}>STEADY</span>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginTop: 12 }}>
+                <span style={{ fontFamily: "'Cinzel',serif", fontSize: 10, letterSpacing: '.16em', color: 'var(--muted)', whiteSpace: 'nowrap' }}>FLOORS {bandStart}–{bandStart + 10}</span>
+                <div style={{ flex: 1 }}><Meter pct={bandPct} glow /></div>
+              </div>
+              <div style={{ marginTop: 12, display: 'flex', flexDirection: 'column', gap: 7 }}>
+                {sealed.length === 0 ? (
+                  <div style={{ fontStyle: 'italic', color: 'var(--muted)', fontSize: 14 }}>Nothing near stands sealed — the Tower owes its next secret to a deeper floor.</div>
+                ) : sealed.map(f => (
+                  <div key={f.type} style={{ display: 'flex', alignItems: 'baseline', gap: 10 }}>
+                    <span style={{ fontFamily: "'Cinzel',serif", fontSize: 12, letterSpacing: '.12em', color: 'var(--text-hi)' }}>{f.type.toUpperCase()}</span>
+                    <span style={{ height: 1, flex: 1, background: 'rgba(184,151,98,.15)' }} />
+                    <span style={{ fontFamily: "'Cinzel',serif", fontSize: 10, letterSpacing: '.14em', color: f.unlock_floor - floor <= 2 ? '#8fbf9f' : 'var(--muted)' }}>
+                      UNSEALS AT FLOOR {f.unlock_floor}
+                    </span>
                   </div>
-                )}
+                ))}
               </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginTop: 14 }}>
-                <button className="ilm-btn ilm-btn-gold" onClick={handleRest} disabled={resting || isCooldown} style={{ padding: '10px 22px' }}>
-                  {resting ? 'RESTING…' : isCooldown ? `EMBERS COOL · ${Math.ceil(rem)}S` : 'REST ALL HEROES'}
-                </button>
-                <span style={{ fontSize: 13, fontStyle: 'italic', color: 'var(--muted)' }}>50 ingredients — a hot meal for the roster. Morale +25 · stress −20 · trauma −5.</span>
-              </div>
+              {hurting.length > 0 && (
+                <div style={{ marginTop: 12, fontSize: 13.5, fontStyle: 'italic', color: '#d9b98a' }}>
+                  {hurting.length === 1 ? `${hurting[0].name} climbs weary` : `${hurting.length} souls climb weary`} — the Dining Hall and a slow floor mend what the Tower bruises.
+                </div>
+              )}
               {msg && <div style={{ marginTop: 10, fontSize: 14, fontStyle: 'italic', color: '#8fbf9f' }}>{msg}</div>}
             </div>
 
@@ -1181,9 +1161,9 @@ const getGenRate = (fac) => {
                 </div>
               </div>
               <div style={{ textAlign: 'center', marginTop: 14 }}>
+                {/* World name is Tower-granted, never player-chosen */}
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10 }}>
-                  <span style={{ fontFamily: "'Cinzel',serif", fontWeight: 700, letterSpacing: '.3em', fontSize: 17, color: 'var(--text-hi)' }}>{base.name?.toUpperCase()}</span>
-                  <button onClick={handleRenameBase} title="Rename Base" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-dim)', fontSize: 14, padding: 0, display: 'flex' }}>✎</button>
+                  <span title="Every Master's world is named by the Tower itself" style={{ fontFamily: "'Cinzel',serif", fontWeight: 700, letterSpacing: '.3em', fontSize: 17, color: 'var(--text-hi)' }}>{base.name?.toUpperCase()}</span>
                 </div>
                 <div style={{ fontFamily: "'Cinzel',serif", letterSpacing: '.24em', fontSize: 10, color: 'var(--muted)', marginTop: 5 }}>
                   LOBBY LV {base.level} · ROSTER {baseHeroes.length} / {base.max_roster_size || 10}
@@ -1503,8 +1483,10 @@ const getGenRate = (fac) => {
                           title={`${h.name} · Lv ${h.level} ${h.hero_class}${rehouseMode && f.floor_number !== 1 ? ' — click to send to the Foundations' : ''}`}
                           style={{ width: 52, height: 52, transform: 'rotate(45deg)', flex: 'none', cursor: 'grab', border: '1px solid rgba(216,187,132,.55)', background: '#140b22', display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}>
                           {h.portrait_path && !h.portrait_path.includes('default_') ? (
-                            <img src={`/${h.portrait_path}`} alt={h.name} draggable={false}
-                              style={{ width: '142%', height: '142%', objectFit: 'cover', objectPosition: 'center 15%', transform: 'rotate(-45deg)', flex: 'none', pointerEvents: 'none' }} />
+                            /* face shot, not full body (Liam) — mini crop, raw as fallback */
+                            <img src={`/heroes/${h.id}/card-image?mini=1`} alt={h.name} draggable={false}
+                              onError={(e) => { if (!e.currentTarget.dataset.fb) { e.currentTarget.dataset.fb = '1'; e.currentTarget.src = `/${h.portrait_path}` } }}
+                              style={{ width: '142%', height: '142%', objectFit: 'cover', objectPosition: 'center', transform: 'rotate(-45deg)', flex: 'none', pointerEvents: 'none' }} />
                           ) : (
                             <span style={{ transform: 'rotate(-45deg)', fontFamily: "'Cinzel',serif", fontSize: 15, color: 'var(--gold-hi)' }}>{h.name[0]}</span>
                           )}

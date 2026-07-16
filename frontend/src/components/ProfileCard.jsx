@@ -6,7 +6,7 @@
  * Face + motto persist per-profile in localStorage until profiles go social.
  */
 import React, { useState, useEffect } from 'react'
-import { getBase, setMasterName, renameBase, getBanner, listHeroes } from '../api/client'
+import { getBase, setMasterName, getBanner, listHeroes } from '../api/client'
 import Pennant from './Pennant'
 import { emitToast } from '../toastBus'
 
@@ -43,13 +43,6 @@ export default function ProfileCard({ onClose }) {
     const next = window.prompt('Choose a name for the Master of the base', base?.master_name || '')
     if (!next || !next.trim()) return
     try { await setMasterName(next.trim()); setBase(b => ({ ...b, master_name: next.trim() })) }
-    catch (e) { emitToast(e.message, 'error') }
-  }
-
-  async function editName() {
-    const next = window.prompt('Name your base', base?.name || '')
-    if (!next || !next.trim()) return
-    try { await renameBase(next.trim()); setBase(b => ({ ...b, name: next.trim() })) }
     catch (e) { emitToast(e.message, 'error') }
   }
 
@@ -107,11 +100,14 @@ export default function ProfileCard({ onClose }) {
                 FLOOR {base?.highest_floor ?? 0}
               </span>
             </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            {/* World name is granted by the Tower, not chosen — no rename here */}
+            <div style={{ display: 'flex', alignItems: 'baseline', gap: 10 }}>
               <div style={{ fontFamily: "'Cinzel',serif", fontWeight: 900, fontSize: '1.7rem', lineHeight: 1, color: 'var(--text-hi)', textShadow: '0 4px 24px rgba(124,58,214,.45)', textTransform: 'uppercase' }}>
-                {base?.name || 'THE BASE'}
+                {base?.name || '…'}
               </div>
-              <button title="Rename the base" style={pencil} onClick={editName}>✎</button>
+              <span title="Every Master's world is named by the Tower itself" style={{ fontFamily: "'Cinzel',serif", fontSize: '0.52rem', letterSpacing: '.2em', color: 'var(--muted)', textTransform: 'uppercase' }}>
+                Your World
+              </span>
             </div>
             <button onClick={editMotto} style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', fontSize: '0.82rem', fontStyle: 'italic', fontFamily: 'inherit', color: 'var(--muted)', marginTop: 6, textAlign: 'left' }}>
               {motto ? `"${motto}"` : 'Tap to set a line the Tower remembers you by…'}
@@ -129,7 +125,9 @@ export default function ProfileCard({ onClose }) {
             <div style={{ width: 118, height: 118, position: 'relative' }}>
               <span style={{ position: 'absolute', inset: 8, transform: 'rotate(45deg)', border: '1px solid var(--lavender)', background: 'linear-gradient(135deg,#1c1030,#0c0718)', overflow: 'hidden', boxShadow: '0 0 26px rgba(0,0,0,.5), 0 0 18px rgba(150,110,230,.27)' }}>
                 {face?.portrait_path && !face.portrait_path.includes('default_') && (
-                  <img src={`/${face.portrait_path}`} alt="" style={{ position: 'absolute', width: '141%', height: '141%', left: '50%', top: '50%', transform: 'translate(-50%,-50%) rotate(-45deg)', objectFit: 'cover', objectPosition: 'top' }} />
+                  <img src={`/heroes/${face.id}/card-image?mini=1`} alt=""
+                    onError={(e) => { if (!e.currentTarget.dataset.fb) { e.currentTarget.dataset.fb = '1'; e.currentTarget.src = `/${face.portrait_path}` } }}
+                    style={{ position: 'absolute', width: '141%', height: '141%', left: '50%', top: '50%', transform: 'translate(-50%,-50%) rotate(-45deg)', objectFit: 'cover', objectPosition: 'top' }} />
                 )}
               </span>
               {(!face?.portrait_path || face.portrait_path.includes('default_')) && (

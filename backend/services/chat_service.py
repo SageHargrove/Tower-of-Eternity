@@ -88,10 +88,12 @@ def _tenure_tag(hero_created_at: str, all_created_ats: list[str]) -> str:
     return ""
 
 
-def generate_hero_chat() -> dict:
+def generate_hero_chat(preferred_location: str | None = None) -> dict:
     """
     Selects heroes (preferably on a team or sharing synergy) and generates a chat log
     based on their personality, the current state of the base, and recent chats.
+    preferred_location pins the scene (the /chat/generate endpoint passes one);
+    otherwise a random unlocked location is rolled.
     """
     with db() as conn:
         heroes = conn.execute("SELECT id, name, personality, hero_class, level, ego_type, is_on_team, synergy_group, created_at FROM heroes WHERE is_alive = 1").fetchall()
@@ -107,7 +109,10 @@ def generate_hero_chat() -> dict:
     unlocked_locations = ["The Lobby", "The Vault"] + [f["type"] for f in facilities]
     
     # Pick location
-    location = random.choice(unlocked_locations)
+    if preferred_location and preferred_location in unlocked_locations:
+        location = preferred_location
+    else:
+        location = random.choice(unlocked_locations)
     
     assigned_heroes = []
     with db() as conn:
@@ -236,7 +241,22 @@ Format:
     try:
         response = _generate_chat_text(prompt, max_tokens=300, temperature=0.9)
         chat_data = json.loads(_clean_json(response))
-        
+
+        # The LLM's speaker field is untrusted: coerce every line to a real
+        # participant (exact name, then first-name match) and drop lines it
+        # attributed to characters we never gave it — invented speakers were
+        # reaching the drawer as portrait-less ghosts.
+        if isinstance(chat_data, list):
+            by_full = {h["name"]: h["name"] for h in chatters}
+            by_first = {h["name"].split()[0].lower(): h["name"] for h in chatters}
+            cleaned = []
+            for m in chat_data:
+                spk = str(m.get("speaker", "")).strip()
+                real = by_full.get(spk) or by_first.get(spk.split()[0].lower() if spk else "")
+                if real and m.get("message"):
+                    cleaned.append({"speaker": real, "message": m["message"]})
+            chat_data = cleaned
+
         if isinstance(chat_data, list) and len(chat_data) > 0:
             with db() as conn:
                 participants_str = ", ".join([h["name"] for h in chatters])
@@ -333,7 +353,18 @@ Return ONLY a valid JSON array, no markdown fences:
         response = _generate_chat_text(prompt, max_tokens=200, temperature=0.9)
         parsed = json.loads(_clean_json(response))
         if isinstance(parsed, list) and parsed:
-            chat_data = parsed
+            # Same speaker-coercion as generate_hero_chat: only the heroes
+            # we actually sampled may speak.
+            by_full = {h["name"]: h["name"] for h in speakers}
+            by_first = {h["name"].split()[0].lower(): h["name"] for h in speakers}
+            cleaned = []
+            for m in parsed:
+                spk = str(m.get("speaker", "")).strip()
+                real = by_full.get(spk) or by_first.get(spk.split()[0].lower() if spk else "")
+                if real and m.get("message"):
+                    cleaned.append({"speaker": real, "message": m["message"]})
+            if cleaned:
+                chat_data = cleaned
     except Exception as e:
         print(f"[Hearth] LLM reaction failed, using fallback: {e}")
     if not chat_data:

@@ -41,6 +41,11 @@ function rewardText(reward) {
     </span>
   )
   if (reward.summon_ticket) parts.push(<TicketChip key="ticket" label={reward.summon_ticket} />)
+  if (reward.materials) parts.push(...Object.entries(reward.materials).map(([name, qty]) => (
+    <span key={`mat-${name}`} style={{ fontFamily: "'Cinzel',serif", fontSize: 11, letterSpacing: '.14em', color: '#8fd8c8', border: '1px solid rgba(143,216,200,.5)', padding: '3px 9px' }}>
+      {String(name).toUpperCase()} ×{qty}
+    </span>
+  )))
   return <span style={{ display: 'inline-flex', gap: 12, alignItems: 'center' }}>{parts}</span>
 }
 

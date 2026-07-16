@@ -319,18 +319,11 @@ export default function ArenaPage() {
 
           {!token ? (
             <Panel tone="violet" corner style={{ padding: '1rem 1.1rem' }}>
-              <div style={{ fontStyle: 'italic', color: 'var(--muted)', marginBottom: 12 }}>Enlist under your banner to enter the Lists.</div>
-              <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
-                <IlmButton variant={authMode === 'login' ? 'gold' : 'ghost'} onClick={() => setAuthMode('login')}>LOGIN</IlmButton>
-                <IlmButton variant={authMode === 'register' ? 'gold' : 'ghost'} onClick={() => setAuthMode('register')}>REGISTER</IlmButton>
+              <div style={{ fontStyle: 'italic', color: 'var(--muted)', marginBottom: 10 }}>
+                You're playing offline. Sign in from the title screen to enter the Lists —
+                arena, raids, guilds and the wire all ride on your world account.
               </div>
-              <form onSubmit={handleAuth} style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                <input type="text" placeholder="Username" value={authUsername} onChange={e => setAuthUsername(e.target.value)} style={fieldStyle} />
-                <input type="password" placeholder="Password" value={authPassword} onChange={e => setAuthPassword(e.target.value)} style={fieldStyle} />
-                <IlmButton variant="gold" block type="submit" disabled={busy || !authUsername.trim() || !authPassword}>
-                  {authMode === 'login' ? 'LOG IN' : 'REGISTER'}
-                </IlmButton>
-              </form>
+              <IlmButton variant="gold" onClick={() => window.location.reload()}>SIGN IN</IlmButton>
             </Panel>
           ) : (
             <>

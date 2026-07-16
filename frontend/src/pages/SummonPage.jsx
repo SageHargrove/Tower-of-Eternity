@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react'
-import { pullHeroes, getOdds, getEquipmentOdds, getBase, getPityInfo, redeemSpark, redeemEquipSpark, pullEquipment, getSparkWishlist, getFreePullStatus, freePull, getSeason } from '../api/client'
+import { pullHeroes, getOdds, getEquipmentOdds, getBase, getPityInfo, redeemSpark, redeemEquipSpark, pullEquipment, getSparkWishlist, getFreePullStatus, freePull, getSeason, getApiKeyStatus } from '../api/client'
 import SummoningOverlay from '../components/SummoningOverlay'
 import FairyTip from '../components/FairyTip'
 import { confirmDialog } from '../components/DialogHost'
@@ -60,13 +60,16 @@ function equipHeadline(item) {
 // or 'seasonal'); `cur` is the currency the pull is charged in. The seasonal
 // entry is only shown while a season is live (see `banners` in render).
 const SEASON_STRIP = 'linear-gradient(#ffd88a,#e8a34c)'
+// SEASONAL BANNERS ARE PARKED (Liam 2026-07-12): a rate-up banner doesn't
+// mean much when every hero is procedurally random — pulled from the UI
+// until a seasonal design that fits that (themed generation, seasonal
+// synergy court, etc.) gets approved. The backend season machinery
+// (season_service, banner='seasonal' pulls) stays intact for that day.
 const HERO_BANNERS = {
-  seasonal: { key: 'seasonal', banner: 'seasonal', seasonal: true, label: 'SEASONAL — EMBERFALL', strip: SEASON_STRIP, border: 'rgba(232,163,76,.55)', wash: 'linear-gradient(120deg,rgba(122,64,22,.28),rgba(12,7,24,.6))', tint: '#ffd88a', blurb: 'Limited heroes · vanish with the season', c1: 120, c10: 1200, cur: 'gem' },
   gem:  { key: 'gem',  banner: 'standard', label: 'GEM SUMMON',   strip: 'linear-gradient(#c8a9f5,#8b46d6)', border: 'rgba(184,151,98,.55)', wash: 'linear-gradient(120deg,rgba(124,58,214,.22),rgba(12,7,24,.6))', tint: 'var(--lavender)', blurb: 'Premium odds · every pull builds Sparks', c1: 100, c10: 1000, cur: 'gem' },
   gold: { key: 'gold', banner: 'standard', label: 'GOLD SUMMON',  strip: 'linear-gradient(#d8bb84,#7a6030)', border: 'rgba(184,151,98,.28)', wash: 'rgba(12,7,24,.4)', tint: 'var(--gold-hi)', blurb: 'Reliable calls · soft currency', c1: 500, c10: 5000, cur: 'gold' },
 }
 const EQUIP_BANNERS = {
-  seasonal: { key: 'seasonal', banner: 'seasonal', seasonal: true, label: 'SEASONAL — EMBERFALL', strip: SEASON_STRIP, border: 'rgba(232,163,76,.55)', wash: 'linear-gradient(120deg,rgba(122,64,22,.28),rgba(12,7,24,.6))', tint: '#ffd88a', blurb: 'Season-limited armaments · can temper the mythforged', c1: 90, c10: 900, cur: 'gem' },
   gem:  { key: 'gem',  banner: 'standard', label: 'GEM FORGE',    strip: 'linear-gradient(#c8a9f5,#8b46d6)', border: 'rgba(184,151,98,.55)', wash: 'linear-gradient(120deg,rgba(124,58,214,.22),rgba(12,7,24,.6))', tint: 'var(--lavender)', blurb: 'B-rank and above guaranteed', c1: 75, c10: 750, cur: 'gem' },
   gold: { key: 'gold', banner: 'standard', label: 'GOLD FORGE',   strip: 'linear-gradient(#d8bb84,#7a6030)', border: 'rgba(184,151,98,.28)', wash: 'rgba(12,7,24,.4)', tint: 'var(--gold-hi)', blurb: 'Reliable arms · soft currency', c1: 250, c10: 2500, cur: 'gold' },
 }
@@ -108,13 +111,18 @@ export default function SummonPage({ onGoldChange }) {
   const [heroResults, setHeroResults] = useState([])
   const [equipResults, setEquipResults] = useState([])
   const [showOdds, setShowOdds] = useState(false)
-  const [oddsCurrency, setOddsCurrency] = useState('gem')
   const [error, setError] = useState(null)
   const [showAnimation, setShowAnimation] = useState(false)
   const [fairyGender, setFairyGender] = useState('female')
   const [fairyTip, setFairyTip] = useState({ show: false, message: '' })
   const [freeStatus, setFreeStatus] = useState(null)
   const [season, setSeason] = useState(null)
+  // Base-gallery notice: shown until an API key is set (personal hero gen)
+  // or the player dismisses it for this browser.
+  const [apiKeySet, setApiKeySet] = useState(true)
+  const [galleryChipDismissed, setGalleryChipDismissed] = useState(
+    () => localStorage.getItem('base_gallery_chip_dismissed') === 'true'
+  )
   // LAST GRANTED HERE — the gate's five most recent grants, kept PER BANNER
   // (design chat: it's the history of *this* calling, not a global feed).
   const grantKey = `toe_last_granted_${activeTab}_${banner}`
@@ -149,6 +157,7 @@ export default function SummonPage({ onGoldChange }) {
     getSparkWishlist().then(d => setWishlistCount((d.classes || []).length)).catch(() => {})
     getFreePullStatus().then(setFreeStatus).catch(() => {})
     getSeason().then(setSeason).catch(() => setSeason(null))
+    getApiKeyStatus().then(s => setApiKeySet(!!s?.set)).catch(() => {})
   }
 
   async function doFreePull() {
@@ -227,12 +236,17 @@ export default function SummonPage({ onGoldChange }) {
   const sparkMax = isEquip ? (pityInfo?.equip_spark_threshold ?? 90) : (pityInfo?.spark_threshold ?? 90)
   const sparkReady = sparkPts >= sparkMax
 
-  // Featured reveal — the best unit from the last rite.
-  const featured = results.length
+  // Featured reveal — the best unit from the last rite, unless the player
+  // clicks a specific card in the THIS RITE spread below.
+  const [featuredIdx, setFeaturedIdx] = useState(null)
+  const autoFeatured = results.length
     ? results.reduce((best, x) => (tierOf(x) > tierOf(best) ? x : best), results[0])
     : null
+  const featured = (featuredIdx != null && results[featuredIdx]) ? results[featuredIdx] : autoFeatured
   const featTier = featured ? tierOf(featured) : 0
 
+  // THE ODDS tracks the SELECTED calling (Liam) — no separate filter.
+  const oddsCurrency = b.cur === 'gold' ? 'gold' : 'gem'
   const oddsTable = isEquip
     ? (oddsCurrency === 'gold' ? equipGoldOdds : equipGemOdds)
     : (oddsCurrency === 'gold' ? goldOdds : odds)
@@ -257,6 +271,27 @@ export default function SummonPage({ onGoldChange }) {
 
       {showAnimation && results.length > 0 && (
         <SummoningOverlay results={results} onComplete={() => setShowAnimation(false)} />
+      )}
+
+      {!apiKeySet && !galleryChipDismissed && (
+        <div style={{
+          display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap',
+          background: 'rgba(168,139,224,0.08)', border: '1px solid rgba(168,139,224,0.4)',
+          borderRadius: 8, padding: '0.55rem 0.9rem', marginBottom: 14,
+        }}>
+          <span style={{ fontSize: '0.82rem', color: '#cfc4ea' }}>
+            <b style={{ color: '#a88be0' }}>SHARED GALLERY</b> — your summons draw from the Tower's base art.
+            Attune your own key and the Gate forges heroes that exist only for you.
+          </span>
+          <button className="btn" style={{ fontSize: '0.78rem', padding: '0.3rem 0.8rem' }}
+            onClick={() => window.dispatchEvent(new CustomEvent('toe-open-settings'))}>
+            Attune Key
+          </button>
+          <button className="btn" style={{ fontSize: '0.78rem', padding: '0.3rem 0.6rem', opacity: 0.6 }}
+            onClick={() => { localStorage.setItem('base_gallery_chip_dismissed', 'true'); setGalleryChipDismissed(true) }}>
+            ✕
+          </button>
+        </div>
       )}
 
       <div className={dormant ? undefined : 'ilm-summon-grid'} style={dormant ? { display: 'flex', gap: 26, alignItems: 'stretch', flexWrap: 'wrap' } : undefined}>
@@ -308,7 +343,7 @@ export default function SummonPage({ onGoldChange }) {
           <div style={{ marginTop: 12, display: 'flex', gap: 10 }}>
             <button className="btn btn-primary" style={{ flex: 1.5, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, padding: '13px 4px', fontSize: '0.78rem', opacity: short10 ? 0.5 : 1 }}
               disabled={pulling || short10}
-              onClick={() => (isEquip ? doPullEquipment(10, b) : doPull(10, b))}>
+              onClick={() => { setFeaturedIdx(null); (isEquip ? doPullEquipment(10, b) : doPull(10, b)) }}>
               <span>{pulling ? 'SUMMONING…' : 'SUMMON ×10'}</span>
               <span style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: '0.72rem' }}><Diamond size={7} color="#0a0710" />{b.c10.toLocaleString()}</span>
             </button>
@@ -361,7 +396,10 @@ export default function SummonPage({ onGoldChange }) {
         </div>
 
         {/* ============ CENTER: THE GATE ============ */}
-        <div className="ilm-summon-center ent-2" style={dormant ? { flex: '1.4 1 380px', minHeight: 520 } : undefined}>
+        {/* FIXED height in dormant mode (not stretch): the left rail's height
+            changes per banner (extra hint lines etc.), and a stretched column
+            let the gate drift vertically when switching callings. */}
+        <div className="ilm-summon-center ent-2" style={dormant ? { flex: '1.4 1 380px', height: 620, alignSelf: 'flex-start' } : undefined}>
           {/* The 7/Z watermark belongs to a top-grade granting only — never ambient. */}
           {featTier === 7 && <div className="ilm-gate-watermark" style={{ color: 'transparent', WebkitTextStroke: isEquip ? '1px rgba(232,163,76,.16)' : '1px rgba(150,110,230,.14)' }}>{isEquip ? 'Z' : '7'}</div>}
           {!featured && <div className="ilm-gate-ring outer" />}
@@ -400,7 +438,7 @@ export default function SummonPage({ onGoldChange }) {
                     onError={(e) => { e.target.style.display = 'none' }}
                     style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'contain' }} />
                 ) : null}
-                <div style={{ position: 'absolute', left: 0, right: 0, bottom: 0, height: 90, background: 'linear-gradient(rgba(8,6,14,0),var(--bg, #0c0716))', pointerEvents: 'none' }} />
+
               </div>
 
               <div style={{ fontFamily: "'Cinzel',serif", fontWeight: 900, fontSize: '3.1rem', letterSpacing: '.04em', color: 'var(--text-hi)', textShadow: `0 0 30px ${REVEAL_ACCENT(featured, isEquip)}88`, marginTop: 6, lineHeight: 1 }}>
@@ -498,13 +536,10 @@ export default function SummonPage({ onGoldChange }) {
                   ))}
                 </div>
               ) : (
-                /* the full table, expanded in place — the ONLY odds readout on the page */
+                /* the full table, expanded in place — the ONLY odds readout on
+                   the page. No currency toggle: the table tracks whichever
+                   calling is selected on the left (Liam). */
                 <div style={{ marginTop: 8 }}>
-                  <div style={{ display: 'flex', gap: 6, marginBottom: 8 }}>
-                    {['gem', 'gold'].map(c => (
-                      <span key={c} onClick={() => setOddsCurrency(c)} style={{ cursor: 'pointer', fontFamily: "'Cinzel',serif", fontSize: '0.6rem', letterSpacing: '.14em', padding: '3px 10px', border: '1px solid var(--border)', color: oddsCurrency === c ? 'var(--gold-hi)' : 'var(--muted)', background: oddsCurrency === c ? 'rgba(184,151,98,.12)' : 'transparent' }}>{c.toUpperCase()}</span>
-                    ))}
-                  </div>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
                     {isEquip
                       ? (oddsTable || []).map((tier, i) => {
@@ -561,8 +596,18 @@ export default function SummonPage({ onGoldChange }) {
             const t = tierOf(it)
             const accent = REVEAL_ACCENT(it, isEquip)
             const top = t >= 7
+            const isFeatured = featured === it
             return (
-              <div key={i} className="ilm-rite-card" style={{ borderColor: accent, boxShadow: t >= 4 ? `inset 0 0 12px ${accent}55${top ? `, 0 0 16px ${accent}66` : ''}` : 'none', transform: top ? 'translateY(-4px) scale(1.06)' : 'none' }} title={it.name}>
+              <div key={i} className="ilm-rite-card" onClick={() => setFeaturedIdx(i)}
+                style={{ cursor: 'pointer', borderColor: isFeatured ? 'var(--gold-hi)' : accent, boxShadow: t >= 4 ? `inset 0 0 12px ${accent}55${top ? `, 0 0 16px ${accent}66` : ''}` : 'none', transform: top ? 'translateY(-4px) scale(1.06)' : 'none' }} title={it.name}>
+                {/* face thumbnail — backend mini (square, face-centered crop) */}
+                {!isEquip && it.portrait_path && (
+                  <div style={{ width: '100%', height: 44, overflow: 'hidden', display: 'flex', justifyContent: 'center', flex: 'none' }}>
+                    <img src={`/heroes/${it.id}/card-image?mini=1`} draggable={false} alt=""
+                      onError={(e) => { if (!e.currentTarget.dataset.fb) { e.currentTarget.dataset.fb = '1'; e.currentTarget.src = `/${it.portrait_path}` } else { e.currentTarget.style.display = 'none' } }}
+                      style={{ width: '100%', height: '100%', objectFit: 'cover', objectPosition: 'center' }} />
+                  </div>
+                )}
                 {/* equipment leads with its type; heroes lead with the name */}
                 <span style={{ fontFamily: 'monospace', fontSize: '0.5rem', color: '#7a6f92', textAlign: 'center', lineHeight: 1.3, textTransform: isEquip ? 'lowercase' : 'none' }}>{isEquip ? String(it.type || it.equipment_type || '') : it.name}</span>
                 {isEquip ? (
@@ -581,7 +626,7 @@ export default function SummonPage({ onGoldChange }) {
               style={{ padding: '11px 22px', fontSize: '0.78rem', letterSpacing: '.18em', display: 'flex', alignItems: 'center', gap: 8, opacity: short10 ? 0.5 : 1 }}>
               SUMMON ×10 <span style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: '0.7rem' }}><Diamond size={7} color="#0a0710" />{b.c10.toLocaleString()}</span>
             </button>
-            <button onClick={() => (isEquip ? setEquipResults([]) : setHeroResults([]))}
+            <button onClick={() => { setFeaturedIdx(null); (isEquip ? setEquipResults([]) : setHeroResults([])) }}
               style={{ background: 'none', border: 'none', cursor: 'pointer', fontFamily: "'Cinzel',serif", fontWeight: 500, letterSpacing: '.24em', fontSize: '0.7rem', color: 'var(--text-dim)' }}>
               DONE
             </button>

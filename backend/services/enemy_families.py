@@ -89,14 +89,14 @@ ASHEN_COLOSSUS = {
 STONEHEART_UNBROKEN = {
     "name": "Stoneheart the Unbroken",
     "abilities": ["crushing_blow", "last_stand"],
-    "spawn_template": "Stone Sentinel",
+    "spawn_template": "Crypt Warden",
     "stat_mod": {"atk": 1.1, "def": 1.3, "spd": 0.7, "health": 1.4},
 }
 
 OBSIDIAN_TYRANT = {
     "name": "The Obsidian Tyrant",
     "abilities": ["crushing_blow", "team_buff_aura", "last_stand"],
-    "spawn_template": "Lesser Golem",
+    "spawn_template": "Animated Armor",
     "stat_mod": {"atk": 1.3, "def": 1.4, "spd": 0.6, "health": 1.5},
 }
 

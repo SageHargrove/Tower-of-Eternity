@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react'
 import PageTitle from '../components/PageTitle'
+import { SectionHeader } from '../components/ilm/Ilm'
 import { getAllTeams, getBase, enterFloor, resolveEvent, resolveExplore, previewFloor, getNarrative, getHero, getLegacies, getSupportBoons } from '../api/client'
 
 // Compact chips for the deploy panel — which support boons ride into THIS
@@ -281,9 +282,9 @@ function PostCombatScreen({ lastResult, combatEntities, onReturn, onRerun, busy 
 
   // Diamond-masked combat face, with the same 3-step portrait fallback.
   const Face = ({ h, dim }) => (
-    <span style={{ width: 30, height: 30, flex: 'none', clipPath: 'polygon(50% 0,100% 50%,50% 100%,0 50%)', background: 'var(--bg-panel)', display: 'inline-block', overflow: 'hidden' }}>
+    <span style={{ width: 52, height: 52, flex: 'none', clipPath: 'polygon(50% 0,100% 50%,50% 100%,0 50%)', background: 'var(--bg-panel)', display: 'inline-block', overflow: 'hidden' }}>
       <img src={`/heroes/${h.id}/card-image?mini=true`} draggable={false}
-        style={{ width: '100%', height: '100%', objectFit: 'cover', objectPosition: 'center top', filter: dim ? 'grayscale(1) brightness(.7)' : 'none' }}
+        style={{ width: '100%', height: '100%', objectFit: 'cover', objectPosition: 'center', filter: dim ? 'grayscale(1) brightness(.7)' : 'none' }}
         onError={(e) => {
           if (e.target.dataset.stage === 'raw') { e.target.onerror = null; e.target.src = '/icons/mystery_encounter.png'; e.target.style.opacity = '0.4' }
           else { e.target.dataset.stage = 'raw'; e.target.src = `/${h.portrait_path}` }
@@ -432,15 +433,16 @@ function AscentScreen({
   const readyHeroes = (team[activeIds[0]?.toString()] || [])
 
   // Diagonal path: floor i sits at (x,y) climbing bottom-left → top-right.
-  // Base bottom is lifted clear of the zone rail so the lowest floor's NEXT
-  // label (which hangs below its diamond) can't collide with the rail below.
+  // The climb area now fills the whole page height (flex), so the path
+  // starts low and spreads across the full vertical — the old 23% base
+  // left the bottom half of tall screens empty.
   const posFor = (i) => ({
     left: `${10 + i * 8.6}%`,
-    bottom: `${23 + i * 7.4}%`,
+    bottom: `${12 + i * 8}%`,
   })
 
   return (
-    <div className="ent-1" style={{ display: 'grid', gridTemplateColumns: '416px 1fr', gap: '2.5rem', alignItems: 'stretch', minHeight: 560 }}>
+    <div className="ent-1" style={{ display: 'grid', gridTemplateColumns: '416px 1fr', gap: '2.5rem', alignItems: 'stretch', minHeight: 560, flex: 1 }}>
 
       {/* ============ LEFT CONSOLE ============ */}
       <div style={{ display: 'flex', flexDirection: 'column' }}>
@@ -582,9 +584,10 @@ function AscentScreen({
                   <span key={h.id} title={`${h.name} · Lv.${h.level}`}
                     style={{ width: 66, height: 66, flex: 'none', clipPath: 'polygon(50% 0,100% 50%,50% 100%,0 50%)', background: 'linear-gradient(135deg,#1c1030,#0c0718)', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}>
                     {h.portrait_path && !h.portrait_path.includes('default_') ? (
-                      <img src={`/${h.portrait_path}`} alt={h.name} draggable={false}
-                        onError={(e) => { e.target.onerror = null; e.target.style.display = 'none' }}
-                        style={{ width: '100%', height: '100%', objectFit: 'cover', objectPosition: 'center top' }} />
+                      /* face pic, not full body (Liam: full body ONLY in detail/leader spotlight) */
+                      <img src={`/heroes/${h.id}/card-image?mini=1`} alt={h.name} draggable={false}
+                        onError={(e) => { if (!e.currentTarget.dataset.fb) { e.currentTarget.dataset.fb = '1'; e.currentTarget.src = `/${h.portrait_path}` } else { e.currentTarget.style.display = 'none' } }}
+                        style={{ width: '100%', height: '100%', objectFit: 'cover', objectPosition: 'center' }} />
                     ) : (
                       <span style={{ fontFamily: 'Cinzel, serif', fontSize: 16, color: 'var(--gold-hi)' }}>{h.name[0]}</span>
                     )}
@@ -1063,9 +1066,12 @@ export default function TowerPage({ onGoldChange, onNavigate }) {
   const startFloorOfZone = selectedZone * 10 + 1
 
   return (
-    <div className="page">
+    <div className="page" style={{ display: 'flex', flexDirection: 'column' }}>
       {lastResult ? (
-        <div>
+        // Result screen centers in the page's height (no big empty bottom);
+        // during combat playback it stays top-aligned so the tall arena has
+        // room to breathe.
+        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', justifyContent: postCombatPhase ? 'center' : 'flex-start' }}>
           {/* Centered Resolution Header — small context label under the
               post-combat slash banner; full title elsewhere in the flow. */}
           {postCombatPhase ? (

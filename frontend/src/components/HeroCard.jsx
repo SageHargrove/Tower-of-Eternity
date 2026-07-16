@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react'
 import { regenerateProfile, getHeroAptitudes, getHeroRelationships } from '../api/client'
 import { EquipmentTypeIcon } from './EquipmentTypeIcon'
+import { classSigil } from '../classSigils'
 import GameIcon from './GameIcon'
 import Sigil from './Sigil'
 // Keep in sync with InventoryPage's ladder: common gray -> uncommon green ->
@@ -536,7 +537,8 @@ export default function HeroCard({ hero, onAssign, onManageEquipment, onManageCo
             overflow: 'hidden'
           }}>
           <div style={{ opacity: 0.5, marginBottom: '20px' }}>
-            <GameIcon name={CLASS_ICONS[hero.hero_class] || 'class_warrior'} size={showFull ? 64 : 40} />
+            <Sigil set={classSigil(hero.hero_class).set} name={classSigil(hero.hero_class).name} size={showFull ? 64 : 40} color="var(--lavender)"
+              fallback={<Sigil set="class-base" name="CLASSLESS" size={showFull ? 64 : 40} color="var(--lavender)" />} />
           </div>
             <div style={{
               position: 'absolute', bottom: '15px', left: 0, right: 0,

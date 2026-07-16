@@ -912,27 +912,33 @@ def ascend_hero(hero_id: int):
 # start heavily 1★/2★-weighted, so evolving low rarities up is meant to be
 # the primary progression path, not a rare luxury.
 EVOLUTION_GOLD_COST = {
-    1: 100,    # 1★ → 2★
-    2: 250,    # 2★ → 3★
-    3: 600,    # 3★ → 4★
-    4: 1500,   # 4★ → 5★
-    5: 4000,   # 5★ → 6★
-    6: 10000,  # 6★ → 7★ (transcendence)
+    1: 100,     # 1★ → 2★
+    2: 250,     # 2★ → 3★
+    3: 600,     # 3★ → 4★
+    4: 1500,    # 4★ → 5★
+    5: 4000,    # 5★ → 6★
+    6: 250000,  # 6★ → 7★ (TRANSCENDENCE — see below)
 }
 
+# 6★ → 7★ is TRANSCENDENCE (manhwa rule, Liam 2026-07-12): 7★ can never be
+# summoned — this ritual is the ONLY way one exists. The cost is meant to
+# be insane: a mountain of legendary materials plus Eternal Shards, which
+# drop ONLY from Tower bosses at floor 80+ (see combat_service loot) and
+# never appear in any gate, market, or generic drop pool.
 EVOLUTION_MATERIAL_COST = {
     1: {"Iron Ore": 10, "Dark Crystal": 6},
     2: {"Iron Ore": 15, "Monster Bone": 10, "Wolf Pelt": 5},
     3: {"Monster Bone": 20, "Mystic Dust": 10, "Refined Iron": 10},
     4: {"Mystic Dust": 20, "Goblin Ear": 25, "Hardened Bone": 15, "Wyvern Scale": 5},
     5: {"Wyvern Scale": 15, "Enchanted Steel": 15, "Runed Crystal": 10, "Demon Ichor": 10},
-    6: {"Mithril": 10, "Adamantine": 10, "Dragon Scale": 5, "Phoenix Feather": 5},
+    6: {"Mithril": 40, "Adamantine": 40, "Dragon Scale": 25, "Phoenix Feather": 15, "Eternal Shard": 7},
 }
 
 # Must have cleared at least this floor (base.highest_floor) before
 # evolving a hero of this current_star — keeps evolution paced against
 # Tower progress instead of being purely a gold/material stockpile check.
-EVOLUTION_FLOOR_GATE = {1: 10, 2: 20, 3: 31, 4: 41, 5: 61, 6: 81}
+# Transcendence waits until floor 90: a 7★ is an end-of-the-Tower being.
+EVOLUTION_FLOOR_GATE = {1: 10, 2: 20, 3: 31, 4: 41, 5: 61, 6: 90}
 
 @router.post("/{hero_id}/promote")
 def promote_hero(hero_id: int):
@@ -1006,14 +1012,17 @@ def promote_hero(hero_id: int):
                 (new_star, hero_id)
             )
 
-        # Stat boost on promotion (+10% all stats)
-        conn.execute("""
+        # Stat boost on promotion: +10% all stats — except transcendence
+        # (6★→7★), which surges +35%: a 7★ costs an empire to make and
+        # should read as genuinely off the charts, not one more +10% step.
+        boost_div = 3 if new_star == 7 else 10  # x + x/3 ≈ +33-35%
+        conn.execute(f"""
             UPDATE heroes SET
-                max_health = max_health + max_health / 10,
-                health = health + health / 10,
-                strength = strength + strength / 10,
-                intelligence = intelligence + intelligence / 10,
-                agility = agility + agility / 10
+                max_health = max_health + max_health / {boost_div},
+                health = health + health / {boost_div},
+                strength = strength + strength / {boost_div},
+                intelligence = intelligence + intelligence / {boost_div},
+                agility = agility + agility / {boost_div}
             WHERE id = ?
         """, (hero_id,))
 
@@ -1022,7 +1031,10 @@ def promote_hero(hero_id: int):
             from services.portrait_cache import queue_upgrade_portrait
             queue_upgrade_portrait(hero_id, new_star)
 
-    msg = f"{hero['name']} evolved from {current_star}★ to {new_star}★!"
+    if new_star == 7:
+        msg = f"{hero['name']} has TRANSCENDED. A seventh star burns — the Tower itself takes notice."
+    else:
+        msg = f"{hero['name']} evolved from {current_star}★ to {new_star}★!"
     if unlocked_class:
         msg += f" Hidden potential awakened: Class is now {unlocked_class}!"
 

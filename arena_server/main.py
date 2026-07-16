@@ -80,6 +80,17 @@ class LoginRequest(BaseModel):
     password: str
 
 
+class AuthRegisterRequest(BaseModel):
+    email: str
+    username: str          # public display name / world identity
+    password: str
+
+
+class AuthLoginRequest(BaseModel):
+    identifier: str        # email OR username
+    password: str
+
+
 class SubmitTeamRequest(BaseModel):
     team: list[dict]
 
@@ -107,6 +118,100 @@ def _require_player(authorization: str | None) -> str:
     if row["token_expiry"] is None or row["token_expiry"] < time.time():
         raise HTTPException(status_code=401, detail="Token expired, please log in again")
     return row["username"]
+
+
+EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+
+
+def _issue_token(conn, username: str) -> str:
+    token = secrets.token_hex(32)
+    conn.execute(
+        "UPDATE arena_players SET token = ?, token_expiry = ? WHERE username = ?",
+        (token, time.time() + TOKEN_LIFETIME_SECONDS, username),
+    )
+    return token
+
+
+@app.post("/auth/register")
+def auth_register(req: AuthRegisterRequest):
+    """Account creation for the startup login screen: email + display name +
+    password. Issues a session token immediately (register == logged in)."""
+    email = req.email.strip().lower()
+    username = req.username.strip()
+    if not EMAIL_RE.match(email):
+        raise HTTPException(status_code=400, detail="Enter a valid email address")
+    if not USERNAME_RE.match(username):
+        raise HTTPException(status_code=400, detail="Display name must be 3-20 characters: letters, digits, underscore")
+    if len(req.password) < 6 or len(req.password) > 128:
+        raise HTTPException(status_code=400, detail="Password must be 6-128 characters")
+    password_hash = bcrypt.hashpw(req.password.encode(), bcrypt.gensalt()).decode()
+    with db() as conn:
+        if conn.execute("SELECT 1 FROM arena_players WHERE username = ?", (username,)).fetchone():
+            raise HTTPException(status_code=409, detail="Display name already taken")
+        if conn.execute("SELECT 1 FROM arena_players WHERE email = ?", (email,)).fetchone():
+            raise HTTPException(status_code=409, detail="An account with that email already exists")
+        conn.execute(
+            "INSERT INTO arena_players (username, email, password_hash) VALUES (?, ?, ?)",
+            (username, email, password_hash),
+        )
+        token = _issue_token(conn, username)
+    return {"token": token, "username": username, "email": email}
+
+
+@app.post("/auth/login")
+def auth_login(req: AuthLoginRequest):
+    """Login by email or display name. Same throttle as the legacy endpoint."""
+    ident = req.identifier.strip()
+    key = ident.lower()
+    entry = _login_failures.get(key)
+    if entry and entry[1] > time.time():
+        raise HTTPException(status_code=429, detail="Too many failed attempts — try again in a minute")
+    with db() as conn:
+        row = conn.execute(
+            "SELECT username, email, password_hash FROM arena_players WHERE email = ? OR username = ?",
+            (key, ident),
+        ).fetchone()
+        if not row or not bcrypt.checkpw(req.password.encode(), row["password_hash"].encode()):
+            fails = (_login_failures.get(key) or [0, 0])[0] + 1
+            lock_until = time.time() + LOGIN_LOCKOUT_SECONDS if fails >= LOGIN_MAX_FAILS else 0
+            _login_failures[key] = [0 if lock_until else fails, lock_until]
+            raise HTTPException(status_code=401, detail="Invalid credentials")
+        _login_failures.pop(key, None)
+        token = _issue_token(conn, row["username"])
+    return {"token": token, "username": row["username"], "email": row["email"]}
+
+
+@app.get("/auth/me")
+def auth_me(authorization: str | None = Header(default=None)):
+    """Session check for the startup screen: valid token -> identity."""
+    username = _require_player(authorization)
+    with db() as conn:
+        row = conn.execute(
+            "SELECT username, email, wins, losses, highest_floor FROM arena_players WHERE username = ?",
+            (username,),
+        ).fetchone()
+    return dict(row)
+
+
+@app.post("/auth/discord")
+def auth_discord():
+    """OAuth scaffold, same deal as Google: becomes live when
+    DISCORD_CLIENT_ID is configured (system-browser OAuth -> code exchange ->
+    upsert account by Discord email, issue session token)."""
+    if not os.environ.get("DISCORD_CLIENT_ID"):
+        raise HTTPException(status_code=501, detail="Discord sign-in is not configured on this server yet")
+    raise HTTPException(status_code=501, detail="Discord sign-in verification not implemented yet")
+
+
+@app.post("/auth/google")
+def auth_google():
+    """OAuth scaffold: becomes live when GOOGLE_CLIENT_ID is configured on
+    the server (verify the posted id_token against Google's certs, upsert an
+    account keyed by email, issue a session token). Deliberately 501 until
+    then so the client can show the button as 'coming soon'."""
+    if not os.environ.get("GOOGLE_CLIENT_ID"):
+        raise HTTPException(status_code=501, detail="Google sign-in is not configured on this server yet")
+    raise HTTPException(status_code=501, detail="Google sign-in verification not implemented yet")
 
 
 @app.post("/arena/register")

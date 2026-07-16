@@ -8,6 +8,7 @@
  */
 import React, { useState, useEffect } from 'react'
 import Sigil from './Sigil'
+import { classSigil, classFamily } from '../classSigils'
 import GameIcon from './GameIcon'
 import { toggleFavorite, regenerateProfile, getHeroDeeds } from '../api/client'
 import Tip, { TIPS } from './Tip'
@@ -75,7 +76,7 @@ export default function HeroDetail({ hero, onManageEquipment, onManageConsumable
   const skills = (() => { try { return JSON.parse(hero.skills || '[]') } catch { return [] } })()
   const traits = (() => { try { return JSON.parse(hero.traits || '[]') } catch { return [] } })()
   const equipment = hero.equipment || []
-  const sigilName = hero.hero_class === 'Magic Engineer' ? 'M_ENGINEER' : (hero.hero_class || 'CLASSLESS').toUpperCase().replace(/ /g, '_')
+  const heroSigil = classSigil(hero.hero_class)
   const revealedApts = APTS.filter(a => hero[`apt_${a.toLowerCase()}`] != null)
   const pronouns = hero.gender === 'male' ? 'he/him' : hero.gender === 'female' ? 'she/her' : 'they/them'
   const portraitSrc = hero.portrait_path && !hero.portrait_path.includes('default_')
@@ -142,8 +143,8 @@ export default function HeroDetail({ hero, onManageEquipment, onManageConsumable
           {/* class row */}
           <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginTop: 6, flexWrap: 'wrap' }}>
             <span style={{ width: 22, height: 22, transform: 'rotate(45deg)', flex: 'none', border: '1px solid rgba(181,123,239,.5)', background: 'linear-gradient(135deg,#1c1030,#0e0918)', display: 'flex', alignItems: 'center', justifyContent: 'center' }} title={`${hero.hero_class} sigil`}>
-              <Sigil set="class-base" name={sigilName} size={14} color="var(--violet)" style={{ transform: 'rotate(-45deg)' }}
-                fallback={<span style={{ transform: 'rotate(-45deg)' }}><GameIcon name="class_warrior" size={12} /></span>} />
+              <Sigil set={heroSigil.set} name={heroSigil.name} size={14} color="var(--violet)" style={{ transform: 'rotate(-45deg)' }}
+                fallback={<Sigil set="class-base" name="CLASSLESS" size={14} color="var(--violet)" style={{ transform: 'rotate(-45deg)' }} />} />
             </span>
             <span style={{ fontFamily: "'Cinzel',serif", letterSpacing: '.28em', fontSize: 12, color: 'var(--violet)' }}>{(hero.hero_class || 'CLASSLESS').toUpperCase()}</span>
             <span style={{ fontFamily: "'Cinzel',serif", letterSpacing: '.16em', fontSize: 10, color: '#7c6f92' }}>
@@ -494,5 +495,5 @@ function powerStat(hero) {
 // "THIEF EVOLUTION" flavor line — base class family the current class grew from.
 function familyLabel(cls) {
   if (!cls) return ''
-  return `${cls} line`
+  return `${classFamily(cls)} line`
 }

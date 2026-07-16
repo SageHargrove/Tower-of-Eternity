@@ -1,5 +1,5 @@
 import React, { useState } from 'react'
-import { setMasterName, completeTutorial } from '../api/client'
+import { setMasterName, completeTutorial, setApiKey } from '../api/client'
 
 // This is the fairy's main stage — a few small contextual popups exist
 // elsewhere (see FairyGuide.jsx), but this full onboarding walkthrough is
@@ -7,6 +7,8 @@ import { setMasterName, completeTutorial } from '../api/client'
 export default function TutorialOverlay({ fairyGender, onComplete }) {
   const [step, setStep] = useState(0)
   const [nameInput, setNameInput] = useState('')
+  const [keyInput, setKeyInput] = useState('')
+  const [keySaved, setKeySaved] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState(null)
   const fairyImg = `/static/portraits/fairy/${fairyGender === 'male' ? 'male' : 'female'}.png`
@@ -17,17 +19,17 @@ export default function TutorialOverlay({ fairyGender, onComplete }) {
       body: "Oh! You're here. I've been waiting for someone to wander into the Hollow Spire. I'm your guide — I'll help you make sense of all this, step by step.",
     },
     {
-      title: 'Who Are You?',
-      body: "Before we go any further — what should the heroes call you? You're the one summoning them, training them, and sending them up the tower, after all. They'll want a name for their Master.",
-      isNameStep: true,
-    },
-    {
       title: 'Summoning Heroes',
       body: "The Tower can't be climbed alone. Head to the Summoning Gate to call heroes into this world — gold and gems both work, though gems pull from a much wider, much stronger pool. Every hero is unique: their own face, their own past, their own stats.",
     },
     {
       title: 'The Tower Itself',
       body: "Once you've got a team, the Tower is where you'll spend most of your time. Each floor is its own fight — sometimes worse than a fight. Clear floors to push higher, earn rewards, and grow stronger. Losing a fight isn't always the end, but it's never free.",
+    },
+    {
+      title: 'Your Own Forge',
+      body: "One more secret. Right now every hero you summon steps out of the Tower's shared gallery — faces every Master has seen before. But feed the Gate a key of your own, and it will forge heroes that exist for you alone: new faces, never repeated. You can paste one here, or add it any time under Settings → AI Generation.",
+      isApiKeyStep: true,
     },
     {
       title: 'One Last Thing',
@@ -53,6 +55,20 @@ export default function TutorialOverlay({ fairyGender, onComplete }) {
         setStep(s => s + 1)
       } catch (e) {
         setError(e.message)
+      } finally {
+        setBusy(false)
+      }
+      return
+    }
+    if (current.isApiKeyStep && keyInput.trim() && !keySaved) {
+      setBusy(true)
+      setError(null)
+      try {
+        await setApiKey(keyInput.trim())
+        setKeySaved(true)
+        setStep(s => s + 1)
+      } catch (e) {
+        setError("The Gate rejected that key — you can retry, or add it later in Settings.")
       } finally {
         setBusy(false)
       }
@@ -140,6 +156,29 @@ export default function TutorialOverlay({ fairyGender, onComplete }) {
               borderRadius: 6, marginBottom: '1rem', fontFamily: 'inherit',
             }}
           />
+        )}
+
+        {current.isApiKeyStep && (
+          <div style={{ marginBottom: '1rem' }}>
+            <input
+              type="password"
+              value={keyInput}
+              onChange={e => { setKeyInput(e.target.value); setKeySaved(false) }}
+              onKeyDown={e => { if (e.key === 'Enter') handleNext() }}
+              placeholder="Paste your API key (optional)…"
+              autoComplete="off"
+              style={{
+                width: '100%', padding: '0.7rem 0.9rem', fontSize: '0.95rem',
+                background: 'var(--bg)', color: '#fff', border: '1px solid #a88be0',
+                borderRadius: 6, fontFamily: 'inherit',
+              }}
+            />
+            <div style={{ fontSize: '0.78rem', color: '#8a8a99', marginTop: '0.45rem' }}>
+              {keySaved
+                ? 'Key accepted — your Forge is attuned. ✦'
+                : 'Leave it empty to keep using the shared gallery — you can attune later in Settings.'}
+            </div>
+          </div>
         )}
 
         {error && <div className="text-red" style={{ marginBottom: '1rem', fontSize: '0.9rem' }}>{error}</div>}

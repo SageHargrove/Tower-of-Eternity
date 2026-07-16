@@ -59,7 +59,7 @@ const WORDS = [
 ]
 
 export default function HearthDrawer({ onClose }) {
-  const [lines, setLines] = useState([])
+  const [conversations, setConversations] = useState([])
   const [cooldown, setCooldown] = useState(0)
   const [sending, setSending] = useState(false)
   const [error, setError] = useState(null)
@@ -67,7 +67,7 @@ export default function HearthDrawer({ onClose }) {
   const load = useCallback(async () => {
     try {
       const data = await getHearth()
-      setLines(data.lines || [])
+      setConversations(data.conversations || [])
       setCooldown(data.cooldown_remaining || 0)
       if (data.newest_at) localStorage.setItem('hearthSeenAt', data.newest_at)
     } catch (e) { console.error(e) }
@@ -111,26 +111,38 @@ export default function HearthDrawer({ onClose }) {
         What the company mutters between climbs.
       </div>
 
-      <div style={{ flex: 1, overflowY: 'auto', padding: '14px 18px', display: 'flex', flexDirection: 'column', gap: 16 }}>
-        {lines.length === 0 && (
+      <div style={{ flex: 1, overflowY: 'auto', padding: '14px 18px', display: 'flex', flexDirection: 'column', gap: 22 }}>
+        {conversations.length === 0 && (
           <div className="text-dim" style={{ fontStyle: 'italic', fontSize: '0.85rem', padding: '1rem 0' }}>The hearth is quiet… someone will speak soon.</div>
         )}
-        {lines.map(l => (
-          <div key={l.speaker} style={{ display: 'flex', gap: 14, alignItems: 'flex-start' }}>
-            <div style={{ padding: 6 }}>
-              <DiamondPortrait heroId={l.hero_id} name={l.speaker} size={44} shaken={l.mood === 'shaken'} />
+        {/* Each conversation is a threaded exchange — the lines stay in
+            spoken order so you read the actual back-and-forth, not detached
+            one-liners from unrelated moments. */}
+        {conversations.map((c, ci) => (
+          <div key={`${c.created_at}-${ci}`}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 9 }}>
+              <span style={{ width: 5, height: 5, transform: 'rotate(45deg)', background: 'var(--gold)', flex: 'none' }} />
+              <span style={{ fontFamily: "'Cinzel',serif", letterSpacing: '.2em', fontSize: '0.56rem', color: 'var(--gold)' }}>{(c.location || 'THE BASE').toUpperCase()}</span>
+              <span style={{ height: 1, flex: 1, background: 'rgba(150,130,190,.2)' }} />
+              <span style={{ fontFamily: "'Cinzel',serif", letterSpacing: '.14em', fontSize: '0.54rem', color: 'var(--muted)', flex: 'none' }}>{timeAgo(c.created_at)}</span>
             </div>
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 8 }}>
-                <span style={{ fontFamily: "'Cinzel',serif", fontWeight: 700, letterSpacing: '.14em', fontSize: '0.7rem', color: 'var(--text-hi)' }}>
-                  {l.speaker.toUpperCase()}
-                  {l.mood === 'shaken' && <span style={{ color: '#d96a6a', fontSize: '0.56rem', letterSpacing: '.18em' }}> · SHAKEN</span>}
-                </span>
-                <span style={{ fontFamily: "'Cinzel',serif", letterSpacing: '.14em', fontSize: '0.54rem', color: 'var(--muted)', flex: 'none' }}>{timeAgo(l.created_at)}</span>
-              </div>
-              <div style={{ marginTop: 6, border: '1px solid rgba(150,130,190,.3)', background: 'rgba(18,12,32,.55)', padding: '9px 12px', fontStyle: 'italic', fontSize: '0.84rem', color: '#cfc2e2', lineHeight: 1.4 }}>
-                “{l.message}”
-              </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+              {c.lines.map((l, li) => (
+                <div key={li} style={{ display: 'flex', gap: 11, alignItems: 'flex-start' }}>
+                  <div style={{ padding: 3, flex: 'none' }}>
+                    <DiamondPortrait heroId={l.hero_id} name={l.speaker} size={34} shaken={l.mood === 'shaken'} />
+                  </div>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <span style={{ fontFamily: "'Cinzel',serif", fontWeight: 700, letterSpacing: '.12em', fontSize: '0.62rem', color: 'var(--text-hi)' }}>
+                      {l.speaker.toUpperCase()}
+                      {l.mood === 'shaken' && <span style={{ color: '#d96a6a', fontSize: '0.52rem', letterSpacing: '.16em' }}> · SHAKEN</span>}
+                    </span>
+                    <div style={{ marginTop: 3, border: '1px solid rgba(150,130,190,.3)', background: 'rgba(18,12,32,.55)', padding: '8px 11px', fontStyle: 'italic', fontSize: '0.82rem', color: '#cfc2e2', lineHeight: 1.4 }}>
+                      “{l.message}”
+                    </div>
+                  </div>
+                </div>
+              ))}
             </div>
           </div>
         ))}

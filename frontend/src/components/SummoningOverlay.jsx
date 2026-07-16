@@ -93,8 +93,10 @@ function RevealedFace({ item, fx }) {
       {mythic && <div style={{ position: 'absolute', inset: 1, background: 'linear-gradient(160deg,#1a1130,#0d0818)' }} />}
       <div style={{ position: 'absolute', inset: 5, border: `1px solid rgba(${rgb},.35)`, pointerEvents: 'none' }} />
 
-      {/* art slot — real portrait if present, else the design placeholder */}
-      <div style={{ position: 'absolute', left: 6, right: 6, top: 6, bottom: '38%', overflow: 'hidden' }}>
+      {/* art slot — fills the whole card (300×448 ≈ 2:3, matching the
+          portrait) so the hero art is large; the name plate overlays the
+          faded bottom instead of sitting below a big empty gap (Liam). */}
+      <div style={{ position: 'absolute', left: 6, right: 6, top: 6, bottom: 6, overflow: 'hidden' }}>
         {item.is_equipment ? (
           <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', background: `radial-gradient(60% 55% at 50% 45%, rgba(${rgb},.18), rgba(0,0,0,0) 75%)` }}>
             <EquipmentTypeIcon item={item} fontSize="2.4rem" />
@@ -108,7 +110,7 @@ function RevealedFace({ item, fx }) {
             <span style={{ fontFamily: 'monospace', fontSize: '0.55rem', color: '#7a6f92' }}>hero art</span>
           </div>
         )}
-        <div style={{ position: 'absolute', left: 0, right: 0, bottom: 0, height: '45%', background: 'linear-gradient(rgba(13,8,24,0),#150e28)' }} />
+        <div style={{ position: 'absolute', left: 0, right: 0, bottom: 0, height: '32%', background: 'linear-gradient(rgba(13,8,24,0),#150e28)' }} />
       </div>
 
       {/* stars / grade + name + class */}

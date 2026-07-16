@@ -12,6 +12,7 @@ load_dotenv(env_path)
 
 from database import init_db, db
 from routers import heroes, gacha, tower, base, runs, equipment, profiles, chat, relics, crafting, arena, achievements, raid, herald
+from routers import settings as settings_router
 
 init_db()
 
@@ -44,9 +45,10 @@ def _reconcile_loop():
 @app.on_event("startup")
 async def startup():
     init_db()
-    from services.portrait_cache import cleanup_portraits, start_cache_worker, reconcile_pending_portraits, queue_missing_enemy_portraits, queue_missing_boss_portraits, queue_missing_family_portraits, maybe_reset_portrait_pipeline
+    from services.portrait_cache import cleanup_portraits, start_cache_worker, reconcile_pending_portraits, queue_missing_enemy_portraits, queue_missing_boss_portraits, queue_missing_family_portraits, maybe_reset_portrait_pipeline, seed_default_pool
     maybe_reset_portrait_pipeline()  # full-body pipeline bump — wipe old bust portraits before reconcile re-queues them
     cleanup_portraits()
+    seed_default_pool()  # confirmed_heroes double as the default portrait pool
     start_cache_worker()
     reconcile_pending_portraits()
     queue_missing_enemy_portraits()
@@ -64,6 +66,7 @@ app.include_router(heroes.router, prefix="/heroes", tags=["heroes"])
 app.include_router(gacha.router, prefix="/gacha", tags=["gacha"])
 app.include_router(tower.router, prefix="/tower", tags=["Tower"])
 app.include_router(base.router, prefix="/base", tags=["Base"])
+app.include_router(settings_router.router, prefix="/settings", tags=["Settings"])
 app.include_router(runs.router, prefix="/runs", tags=["Runs"])
 app.include_router(equipment.router, prefix="/equipment", tags=["Equipment"])
 app.include_router(relics.router, prefix="/relics", tags=["Relics"])
@@ -88,6 +91,7 @@ def cache_cleanup():
     """Manually trigger portrait cleanup — removes orphaned files and clears cache pool."""
     from services.portrait_cache import cleanup_portraits
     cleanup_portraits()
+    seed_default_pool()  # confirmed_heroes double as the default portrait pool
     return {"ok": True, "message": "Portrait cache cleaned. Orphaned files removed. Cache worker will regenerate fresh portraits."}
 
 @app.post("/portrait-cache/regenerate")

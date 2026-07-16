@@ -172,3 +172,35 @@ export const guildPerkBuy = (perkId) =>
 // ─── Lodge War + match history ───────────────────────────────────────
 export const guildWar = () => arenaRequest('/guild/war', {}, true)
 export const arenaMyMatches = (limit = 10) => arenaRequest(`/arena/my_matches?limit=${limit}`, {}, true)
+
+// ── Account auth (startup login screen) ─────────────────────────────────────
+// New /auth endpoints: email-based accounts. Same token storage as the
+// legacy arena login, so every existing world feature keeps working.
+export const EMAIL_KEY = 'arenaServerEmail'
+
+export async function authRegister(email, username, password) {
+  const data = await arenaRequest('/auth/register', { method: 'POST', body: JSON.stringify({ email, username, password }) })
+  localStorage.setItem(TOKEN_KEY, data.token)
+  localStorage.setItem(USERNAME_KEY, data.username)
+  localStorage.setItem(EMAIL_KEY, data.email)
+  return data
+}
+
+export async function authLogin(identifier, password) {
+  const data = await arenaRequest('/auth/login', { method: 'POST', body: JSON.stringify({ identifier, password }) })
+  localStorage.setItem(TOKEN_KEY, data.token)
+  localStorage.setItem(USERNAME_KEY, data.username)
+  if (data.email) localStorage.setItem(EMAIL_KEY, data.email)
+  return data
+}
+
+export const authMe = () => arenaRequest('/auth/me', {}, true)
+
+export async function authDiscord() {
+  return arenaRequest('/auth/discord', { method: 'POST' })
+}
+
+export async function authGoogle() {
+  // Scaffold: server returns 501 until GOOGLE_CLIENT_ID is configured there.
+  return arenaRequest('/auth/google', { method: 'POST' })
+}

@@ -9,21 +9,22 @@ import MoreHub from './components/MoreHub'
 import InventoryPage from './pages/InventoryPage'
 import ArenaPage from './pages/ArenaPage'
 import AchievementsPage from './pages/AchievementsPage'
-import ProfileSelect from './components/ProfileSelect'
 import HeraldWire from './components/HeraldWire'
 import ToastContainer from './components/ToastContainer'
 import ErrorBoundary from './components/ErrorBoundary'
 import TutorialOverlay from './components/TutorialOverlay'
 import TabTourOverlay from './components/TabTourOverlay'
+import FairyChoice from './components/FairyChoice'
+import AuthGate from './components/AuthGate'
 import TopBar, { GlobalNav } from './components/ilm/TopBar'
-import Ornaments from './components/ilm/Ornaments'
+import Ornaments, { BG_VARIANTS } from './components/ilm/Ornaments'
 import Mailbox from './components/Mailbox'
 import HearthDrawer from './components/HearthDrawer'
 import GuildHall from './components/GuildHall'
 import Social from './components/Social'
 import ProfileCard from './components/ProfileCard'
 import { emitToast } from './toastBus'
-import { getBase, grantResources, clearDevInventory, setDevLevel, grantInventoryItem, listHeroes, getAchievements, getMailList, getChatLogs } from './api/client'
+import { getBase, grantResources, clearDevInventory, setDevLevel, grantInventoryItem, listHeroes, getAchievements, getMailList, getChatLogs, getApiKeyStatus, setApiKey } from './api/client'
 import { confirmDialog, alertDialog } from './components/DialogHost'
 import { initAudio, setSoundEnabled, isSoundEnabled, playClick, setBgmVolume, setSfxVolume } from './audio'
 
@@ -61,6 +62,9 @@ const TAB_TOUR_STEPS = [
 
 export default function App() {
   const [activeProfile, setActiveProfile] = useState(null)
+  // Account gate: null until the player signs in or picks offline.
+  // { online: bool, username: string|null } — world identity for the session.
+  const [account, setAccount] = useState(null)
   const [tab, setTab] = useState('summon')
   const [gold, setGold] = useState(null)
   const [ingredients, setIngredients] = useState(null)
@@ -68,8 +72,16 @@ export default function App() {
   const [gems, setGems] = useState(null)
   const [tutorialComplete, setTutorialComplete] = useState(true)
   const [fairyGender, setFairyGender] = useState('female')
+  const [fairyChosen, setFairyChosen] = useState(true)
   const [showSettings, setShowSettings] = useState(false)
+  // Bring-your-own-key AI generation setting (masked status + input buffer)
+  const [apiKeyStatus, setApiKeyStatus] = useState(null)
+  const [apiKeyInput, setApiKeyInput] = useState('')
+  const [apiKeySaving, setApiKeySaving] = useState(false)
   const [soundOn, setSoundOn] = useState(localStorage.getItem('soundEnabled') !== 'false')
+  // Background ornament style — live A/B from Settings, persisted per install
+  const [bgVariant, setBgVariant] = useState(localStorage.getItem('toe_bg_variant') || 'starfield')
+  const changeBgVariant = (v) => { setBgVariant(v); try { localStorage.setItem('toe_bg_variant', v) } catch {} }
   const [bgmVol, setBgmVol] = useState(parseFloat(localStorage.getItem('bgmVolume') || '0.5') * 100)
   const [sfxVol, setSfxVol] = useState(parseFloat(localStorage.getItem('sfxVolume') || '0.5') * 100)
   const [devHeroes, setDevHeroes] = useState([])
@@ -124,6 +136,10 @@ export default function App() {
   }
 
   useEffect(() => {
+    if (showSettings) getApiKeyStatus().then(setApiKeyStatus).catch(() => {})
+  }, [showSettings])
+
+  useEffect(() => {
     // Global click listener for buttons to play sound
     const handleGlobalClick = (e) => {
       if (e.target.closest('button')) {
@@ -132,6 +148,13 @@ export default function App() {
     }
     document.addEventListener('click', handleGlobalClick)
     return () => document.removeEventListener('click', handleGlobalClick)
+  }, [])
+
+  useEffect(() => {
+    // Pages deep-link into settings (e.g. SummonPage's "Attune Key" chip).
+    const openSettings = () => setShowSettings(true)
+    window.addEventListener('toe-open-settings', openSettings)
+    return () => window.removeEventListener('toe-open-settings', openSettings)
   }, [])
 
   async function refreshResources() {
@@ -144,6 +167,7 @@ export default function App() {
       setGems(data.gems || 0)
       setTutorialComplete(!!data.tutorial_complete)
       setFairyGender(data.fairy_gender || 'female')
+      setFairyChosen(!!data.fairy_gender)
       maybeStartTabTour(!!data.tutorial_complete)
     } catch {}
     getAchievements()
@@ -266,10 +290,14 @@ export default function App() {
     setSoundEnabled(next)
   }
 
-  if (!activeProfile) {
-    return <ProfileSelect onSelect={(p) => {
+  // AuthGate is the whole front door now: account sign-in (or offline) and
+  // save selection are one step — one account, one save. ProfileSelect is
+  // retired from the flow.
+  if (!account || !activeProfile) {
+    return <AuthGate onEnter={(ident) => {
       initAudio()
-      setActiveProfile(p)
+      setAccount(ident)
+      setActiveProfile(ident.profile)
     }} />
   }
 
@@ -288,7 +316,7 @@ export default function App() {
 
   return (
     <div className="app">
-      <Ornaments seed={tab} />
+      <Ornaments seed={tab} variant={bgVariant} />
       <TopBar
         profileName={activeProfile}
         gold={gold} gems={gems} aether={aether}
@@ -430,6 +458,62 @@ export default function App() {
                 <div className="text-dim" style={{ fontSize: '0.7rem', fontStyle: 'italic', marginTop: 4 }}>On top of the automatic fit — higher = larger UI on big screens.</div>
               </div>
 
+              {/* background ornament style — live A/B (Liam is picking a favorite) */}
+              <div style={{ marginTop: '1.4rem' }}>
+                <div className="ilm-settings-row" style={{ marginBottom: 6 }}>
+                  <span className="ilm-settings-k">BACKGROUND</span>
+                </div>
+                <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                  {BG_VARIANTS.map(([id, label]) => (
+                    <button key={id} onClick={() => changeBgVariant(id)}
+                      style={{ flex: '1 1 40%', padding: '8px 6px', cursor: 'pointer', fontFamily: "'Cinzel',serif", fontSize: '0.6rem', letterSpacing: '.14em',
+                        border: `1px solid ${bgVariant === id ? 'var(--gold-hi)' : 'rgba(184,151,98,.3)'}`,
+                        background: bgVariant === id ? 'rgba(184,151,98,.18)' : 'rgba(12,7,24,.5)',
+                        color: bgVariant === id ? '#ffd88a' : 'var(--text-dim)' }}>
+                      {label}
+                    </button>
+                  ))}
+                </div>
+                <div className="text-dim" style={{ fontSize: '0.7rem', fontStyle: 'italic', marginTop: 4 }}>
+                  Changes the faint shapes behind every page — the sparkles and diagonal lines stay.
+                </div>
+              </div>
+
+              {/* AI generation — bring your own API key */}
+              <div style={{ marginTop: '1.4rem' }}>
+                <div className="ilm-settings-row" style={{ marginBottom: 6 }}>
+                  <span className="ilm-settings-k">AI GENERATION KEY</span>
+                  <span style={{ fontSize: '.72rem', color: apiKeyStatus?.set ? 'var(--green-hi)' : 'var(--muted)' }}>
+                    {apiKeyStatus?.set ? `SET (${apiKeyStatus.masked})` : 'NOT SET'}
+                  </span>
+                </div>
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <input
+                    type="password"
+                    placeholder={apiKeyStatus?.set ? 'Enter a new key to replace…' : 'Paste your API key…'}
+                    value={apiKeyInput}
+                    onChange={e => setApiKeyInput(e.target.value)}
+                    style={{ flex: 1, background: 'rgba(8,6,14,0.9)', border: '1px solid rgba(184,151,98,.3)', borderRadius: 6, color: 'var(--text-hi)', padding: '9px 10px', fontSize: '.85rem' }}
+                  />
+                  <button
+                    disabled={apiKeySaving || (!apiKeyInput.trim() && !apiKeyStatus?.set)}
+                    onClick={async () => {
+                      setApiKeySaving(true)
+                      try {
+                        const res = await setApiKey(apiKeyInput.trim())
+                        setApiKeyStatus(res.set ? await getApiKeyStatus() : { set: false, masked: null })
+                        setApiKeyInput('')
+                      } catch (e) { emitToast(e.message, 'error') }
+                      setApiKeySaving(false)
+                    }}
+                    style={{ padding: '9px 14px', cursor: 'pointer', border: '1px solid rgba(184,151,98,.4)', background: 'rgba(184,151,98,.15)', color: 'var(--text-hi)', borderRadius: 6, fontSize: '.8rem', letterSpacing: '.05em' }}
+                  >{apiKeySaving ? '…' : apiKeyInput.trim() ? 'SAVE' : 'CLEAR'}</button>
+                </div>
+                <div className="text-dim" style={{ fontSize: '0.7rem', fontStyle: 'italic', marginTop: 4 }}>
+                  With a key, hero &amp; monster art is generated uniquely for your world. Without one, the game uses its built-in art pool. Your key stays on this machine.
+                </div>
+              </div>
+
               {/* profile row — links to the Profile Card, per the mockup */}
               <button onClick={() => { setShowSettings(false); setShowProfileCard(true) }} style={{
                 display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%',
@@ -482,7 +566,10 @@ export default function App() {
       {showChat && <HeraldWire onClose={() => setShowChat(false)} onOpenGuild={() => { setShowChat(false); setShowGuild(true) }} />}
       {showHearth && <HearthDrawer onClose={() => setShowHearth(false)} />}
       <ToastContainer />
-      {!tutorialComplete && (
+      {!tutorialComplete && !fairyChosen && (
+        <FairyChoice onChosen={(g) => { setFairyGender(g); setFairyChosen(true) }} />
+      )}
+      {!tutorialComplete && fairyChosen && (
         <TutorialOverlay fairyGender={fairyGender} onComplete={handleTutorialComplete} />
       )}
       {tutorialComplete && tourActive && (

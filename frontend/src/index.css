@@ -64,8 +64,14 @@ body {
   color: var(--text);
   font-family: 'Cormorant Garamond', Georgia, serif;
   font-size: 18px;
-  min-height: 100vh;
+  /* Scroll-locked shell: the window itself NEVER scrolls (design rule — no
+     page scrollbars). Percentages, not 100vh: vh isn't divided by the global
+     <html> zoom, so vh boxes overflow at zoom>1 (see .ilm-title-screen note). */
+  height: 100%;
+  overflow: hidden;
 }
+
+html, #root { height: 100%; }
 
 h1, h2, h3, .title-font {
   font-family: 'Cinzel', serif;
@@ -79,7 +85,7 @@ h1, h2, h3, .title-font {
 .app {
   display: flex;
   flex-direction: column;
-  min-height: 100vh;
+  height: 100%;
   width: 100%;
   margin: 0 auto;
 }
@@ -163,9 +169,24 @@ h1, h2, h3, .title-font {
 }
 
 /* Page content — gentle fade/rise on every tab switch */
+/* The router slot between the nav and the page. Without this rule it was an
+   unstyled block sized to content — .page's flex:1 silently did nothing, so
+   every page ended mid-screen with dead space below it. */
+.main-content {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
 .page {
   padding: 1.5rem 2rem;
   flex: 1;
+  min-height: 0;
+  /* Safety valve only: pages are designed to FIT (tabs/pagination for
+     overflow, per Liam). Anything still taller scrolls inside this pane —
+     the window and header never move. */
+  overflow-y: auto;
   animation: page-in 0.25s ease-out;
 }
 
@@ -1514,10 +1535,13 @@ progress { accent-color: var(--gold); }
    for their art (cropped oddly + overflowed). A fixed 3.3:1 strip always frames
    the wide art cleanly; the min/max caps keep two panels + chrome on-screen on
    any column width without depending on vh. */
+/* FIXED equal height, plain rectangle (no corner slant): the aspect-ratio +
+   min/max clamp let the two panels render at different heights, and the
+   clipped corner read as uneven edges between stacked panels (Liam). */
 .ilm-foundation-panel { position: relative; width: 100%;
-  aspect-ratio: 3.3 / 1; min-height: 200px; max-height: 360px; flex: none;
+  height: 320px; flex: none;
   overflow: hidden; display: flex; flex-direction: column; justify-content: flex-end;
-  border: 1px solid var(--border-hi); clip-path: polygon(0 0, 100% 0, 100% 100%, 16px 100%);
+  border: 1px solid var(--border-hi);
   box-shadow: 0 0 26px rgba(216,187,132,.1); }
 .ilm-foundation-art { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; object-position: center 45%; z-index: 0; }
 .ilm-foundation-scrim { position: absolute; inset: 0; z-index: 1;
@@ -1548,10 +1572,9 @@ progress { accent-color: var(--gold); }
 .ilm-fac-listaction.capped { color: var(--red-hi); border-color: rgba(192,64,64,.4); cursor: not-allowed; }
 .ilm-fac-card {
   position: relative; display: flex; flex-direction: column; justify-content: flex-end; text-align: left;
-  min-height: 244px; overflow: hidden;
+  height: 250px; overflow: hidden;
   background: linear-gradient(180deg, rgba(20,13,34,.9), rgba(10,7,19,.95));
   border: 1px solid var(--border); cursor: pointer; padding: 0;
-  clip-path: polygon(0 0, 100% 0, 100% 100%, 12px 100%);
   transition: border-color .12s ease, transform .12s ease, box-shadow .12s ease;
 }
 .ilm-fac-card:hover { border-color: var(--gold-dim); transform: translateY(-2px); box-shadow: 0 8px 20px rgba(0,0,0,.4); }
@@ -1682,8 +1705,8 @@ progress { accent-color: var(--gold); }
   border: 1px solid var(--border); background: rgba(12,7,24,.7); padding: 12px 16px;
 }
 .ilm-vic-row {
-  display: flex; align-items: center; gap: 12px;
-  border: 1px solid var(--border); background: rgba(12,7,24,.7); padding: 5px 12px;
+  display: flex; align-items: center; gap: 14px;
+  border: 1px solid var(--border); background: rgba(12,7,24,.7); padding: 8px 14px;
 }
 .ilm-vic-row.mvp { border-color: var(--gold-max); background: linear-gradient(90deg, rgba(184,151,98,.16), rgba(12,7,24,.75)); box-shadow: 0 0 18px rgba(216,187,132,.3); }
 .ilm-vic-row.fallen { border-color: rgba(192,64,64,.6); background: linear-gradient(90deg, rgba(80,20,26,.35), rgba(12,7,24,.75)); }
@@ -2012,6 +2035,56 @@ button.ilm-guild-stat.gold { border-color: rgba(216,187,132,.5); background: lin
 .ilm-unitrow.dead { opacity: .4; filter: grayscale(1); }
 .ilm-unitrow.low { border-color: rgba(192,64,64,.5); }
 @keyframes unit-hit { 0%{filter:brightness(1)} 30%{filter:brightness(2.2)} 100%{filter:brightness(1)} }
+
+/* Enemy side — a MIRRORED formation of the ally side: the front line (the
+   first two enemies, whom the party targets first — combat_service enemies[:2])
+   sits as a VANGUARD column toward the center, the rest fill a compact
+   WRAPPING GRID behind. Same front/back read as the player's own formation,
+   and it keeps even a 10+ swarm on one screen (Liam — no more zoom-out). */
+.ilm-enemyform { display: flex; gap: 12px; width: 100%; align-items: flex-start; justify-content: flex-end; }
+.ilm-enemyvan { display: flex; flex-direction: column; gap: 9px; flex: none; }
+.ilm-enemyrear { flex: 1; min-width: 0; }
+.ilm-enemygrid { display: flex; flex-wrap: wrap; gap: 8px; width: 100%; justify-content: flex-end; align-content: flex-start; }
+.ilm-enemycard.van { border-color: rgba(192,64,64,.5); }
+.ilm-enemycard {
+  width: 100px; display: flex; flex-direction: column; align-items: center; gap: 4px;
+  padding: 6px 6px 7px; border: 1px solid var(--border);
+  background: linear-gradient(160deg, rgba(26,10,14,.7), rgba(10,7,19,.5));
+  transition: box-shadow .15s ease, border-color .15s ease, opacity .3s ease, filter .3s ease;
+}
+.ilm-enemycard.boss { width: 100%; }
+.ilm-enemycard.act { border-color: var(--red); box-shadow: 0 0 14px rgba(192,64,64,.45); }
+.ilm-enemycard.dead { opacity: .32; filter: grayscale(1); }
+.ilm-enemycard.hit { animation: unit-hit .4s ease-out; }
+.ilm-enemycard .ilm-unitface.enemy { width: 42px; height: 42px; box-shadow: inset 0 0 0 1px rgba(192,64,64,.6); }
+.ilm-enemycard.boss .ilm-unitface.enemy { width: 60px; height: 60px; }
+.ilm-enemycard .ec-name { font-family: 'Cinzel', serif; font-weight: 700; font-size: 0.56rem; letter-spacing: .04em; color: var(--text-hi); max-width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: center; }
+.ilm-enemycard .ec-label { font-family: 'Cinzel', serif; font-size: 0.48rem; letter-spacing: .16em; color: var(--red-hi); }
+.ilm-enemycard .ilm-hpbar { width: 100%; }
+
+/* Combat formation — allies as a 2-column battle layout (rear guard | vanguard)
+   of compact vertical cards, mirroring the team-setup formation screen. */
+.ilm-formrow { display: flex; gap: 12px; align-items: stretch; width: 100%; }
+.ilm-formcol { display: flex; flex-direction: column; gap: 9px; flex: 1; min-width: 0; }
+.ilm-formcol.center { justify-content: center; }
+.ilm-formhead { display: flex; align-items: center; gap: 7px; }
+.ilm-formhead > .d { width: 6px; height: 6px; transform: rotate(45deg); flex: none; }
+.ilm-formhead > .t { font-family: 'Cinzel', serif; letter-spacing: .2em; font-size: 8.5px; white-space: nowrap; }
+.ilm-formhead > .r { height: 1px; flex: 1; }
+.ilm-combatcard {
+  width: 100%; display: flex; flex-direction: column; align-items: center; gap: 5px;
+  padding: 8px 7px 9px; border: 1px solid var(--border);
+  background: linear-gradient(160deg, rgba(20,13,34,.75), rgba(10,7,19,.5));
+  transition: box-shadow .15s ease, border-color .15s ease, opacity .3s ease, filter .3s ease;
+}
+.ilm-combatcard.act { border-color: var(--gold-hi); box-shadow: 0 0 16px rgba(216,187,132,.4); }
+.ilm-combatcard.low { border-color: rgba(192,64,64,.55); }
+.ilm-combatcard.dead { opacity: .4; filter: grayscale(1); }
+.ilm-combatcard.hit { animation: unit-hit .4s ease-out; }
+.ilm-combatcard .ilm-unitbars { width: 100%; }
+/* ally faces are head-centered square minis → center; enemy faces are raw
+   full-body art → keep top (handled by the base .ilm-unitface img rule). */
+.ilm-combatcard .ilm-unitface img { object-position: center; }
 
 .ilm-unitface { width: 50px; height: 50px; flex: none; overflow: hidden; background: #140b22; display: flex; align-items: center; justify-content: center; }
 .ilm-unitface.ally { clip-path: polygon(50% 0,100% 50%,50% 100%,0 50%); border: 0; box-shadow: 0 0 0 1px var(--gold-dim); }

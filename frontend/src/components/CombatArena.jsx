@@ -303,6 +303,10 @@ export default function CombatArena({ combatData, onComplete, turnNarrations, in
   
   const heroes = combatData?.initial_state?.heroes || []
   const enemies = combatData?.initial_state?.enemies || []
+  // How many enemies are the targeted-first FRONT LINE — scales with the
+  // swarm (backend _enemy_frontline_n). Fallback replicates that formula.
+  const enemyFrontN = combatData?.initial_state?.enemy_frontline
+    ?? Math.min(6, Math.max(2, Math.round(enemies.length * 0.4)))
   const turns = combatData?.turns || []
   const isBoss = combatData?.initial_state?.is_boss || false
   const isMiniboss = combatData?.initial_state?.is_miniboss || false
@@ -456,64 +460,131 @@ export default function CombatArena({ combatData, onComplete, turnNarrations, in
         <div className="ilm-combat-survive">SURVIVE · ROUND {Math.min(currentTurn?.round || 1, turnLimit)} / {turnLimit}</div>
       )}
 
-      {/* ══ ALLY RAIL (left) ══ */}
+      {/* ══ ALLY FORMATION (left) — a top-down battle layout: REAR GUARD
+          column (3) on the outside, VANGUARD column (2) toward the enemies.
+          Same shape as the team-setup screen so what you arranged is what
+          you fight with. ══ */}
       <div className="ilm-rail left">
-        {heroes.map(hero => {
-          const hp = unitHPs[hero.id] ?? hero.health
-          const hpPct = Math.max(0, (hp / hero.max_health) * 100)
-          const mp = unitManas[hero.id] ?? hero.mana
-          const mpPct = hero.max_mana > 0 ? Math.max(0, (mp / hero.max_mana) * 100) : 0
-          const isAtt = currentTurn?.attacker_id === hero.id
-          const isTgt = currentTurn?.target_id === hero.id
-          const dead = hp <= 0
-          const critical = hpPct <= 15 && !dead
-          return (
-            <div key={hero.id} className={`ilm-unitrow ally ${isAtt ? 'act' : ''} ${isTgt ? 'hit' : ''} ${dead ? 'dead' : ''} ${critical ? 'low' : ''}`}>
-              <span className="ilm-unitface ally">
-                {hero.portrait_path ? <img src={`/${hero.portrait_path}`} alt="" draggable={false} onError={e => { e.target.style.display = 'none' }} /> : <span className="ilm-unitface-ph">✦</span>}
-              </span>
-              <div className="ilm-unitbars">
-                <div className="ilm-unitname">
-                  <span>{hero.name}</span>
-                  <span className="ilm-unitclass" style={dead ? { color: 'var(--red-hi)' } : critical ? { color: 'var(--red-hi)', letterSpacing: '.2em' } : undefined}>
-                    {dead ? 'FALLEN' : critical ? 'CRITICAL' : (hero.hero_class || '').toUpperCase()}
-                  </span>
+        {(() => {
+          const renderAllyCard = (hero) => {
+            const hp = unitHPs[hero.id] ?? hero.health
+            const hpPct = Math.max(0, (hp / hero.max_health) * 100)
+            const mp = unitManas[hero.id] ?? hero.mana
+            const mpPct = hero.max_mana > 0 ? Math.max(0, (mp / hero.max_mana) * 100) : 0
+            const isAtt = currentTurn?.attacker_id === hero.id
+            const isTgt = currentTurn?.target_id === hero.id
+            const dead = hp <= 0
+            const critical = hpPct <= 15 && !dead
+            return (
+              <div key={hero.id} className={`ilm-combatcard ${isAtt ? 'act' : ''} ${isTgt ? 'hit' : ''} ${dead ? 'dead' : ''} ${critical ? 'low' : ''}`}>
+                <span className="ilm-unitface ally" style={{ width: 46, height: 46 }}>
+                  {hero.portrait_path
+                    ? <img src={`/heroes/${hero.id}/card-image?mini=1`} alt="" draggable={false}
+                        onError={e => { if (!e.currentTarget.dataset.fb) { e.currentTarget.dataset.fb = '1'; e.currentTarget.src = `/${hero.portrait_path}` } else { e.currentTarget.style.display = 'none' } }} />
+                    : <span className="ilm-unitface-ph">✦</span>}
+                </span>
+                <div className="ilm-unitbars">
+                  <div className="ilm-unitname" style={{ justifyContent: 'center', gap: 5 }}>
+                    <span style={{ maxWidth: '100%' }}>{hero.name}</span>
+                  </div>
+                  <div style={{ textAlign: 'center', marginBottom: 3 }}>
+                    <span className="ilm-unitclass" style={dead ? { color: 'var(--red-hi)' } : critical ? { color: 'var(--red-hi)', letterSpacing: '.2em' } : undefined}>
+                      {dead ? 'FALLEN' : critical ? 'CRITICAL' : (hero.hero_class || '').toUpperCase()}
+                    </span>
+                  </div>
+                  <div className="ilm-hpbar"><div style={{ width: `${hpPct}%` }} /></div>
+                  {hero.max_mana > 0 && <div className="ilm-mpbar"><div style={{ width: `${mpPct}%` }} /></div>}
+                  <StatusChips list={currentTurn?.statuses?.[hero.id]} />
                 </div>
-                <div className="ilm-hpbar"><div style={{ width: `${hpPct}%` }} /></div>
-                {hero.max_mana > 0 && <div className="ilm-mpbar"><div style={{ width: `${mpPct}%` }} /></div>}
-                <StatusChips list={currentTurn?.statuses?.[hero.id]} />
+              </div>
+            )
+          }
+          // Order the formation by team_position so it matches the team-setup
+          // screen EXACTLY (that screen sorts by team_position too) — the
+          // vanguard is always slots 0-1, rear guard 2+.
+          const ordered = [...heroes].sort((a, b) => (a.team_position ?? 99) - (b.team_position ?? 99))
+          const front = ordered.slice(0, 2)
+          const back = ordered.slice(2)
+          const head = (label, color) => (
+            <div className="ilm-formhead">
+              <span className="d" style={{ background: color }} />
+              <span className="t" style={{ color }}>{label}</span>
+              <span className="r" style={{ background: `${color}33` }} />
+            </div>
+          )
+          return (
+            <div className="ilm-formrow">
+              <div className="ilm-formcol">
+                {back.length > 0 && head('REAR GUARD', 'var(--lavender)')}
+                {back.map(renderAllyCard)}
+              </div>
+              <div className="ilm-formcol">
+                {front.length > 0 && head('VANGUARD', '#ffd88a')}
+                <div style={{ flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: 9 }}>
+                  {front.map(renderAllyCard)}
+                </div>
               </div>
             </div>
           )
-        })}
+        })()}
       </div>
 
-      {/* ══ ENEMY RAIL (right) ══ */}
+      {/* ══ ENEMY FORMATION (right) — mirrors the ally side: the FRONT LINE
+          (enemies[:2], whom the party targets first) is a vanguard column
+          toward the center; the rest fill the rear grid. Even a big swarm
+          stays on one screen. ══ */}
       <div className="ilm-rail right">
-        {enemies.slice(0, 12).map((en, i) => {
-          const hp = unitHPs[en.id] ?? en.health
-          const hpPct = Math.max(0, (hp / en.max_health) * 100)
-          const isAtt = currentTurn?.attacker_id === en.id
-          const isTgt = currentTurn?.target_id === en.id
-          const dead = hp <= 0
-          const label = isBoss && i === 0 ? 'BOSS' : (enemyTier === 'elite' || enemyTier === 'miniboss') && i === 0 ? 'ELITE' : ''
-          return (
-            <div key={en.id} className={`ilm-unitrow enemy ${isAtt ? 'act' : ''} ${isTgt ? 'hit' : ''} ${dead ? 'dead' : ''}`}>
-              <span className="ilm-unitface enemy">
-                {en.portrait_path ? <img src={`/${en.portrait_path}`} alt="" draggable={false} onError={e => { e.target.style.display = 'none' }} /> : <span className="ilm-unitface-ph">☠</span>}
-              </span>
-              <div className="ilm-unitbars">
-                <div className="ilm-unitname">
-                  <span>{en.name}</span>
-                  {label && <span className="ilm-unitclass enemy">{label}</span>}
-                </div>
+        {(() => {
+          const renderEnemyCard = (en, i, van) => {
+            const hp = unitHPs[en.id] ?? en.health
+            const hpPct = Math.max(0, (hp / en.max_health) * 100)
+            const isAtt = currentTurn?.attacker_id === en.id
+            const isTgt = currentTurn?.target_id === en.id
+            const dead = hp <= 0
+            const isBossCard = isBoss && i === 0
+            const label = isBossCard ? 'BOSS' : (enemyTier === 'elite' || enemyTier === 'miniboss') && i === 0 ? 'ELITE' : ''
+            return (
+              <div key={en.id} className={`ilm-enemycard ${van ? 'van' : ''} ${isBossCard ? 'boss' : ''} ${isAtt ? 'act' : ''} ${isTgt ? 'hit' : ''} ${dead ? 'dead' : ''}`}>
+                <span className="ilm-unitface enemy">
+                  {en.portrait_path ? <img src={`/${en.portrait_path}`} alt="" draggable={false} onError={e => { e.target.style.display = 'none' }} /> : <span className="ilm-unitface-ph">☠</span>}
+                </span>
+                <span className="ec-name">{en.name}</span>
+                {label && <span className="ec-label">{label}</span>}
                 <div className="ilm-hpbar enemy"><div style={{ width: `${hpPct}%` }} /></div>
                 <StatusChips list={currentTurn?.statuses?.[en.id]} />
               </div>
+            )
+          }
+          const shown = enemies.slice(0, 16)
+          const front = shown.slice(0, enemyFrontN)   // the party targets these first
+          const back = shown.slice(enemyFrontN)
+          const head = (label) => (
+            <div className="ilm-formhead" style={{ justifyContent: 'flex-end' }}>
+              <span className="r" style={{ background: 'rgba(192,64,64,.25)' }} />
+              <span className="t" style={{ color: 'var(--red-hi)' }}>{label}</span>
+              <span className="d" style={{ background: 'var(--red)' }} />
             </div>
           )
-        })}
-        {enemies.length > 12 && <div className="ilm-rail-more">+{enemies.length - 12} more in the fray</div>}
+          return (
+            <div className="ilm-enemyform">
+              {/* vanguard toward the center (left of the enemy area), so the
+                  two front lines face each other; the horde fills behind. */}
+              <div className="ilm-enemyvan">
+                {head('FRONT LINE')}
+                {front.map((en, i) => renderEnemyCard(en, i, true))}
+              </div>
+              {back.length > 0 && (
+                <div className="ilm-enemyrear">
+                  {head('BACK LINE')}
+                  <div className="ilm-enemygrid">
+                    {back.map((en, i) => renderEnemyCard(en, i + 2, false))}
+                    {enemies.length > 16 && <div className="ilm-rail-more">+{enemies.length - 16} more</div>}
+                  </div>
+                </div>
+              )}
+            </div>
+          )
+        })()}
       </div>
 
       {/* ══ SKILL CALLOUT SLASH ══ */}

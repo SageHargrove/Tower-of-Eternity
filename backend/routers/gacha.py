@@ -61,7 +61,24 @@ def build_instant_profile(birth_star: int, gender_hint: str = None, synergy_them
     from services.portrait_cache import build_varied_prompt
 
     gender = gender_hint if gender_hint in ("male", "female") else random.choice(["male", "female"])
-    name = random.choice(MALE_FALLBACK_NAMES if gender == "male" else FEMALE_FALLBACK_NAMES) + " " + random.choice(FALLBACK_SURNAMES)
+    # Placeholder identities are permanent now (preserve_identity on the pull
+    # path), so collisions matter: retry a few random combos against the
+    # roster, then fall back to a numeric suffix.
+    first_pool = MALE_FALLBACK_NAMES if gender == "male" else FEMALE_FALLBACK_NAMES
+    name = None
+    with db() as conn:
+        for _ in range(8):
+            candidate = random.choice(first_pool) + " " + random.choice(FALLBACK_SURNAMES)
+            if not conn.execute("SELECT 1 FROM heroes WHERE name = ?", (candidate,)).fetchone():
+                name = candidate
+                break
+        if name is None:
+            base = random.choice(first_pool) + " " + random.choice(FALLBACK_SURNAMES)
+            suffix = 2
+            name = base
+            while conn.execute("SELECT 1 FROM heroes WHERE name = ?", (name,)).fetchone():
+                name = f"{base} {suffix}"
+                suffix += 1
     portrait_prompt = build_varied_prompt(birth_star, gender)[0]
     if synergy_theme_desc:
         portrait_prompt += f", {synergy_theme_desc}"
@@ -364,6 +381,11 @@ def _create_one_hero(birth_star: int, is_synergy: bool = False, is_leader: bool 
         needs_custom_portrait="default_" in portrait_path,
         fallback_gender=profile.gender,
         fallback_portrait_prompt=profile.portrait_prompt,
+        # The name shown on the summon reveal is permanent (confirmed bug:
+        # background LLM enrichment silently renamed freshly-pulled heroes,
+        # so the Heroes tab never matched the rite the player just watched).
+        # Enrichment still fills backstory/title/personality — never the name.
+        preserve_identity=True,
     )
     return hero_dict
 
@@ -379,8 +401,9 @@ def pull_heroes(req: PullRequest):
         raise HTTPException(status_code=400, detail="The seasonal calling has closed.")
 
     # Seasonal is always a gem calling — a boosted rate-up at a premium price.
+    # Ceiling is 6★ everywhere: 7★ cannot be summoned, only transcended into.
     use_gold = req.currency == "gold" and not seasonal
-    min_star, max_star = (1, 4) if use_gold else (1, 7)
+    min_star, max_star = (1, 4) if use_gold else (1, 6)
     # Heroes are the premium pull — gold cost sits above equipment's (the
     # Forge/Blacksmith will eventually be the real equipment source anyway).
     # Seasonal costs 20% over the standard gem calling for its richer odds.
@@ -561,7 +584,11 @@ def use_summon_ticket(req: UseTicketRequest):
         min_star = int(req.item_name.split("-")[0])
     except (ValueError, IndexError):
         raise HTTPException(status_code=400, detail="Not a valid summon ticket.")
-    if min_star not in (4, 5, 6, 7):
+    if min_star == 7:
+        # Legacy tickets from before the transcendence rule — no summon may
+        # grant a 7★; honor the ticket at the summonable ceiling instead.
+        min_star = 6
+    if min_star not in (4, 5, 6):
         raise HTTPException(status_code=400, detail="Not a valid summon ticket.")
 
     with db() as conn:
@@ -584,7 +611,7 @@ def use_summon_ticket(req: UseTicketRequest):
         else:
             conn.execute("UPDATE inventory SET quantity = ? WHERE id = ?", (new_qty, row["id"]))
 
-    birth_star = pull_rarity(min_star=min_star, max_star=7, currency="gem")
+    birth_star = pull_rarity(min_star=min_star, max_star=6, currency="gem")
     hero_dict = _create_one_hero(birth_star)
 
     with db() as conn:
@@ -899,6 +926,7 @@ def spark_redeem():
         needs_custom_portrait="default_" in portrait_path,
         fallback_gender=profile.gender,
         fallback_portrait_prompt=profile.portrait_prompt,
+        preserve_identity=True,  # spark-claim reveal name is permanent too
     )
 
     return {"hero": dict(hero), "spark_cost": SPARK_THRESHOLD}

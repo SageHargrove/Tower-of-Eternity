@@ -75,7 +75,7 @@ function HeroSidePanel({ hero, accent }) {
           src={`/heroes/${hero.id}/card-image?mini=true`}
           onError={(e) => { e.target.onerror = null; e.target.src = `/${hero.portrait_path}` }}
           draggable={false}
-          style={{ width: '100%', aspectRatio: '2 / 3', objectFit: 'cover', objectPosition: 'center top', borderRadius: 6, border: `1px solid ${accent}`, display: 'block' }}
+          style={{ width: '100%', aspectRatio: '1 / 1', objectFit: 'cover', objectPosition: 'center', borderRadius: 6, border: `1px solid ${accent}`, display: 'block' }}
           alt={hero.name}
         />
       ) : (
@@ -200,7 +200,9 @@ export function TeamCompareModal({ teamA, teamB, onClose }) {
                 : t.heroes.map(h => (
                   <div key={h.id} style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', padding: '0.25rem 0' }}>
                     {h.portrait_path
-                      ? <img src={`/${h.portrait_path}`} alt="" draggable={false} style={{ width: 32, height: 32, borderRadius: '50%', objectFit: 'cover', objectPosition: 'center 15%', border: '1px solid var(--border)', flexShrink: 0 }} />
+                      ? <img src={`/heroes/${h.id}/card-image?mini=1`} alt="" draggable={false}
+                          onError={(e) => { if (!e.currentTarget.dataset.fb) { e.currentTarget.dataset.fb = '1'; e.currentTarget.src = `/${h.portrait_path}` } }}
+                          style={{ width: 32, height: 32, borderRadius: '50%', objectFit: 'cover', objectPosition: 'center', border: '1px solid var(--border)', flexShrink: 0 }} />
                       : <div style={{ width: 32, height: 32, borderRadius: '50%', background: 'var(--bg-card)', border: '1px solid var(--border)', flexShrink: 0 }} />}
                     <div style={{ fontSize: '0.82rem', minWidth: 0 }}>
                       <span style={{ color: 'var(--text-hi)' }}>{h.name}</span>{' '}

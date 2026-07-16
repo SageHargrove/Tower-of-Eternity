@@ -82,9 +82,11 @@ export const getEgoRecommendation = (heroId) => request(`/heroes/${heroId}/ego_r
 // Base
 export const getBase = () => request('/base/')
 export const getSupportBoons = () => request('/base/support')
-export const renameBase = (name) => request('/base/rename', { method: 'POST', body: JSON.stringify({ name }) })
 export const setMasterName = (name) => request('/base/master-name', { method: 'POST', body: JSON.stringify({ name }) })
 export const completeTutorial = () => request('/base/tutorial/complete', { method: 'POST' })
+export const chooseFairy = (fairy_gender) => request('/base/fairy', { method: 'POST', body: JSON.stringify({ fairy_gender }) })
+export const getApiKeyStatus = () => request('/settings/apikey')
+export const setApiKey = (api_key) => request('/settings/apikey', { method: 'POST', body: JSON.stringify({ api_key }) })
 export const upgradeBase = () => request('/base/upgrade', { method: 'POST' })
 export const restHeroes = () => request('/base/rest', { method: 'POST' })
 export const runDailyDungeon = (type, tier = 1) => request(`/base/daily_dungeon/${type}?tier=${tier}`, { method: 'POST' })

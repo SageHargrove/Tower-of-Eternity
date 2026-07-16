@@ -17,12 +17,21 @@ def get_chat_logs(limit: int = 5):
             (limit,)
         ).fetchall()
         
+    # Only living heroes get a voice: logs outlive renames and dismissals
+    # (speakers are stored as plain text), so lines from heroes who no
+    # longer exist must be dropped at read time, never shown.
+    with db() as conn:
+        alive = {h["name"] for h in conn.execute("SELECT name FROM heroes WHERE is_alive = 1").fetchall()}
+
     logs = []
     for r in rows:
         try:
             msg_data = json.loads(r["message"])
         except:
             msg_data = []
+        msg_data = [m for m in msg_data if m.get("speaker") in alive]
+        if not msg_data:
+            continue
         logs.append({
             "id": r["id"],
             "location": r["location"],
@@ -34,12 +43,15 @@ def get_chat_logs(limit: int = 5):
 
 @router.get("/hearth")
 def get_hearth():
-    """The Hearth drawer feed: each hero's single most recent line across
-    the stored chat logs, newest first, joined with portrait + mood so the
-    drawer can render the diamond portraits without a second fetch."""
+    """The Hearth drawer feed: recent CONVERSATIONS as threaded exchanges,
+    newest first — NOT one detached line per hero (which read as everyone
+    muttering independently, per Liam). Each conversation keeps its lines in
+    spoken order so the back-and-forth is legible; every line is joined with
+    its speaker's portrait + mood. Dead/renamed/phantom speakers are dropped
+    per line, and a conversation with nothing left to show is skipped."""
     with db() as conn:
         rows = conn.execute(
-            "SELECT id, location, message, created_at FROM hero_chat_logs ORDER BY created_at DESC LIMIT 5"
+            "SELECT id, location, participants, message, created_at FROM hero_chat_logs ORDER BY created_at DESC LIMIT 6"
         ).fetchall()
         heroes = conn.execute(
             "SELECT id, name, portrait_path, stress, morale FROM heroes WHERE is_alive = 1"
@@ -47,31 +59,33 @@ def get_hearth():
         base = conn.execute("SELECT last_hearth_word FROM base WHERE id = 1").fetchone() if _has_hearth_col(conn) else None
 
     by_name = {h["name"]: dict(h) for h in heroes}
-    seen = set()
-    lines = []
+    conversations = []
     for r in rows:
         try:
             msgs = json.loads(r["message"])
         except Exception:
             continue
-        # Within one log, later messages are newer — walk backwards so a
-        # hero's newest line in the conversation wins.
-        for m in reversed(msgs):
+        thread = []
+        for m in msgs:
             speaker = m.get("speaker", "")
-            if not speaker or speaker in seen:
+            # Ghost guard: only living heroes may speak.
+            if not speaker or speaker not in by_name or not m.get("message"):
                 continue
-            seen.add(speaker)
-            hero = by_name.get(speaker, {})
+            hero = by_name[speaker]
             stress = hero.get("stress") or 0
             morale = hero.get("morale")
-            lines.append({
+            thread.append({
                 "speaker": speaker,
                 "message": m.get("message", ""),
-                "location": r["location"],
-                "created_at": r["created_at"],
                 "hero_id": hero.get("id"),
                 "portrait_path": hero.get("portrait_path"),
                 "mood": "shaken" if (stress >= 60 or (morale is not None and morale < 40)) else "steady",
+            })
+        if thread:
+            conversations.append({
+                "location": r["location"],
+                "created_at": r["created_at"],
+                "lines": thread,
             })
 
     cooldown_remaining = 0
@@ -83,7 +97,7 @@ def get_hearth():
             cooldown_remaining = max(0, int(HEARTH_WORD_COOLDOWN_SECS - elapsed))
         except ValueError:
             pass
-    return {"lines": lines, "cooldown_remaining": cooldown_remaining,
+    return {"conversations": conversations, "cooldown_remaining": cooldown_remaining,
             "newest_at": rows[0]["created_at"] if rows else None}
 
 
