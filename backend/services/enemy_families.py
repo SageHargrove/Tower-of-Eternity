@@ -142,12 +142,9 @@ KNIGHT_CAPTAIN_MORDREK = {
     "stat_mod": {"atk": 1.2, "def": 1.2, "spd": 0.9, "health": 1.2},
 }
 
-HYDRA_SOVEREIGN = {
-    "name": "The Hydra Sovereign",
-    "abilities": ["summon_add", "self_regen", "last_stand"],
-    "spawn_template": "Hydra Spawn",
-    "stat_mod": {"atk": 1.3, "def": 1.1, "spd": 0.9, "health": 1.5},
-}
+# The Hydra Sovereign CUT 2026-07-17 (Liam): the current monster LoRA cannot
+# render hydras at his bar (~14 failed takes across the redo campaign).
+# Revisit the whole hydra family after ToE_Monsters_v2 trains.
 
 PIT_FIEND_COMMANDER = {
     "name": "Pit Fiend Commander",
@@ -300,7 +297,7 @@ BOSS_OVERRIDES = {
     40: [GRAVE_SOVEREIGN, ROTCALLER_FESTER_HOST],
     60: [OBSIDIAN_TYRANT, EARTHSHAKER_TITAN, UNDEAD_MONARCH],  # vampire king moved here (kept)
     70: THALASSOR,  # Leviathan's Graveyard boss (was Undead Monarch, relocated to 60)
-    80: [HYDRA_SOVEREIGN, ASHEN_COLOSSUS, STORMCALLER_SKY_TYRANT],
+    80: [ASHEN_COLOSSUS, STORMCALLER_SKY_TYRANT],
     90: [MASKED_HORROR_BOSS, THE_FORGOTTEN_GOD],
     # Floor 100 is a Raid Boss (Aetherion) — this fallback is never reached
     # in normal play because get_raid_boss_override fires first.

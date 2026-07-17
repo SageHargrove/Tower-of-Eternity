@@ -143,7 +143,8 @@ ENEMY_TYPES = [
     ("Dryad", 1.0, 1.7, 0.4, "normal", "mighty"),    # was Elder Treant (concept dead); ref add 2026-07-10
     ("Minotaur Juggernaut", 1.7, 1.4, 0.6, "elite", "mighty"),
     ("Phoenix", 1.4, 0.9, 1.3, "elite", "mighty"),          # ref add 2026-07-10 (rebirth = self_regen)
-    ("Wyvern Stormrider", 1.4, 1.0, 1.8, "elite", "mighty"),
+    # Wyvern Stormrider CUT 2026-07-17 (Liam): never rendered acceptably
+    # (11 takes). Revisit post-ToE_Monsters_v2.
     # --- ascendant (floor 51+) — checklist: "Vampire Spawn, Chimeras,
     # Golems, Naga" (Golems covered by Stone Sentinel/Lesser Golem here;
     # Chimera/Naga land in mythic below since the checklist's 51-70 range
@@ -178,8 +179,8 @@ ENEMY_TYPES = [
     # Demon Lords" (Demon Lords land in dread below, same 71-90 split) ---
     ("Death Knight", 1.3, 1.2, 0.9, "normal", "apex"),
     ("Giant", 1.6, 1.1, 0.6, "normal", "apex"),
-    ("Hydra", 1.8, 1.4, 0.7, "elite", "apex"),
-    ("Hydra Spawn", 1.1, 0.8, 1.0, "pack", "apex"),
+    # Hydra + Hydra Spawn CUT 2026-07-17 (Liam): the multi-head curse never
+    # broke (~14 takes). Revisit the family post-ToE_Monsters_v2.
     ("Naga", 1.1, 0.9, 1.2, "normal", "apex"),  # relocated from mythic (sea re-theme)
     ("Dragonkin Warrior", 1.4, 1.1, 1.0, "normal", "apex"),  # ref add 2026-07-10 (humanoid_dragon)
     ("Black Knight Commander", 1.6, 1.4, 1.0, "elite", "apex"),
@@ -228,12 +229,12 @@ ENEMY_WAVE = {
     "Kobold": 2, "Skeleton": 2, "Venomous Spider": 2, "Vile Corvid": 2,
     "Hobgoblin": 3, "Lizardman": 3, "Feral Ghoul": 3, "Hobgoblin Berserker": 3, "Lizardman Stalker": 3, "Gnoll Marauder": 3, "Crawling Hand": 3,
     "Grave Scarab": 4, "Rotting Ghoul": 4, "Bone Warden": 4, "Cave Shrieker": 4, "Wraith": 4, "Tomb Jackal Warden": 4, "Plague Harbinger": 4,
-    "Minotaur": 5, "Wyvern": 5, "Manticore": 5, "Elemental": 5, "Minotaur Juggernaut": 5, "Wyvern Stormrider": 5, "Nemean Lion": 5, "Griffon": 5, "Dire Sabertooth": 5, "Dryad": 5, "Phoenix": 5,
+    "Minotaur": 5, "Wyvern": 5, "Manticore": 5, "Elemental": 5, "Minotaur Juggernaut": 5, "Nemean Lion": 5, "Griffon": 5, "Dire Sabertooth": 5, "Dryad": 5, "Phoenix": 5,
     "Crypt Warden": 6, "Animated Armor": 6, "Vampire Spawn": 6, "Iron Juggernaut": 6, "Obsidian Behemoth": 6, "Dread Brute": 6, "Primordial Vampire": 6, "Frost Wight": 6, "Blood Thrall": 6, "Obsidian Tortoise": 6, "Cinder Ogre": 6,
     "Abyssal Serpent": 7,
     # wave 7 = Leviathan's Graveyard (sea band, floors 61-70)
     "Drowned Deckhand": 7, "Bone-Crab Scavenger": 7, "Coral-Grown Husk": 7, "Abyssal Lamprey": 7, "Marrow-Worm": 7, "Drowned Shade": 7, "Galleon Captain": 7, "Trench Stalker": 7, "Bone-Grafted Goliath": 7,
-    "Death Knight": 8, "Giant": 8, "Hydra": 8, "Hydra Spawn": 8, "Black Knight Commander": 8, "Naga": 8, "Abyssal Lurker": 8, "Dragonkin Warrior": 8,
+    "Death Knight": 8, "Giant": 8, "Black Knight Commander": 8, "Naga": 8, "Abyssal Lurker": 8, "Dragonkin Warrior": 8,
     "Demon": 9, "Imp": 9, "Demon Lord": 9, "Pit Fiend": 9, "Wraith Sovereign": 9, "Shrouded Reaper": 9, "Hellhound": 9, "Cambion": 9, "Succubus": 9, "Carapace Fiend": 9, "Void Horror": 9,
     "Lich Acolyte": 10, "Young Dragon": 10, "Adult Dragon": 10, "Archdemon": 10, "Ancient Guardian": 10, "Dracolich": 10, "Archdemon Enforcer": 10, "Drake": 10, "Ancient Revenant": 10,
 }
@@ -254,7 +255,6 @@ ENEMY_ABILITY_OVERRIDES = {
     "Tomb Jackal Warden": ["summon_add"],
     "Plague Harbinger": ["team_buff_aura"],
     "Minotaur Juggernaut": ["enrage"],
-    "Hydra": ["self_regen"],
     "Pit Fiend": ["enrage"],
     "Demon Lord": ["crushing_blow"],
     "Wraith Sovereign": ["team_buff_aura"],

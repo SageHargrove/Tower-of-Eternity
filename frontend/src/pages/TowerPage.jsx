@@ -94,7 +94,7 @@ const ZONES = [
   { name: 'Dread Peaks', slug: 'dread_peaks', blurb: 'Storm-lashed summits hunted by wyverns, manticores, and griffons.' },
   { name: 'Crystalline Labyrinth', slug: 'crystalline_depths', blurb: 'A maze of living stone — wardens, animated armor, and juggernauts keep the walls.' },
   { name: "Leviathan's Graveyard", slug: 'leviathans_graveyard', blurb: 'A drowned dark of leviathan bones — the drowned crew still keeps its watch.' },
-  { name: 'Blood Lake', slug: 'blood_lake', blurb: 'Crimson waters prowled by hydras, nagas, and the knights of the dead.' },
+  { name: 'Blood Lake', slug: 'blood_lake', blurb: 'Crimson waters prowled by nagas, giants, and the knights of the dead.' },
   { name: 'Abyssal Rift', slug: 'abyssal_rift', blurb: 'A wound in reality leaking imps, hellhounds, and pit fiends.' },
   { name: "Dragon's Boneyard", slug: 'dragons_boneyard', blurb: 'The final ascent — liches, dragons, and dracoliches guard the peak.' },
 ]

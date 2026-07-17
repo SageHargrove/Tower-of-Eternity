@@ -1,186 +1,213 @@
-# Tower of Eternity — Sound Design Plan
+# Tower of Eternity — Sound Design Plan (v2 — Sacred-Jazz Fusion)
 
-Music: **Suno**. SFX + voice barks: **ElevenLabs** (its music is weak, but its SFX/voice generation is genuinely good — clean division of labor).
-
----
-
-## 1. The style anchor
-
-**Not straight JRPG.** Bright Uematsu-style synth-orchestra JRPG music would fight the illuminated-manuscript / gold-leaf / gothic-sacred art everywhere in the game (Athenaeum, Reliquary, Shrine, Death Ceremony...). What we want is:
-
-> **Sacred dark-fantasy orchestral with early-music instrumentation, and JRPG melodic sensibility.**
-
-Steal from JRPGs the thing they do best — clear, hummable motifs per screen — but voice it with medieval/sacred instruments. Reference points: Octopath Traveler's quieter tracks, Elden Ring menu themes, Pentiment, old Fable.
-
-### House instrument palette (reuse in every prompt)
-- harp, lute, wordless choir, church bells, low strings, solo cello
-- ceremonial drums / frame drum for rhythm, organ reserved for boss & death
-- hurdy-gurdy / fiddle only for tavern, expeditions, low-floor combat (the "folk" corner)
-
-### House prompt prefix — start EVERY Suno style prompt with this:
-
-```
-dark fantasy orchestral, medieval sacred atmosphere, cathedral reverb, cinematic, instrumental, no lyrics,
-```
-
-### Consistency tricks
-1. **Suno Personas**: take the existing track you like most (probably tavern or boss), create a Persona from it, and generate the rest of the soundtrack under that Persona. This is the single strongest consistency lever Suno has.
-2. Keep one key family: ask for **D minor / D dorian** on most tracks. Shared tonality makes screen transitions feel intentional.
-3. Tempo bands: menus 60–85 BPM, exploration 95–110, combat 120–140, boss 140–160.
-4. Menus loop for hours — generate them **understated** ("background music that never tires"), not epic. Epic hub music is the #1 mistake.
-5. Loudness-normalize everything to the same level after download (ffmpeg `loudnorm`, ≈ −16 LUFS for loops, stingers ~3 dB hotter).
+Music: **Suno Pro** (v5.5). SFX: keep synth kit, upgrade hero moments later (ElevenLabs free tier if ever needed). VO: deferred indefinitely — stingers carry the payoffs.
 
 ---
 
-## 2. Track list + Suno prompts
+## 1. The style anchor — SACRED-JAZZ FUSION (locked 2026-07-16)
 
-Prepend the house prefix to each. Generate 1:30–2:30 for loops (shorter loop = smaller file, and nobody notices under 2 min if the track is understated).
+Winner of the theme bake-off: **acid-jazz fusion with gothic orchestral flourishes** — funky bass and jazzy keys (the Atlus cool) under cathedral choir and bells (the illuminated art). One reference song is the DNA source: the winning combat roll ("the chorus one").
 
-### Tier 1 — must-have (existing ✓ marked)
+### House prompt prefix — start every prompt with:
 
-| # | Track | Status |
-|---|-------|--------|
-| 1 | Title / Login | needed |
-| 2 | Base hub (most-heard track in the game) | needed |
-| 3 | Tavern | ✓ have |
-| 4 | Summon Altar (remake) | redo |
-| 5 | Synthesis Chamber | needed |
-| 6 | Combat — standard | ✓ have |
-| 7 | Boss | ✓ have |
-| 8 | Victory stinger | needed |
-| 9 | Defeat stinger | needed |
-| 10 | 5★ reveal stinger | needed |
-
-**1. Title / Login**
 ```
-solemn and awe-inspiring, slow build from a single low drone, harp arpeggios, distant wordless choir swelling, church bells, a lone female vocalise carrying the main theme, 70 BPM, D minor, mysterious but inviting, like standing at the foot of an infinite tower
+Instrumental, acid-jazz fusion with gothic orchestral flourishes,
 ```
 
-**2. Base hub**
-```
-warm and understated, gentle lute and harp interplay, soft string pads, occasional small bells, unhurried 80 BPM, D dorian, hopeful medieval court ambience, background music that never tires, calm homecoming feeling
-```
+### The tone dial (COMMITTED 2026-07-17 after alternatives review — no more direction second-guessing)
+Every track sets one dial: funk ↔ sacred. The groove is the gacha's seduction; the choir is what it costs.
+- **Funk-forward**: Arena, Tavern, Expeditions, Herald
+- **Balanced**: Combat, Boss, Elite, Hub, Tower Ascent, Title, Athenaeum
+- **Sacred-only (no groove)**: Synthesis, Memorial, Summon ritual bed, reveal stingers, Ascension ceremony
+Tonal misfits are fixed by sliding THAT track's dial darker, never by re-litigating the direction.
 
-**4. Summon Altar (remake — see §3 for why the old one didn't work)**
-```
-ritual anticipation, deep ceremonial drums, low sustained drone, fragments of gregorian chant, rising tension that never fully resolves, sparse melody, dark and sacred, 90 BPM, D minor, the moment before something answers the call
-```
+### House palette
+- Rhythm: funky/slap bassline, tight punchy drums (brushes when quiet)
+- Color: jazzy electric piano (Rhodes), brass hits, vibraphone for quiet screens
+- Sacred layer: cathedral choir swells, church bells, organ (bosses only), harp
+- Tempo bands: menus 60–85, exploration 95–110, combat 155–165, boss 170+
 
-**5. Synthesis Chamber**
-```
-reverent and transformative, glassy harmonics, harp glissandi, slow choir swells that bloom and recede, sense of sacred alchemy, 65 BPM, D major borrowed warmth over D minor, quiet miracle
-```
+### Consistency stack (in order of strength)
+1. **Cover** the winning combat roll for anything that should share its melody (boss, title) — leitmotif.
+2. **+ Inspo** with the winner attached for new-melody tracks in the same family.
+3. **Saved Style** — save the winner's expanded style text (right panel → Styles) and reuse it.
+4. House prefix + palette words in every prompt.
 
-**8. Victory stinger** (see §4 — generate 30s, keep the opening fanfare)
-```
-short triumphant medieval fanfare, bright brass, pealing bells, one big wordless choir hit, resolves cleanly and completely within the first ten seconds, D major
-```
-
-**9. Defeat stinger**
-```
-somber descending string phrase, single tolling church bell, breath of choir fading to silence, grief without despair, ends unresolved, D minor
-```
-
-**10. 5★ reveal stinger**
-```
-massive sacred choir hit with cathedral bell bloom and harp cascade, radiant, five seconds of pure arrival, golden light in sound form
-```
-
-### Tier 2 — strong wants
-
-**11. Athenaeum / research**
-```
-quiet candlelit study, music box and harp, very sparse, soft choir pad underneath, contemplative and scholarly, 60 BPM, ink and parchment, patience
-```
-
-**12. Combat variant — mid-tower (ashen bands)**
-```
-urgent medieval battle, driving low strings ostinato, war drums, low brass swells, male chant accents, 130 BPM, D minor, relentless ascent
-```
-
-**13. Combat variant — high-tower (celestial/abyssal bands)**
-```
-dreadful and majestic battle, full choir, pipe organ stabs, tremolo strings, cavernous percussion, 140 BPM, the tower itself is watching, sacred terror
-```
-
-**14. Elite / miniboss**
-```
-aggressive sacred battle, string ostinato, pounding war drums, chanting male choir, brass stabs, 145 BPM, D minor, a wall that must be broken
-```
-
-**15. Arena / PvP / tournaments**
-```
-martial tournament energy, crisp snare drums, heraldic brass fanfares, galloping string rhythm, competitive and bright but still medieval, 130 BPM, banners in the wind
-```
-
-**16. Expeditions / world map**
-```
-wandering folk adventure, fiddle and frame drum, wooden recorder melody, open road under a wide sky, 100 BPM, D dorian, optimistic momentum
-```
-
-**17. Memorial / Death Ceremony**
-```
-requiem, solo boy soprano vocalise, quiet pipe organ, slow single bells, long silences between phrases, grief and honor, 50 BPM, D minor, a name carved in stone
-```
-
-**18. Herald / seasonal (Emberfall example)**
-```
-smoldering festival, low strings, crackling hand percussion, minor-key warmth, embers rising into a night sky, 85 BPM, ceremonial but ominous
-```
-
-### Reuse map (don't make more tracks than this)
-- Forge / Market / Facilities / Farm → **Base hub** track
-- Guild Hall → **Tavern**; Guild War → **Elite/miniboss**
-- All 10 tower zones → 3 combat tracks by climb tier (low = existing combat, mid = #12, high = #13). Per-zone unique music is a v2 luxury.
-- Chat drawer, modals, codex → whatever screen is behind them (no switch)
+### Post-production (later, in Suno Studio + Audacity/ffmpeg)
+- Crop chorus → victory stinger raw material; Get Stems → drums-less low-intensity variants.
+- Loop-cut at bar boundaries, crossfade tail→head.
+- Engine: Web Audio gapless looping (MP3 + `loop=true` always gaps), per-screen routing, crossfades, ducking. Files → `frontend/public/audio/bgm/`, `.../stingers/`.
+- Loudness-normalize: −16 LUFS loops, stingers ~3 dB hotter.
 
 ---
 
-## 3. Why the summon music probably feels wrong
+## 2. Track list + prompts (all get the house prefix)
 
-A summon screen isn't a *song* moment — it's a **bed + payoff** moment. If you generated a melodic track, it competes with the reveal. The fix is structural, not a better melody:
+### Combat family — via COVER of the winning roll (shared melody)
 
-1. Altar screen plays the **ritual bed** (#4) — drone + drums, tension, no melodic resolution.
-2. The card-flip/reveal moment cuts the bed and fires a **rarity stinger** (#10 for 5★, a smaller shimmer for 4★, near-silence + soft chime for 3★). The music resolving *is* the reward. This mirrors every big gacha (Genshin/FGO do exactly this).
+**Combat — standard**: the winning roll itself (loop-cut it).
+
+**Boss** (Cover, style text:)
+```
+epic desperate boss battle, aggressive slap bassline, thunderous double-time drums, full cathedral choir, pipe organ stabs, urgent brass, the main melody returning bigger and darker each time, overwhelming and climactic, 172 BPM, no vocals
+```
+
+**Elite / miniboss** (Cover:)
+```
+aggressive relentless battle, driving slap bass, pounding drums, choir accents, brass stabs, tense and unyielding, the main melody fragmented and urgent, 165 BPM, no vocals
+```
+
+**Title screen** (Cover — the foreshadow trick:)
+```
+slow mysterious noir arrangement, brushed drums, upright bass, sparse glassy electric piano carrying the main melody gently, distant cathedral choir, church bells, smoky and inviting, awe at the foot of an infinite tower, 75 BPM, no vocals
+```
+
+### New-melody tracks — via + INSPO with the winner attached
+
+**Base hub** (most-heard track — furniture music: judge by "could I hear this 200 times", not first-listen wow)
+
+*Option A — warm noble groove:*
+```
+warm noble home theme, gentle memorable melody on harp and Rhodes electric piano trading phrases, soft bassline, brushed drums, church bells in the distance, quiet choir pad, hopeful and safe after a long climb, understated, background music that never tires, 80 BPM, no vocals
+```
+*Option B — atmospheric, minimal groove:*
+```
+serene majestic home theme, slow harp arpeggios, warm string pads, distant cathedral choir, occasional soft piano melody, church bells marking time, sanctuary within ancient stone walls, peaceful gravity, 70 BPM, no vocals
+```
+
+**Tavern** (have one — regen under Pro in-theme if the old one clashes)
+```
+lively jazz lounge, walking upright bass, playful piano trio, brushed swing drums, warm brass, rowdy but cozy medieval tavern after a long climb, 110 BPM, no vocals
+```
+
+**Summon Altar** (ritual bed — tension, no resolution; reveal stingers do the payoff)
+```
+dark ambient jazz ritual, low sustained drone, sparse ominous piano voicings, deep ceremonial drums, choir fragments rising and receding, tension that never resolves, the moment before something answers, 90 BPM, no vocals
+```
+
+**Synthesis Chamber** (hero sacrifice — ominous ritual dread, NOT a happy miracle; distinct from Memorial: Memorial = grief after, Synthesis = dread during)
+```
+dark sacrificial ritual, low ominous drone, slow tolling bell, deep male choir chanting underneath, sparse dissonant piano notes, heartbeat-like muffled drum pulse, dread and solemn gravity, a price being paid, tension that never resolves, 55 BPM, no vocals
+```
+
+**Athenaeum / research**
+```
+quiet late-night jazz study, soft piano, vibraphone, upright bass, brushed drums barely there, faint choir pad, candlelit and scholarly, patient, 60 BPM, no vocals
+```
+
+**Expeditions / world map**
+```
+adventurous mid-tempo jazz fusion, traveling groove, warm bassline, bright electric piano, hopeful brass melody, open road under a wide sky, 105 BPM, no vocals
+```
+
+**Arena / PvP / tournaments**
+```
+swaggering competitive jazz-funk, strutting slap bass, crisp drums, blazing horn section riffs, confident showy lead melody, tournament banners and crowd energy, 140 BPM, no vocals
+``` this one maybe just redoable. Not sure i'm happy with it.
+
+**Memorial / Death Ceremony**
+```
+mournful slow elegy, solo piano, upright bass, distant wordless choir, single tolling church bell, long silences between phrases, grief and honor, 50 BPM, no vocals
+``` maybe a little too happy at the end... i'm not sure how to feel
+
+**Tower Ascent (floor select / pre-climb)**
+```
+tense simmering jazz groove, pulsing bassline, ticking hi-hats, sparse electric piano stabs, low choir pad building anticipation, church bell accents, gathering resolve before the climb, restrained energy that never fully releases, 100 BPM, no vocals
+```
+
+**Herald / seasonal (Emberfall)**
+```
+smoldering minor-key jazz groove, low brass, crackling hand percussion, embers rising into a night sky, ceremonial but ominous, 85 BPM, no vocals
+```
+
+### Stingers (non-looping; trim tight)
+
+**Victory** — COVER of the winning combat track (so the jingle bursts with the combat melody — FF-style), style text:
+```
+short triumphant victory fanfare, brass and bells over a funky bass run, one big choir hit, celebratory, resolves cleanly within ten seconds, no vocals
+```
+Fallback if covers come out weird at short form: plain generation with the same prompt. All OTHER stingers (Defeat, reveals, evo stings, Ascension) = plain generations, NO Inspo — the choir/bell language carries the consistency, and a funk battle reference would drag them toward groove.
+
+**Defeat**
+```
+somber descending piano phrase, single tolling church bell, breath of choir fading to silence, ends unresolved, no vocals
+```
+
+**Rarity reveals — 3 musical tiers, shared by hero AND equipment banners** (the sound signals rarity, not item type; 1–3★ are SFX-kit territory, no music):
+
+**4★ reveal**
+```
+short bright shimmer, small bell cascade and brief choir swell, pleasant arrival, three seconds, no vocals
+```
+
+**5★ reveal**
+```
+big sacred choir hit with cathedral bell bloom, harp cascade over one deep bass note, radiant arrival, five seconds of golden light, no vocals
+```
+
+**6★ reveal** (top summonable rarity — the jackpot; pair with a rising pre-reveal tell before the flip)
+```
+rising anticipation swell into a massive cathedral choir and organ hit, deep bells blooming, harp glissando raining down, overwhelming golden radiance, the rarest arrival, no vocals
+```
+
+**Evolution stings** — evolutions NEVER play summon reveal stingers (summon sounds = luck, evolution sounds = earned progress; keep the associations pure). Tiered by target star:
+
+*Standard (evolving to 2★–5★):*
+```
+radiant ascending choir swell, quick harp run, warm bells, triumphant short bloom, eight seconds, no vocals
+```
+
+*Grand (evolving to 6★)* — same musical phrase, bigger arrangement:
+```
+radiant ascending choir swell blooming into full cathedral choir, harp cascade, deep resonant bells, triumphant and majestic, ten seconds, no vocals
+```
+
+*7★ = the Ascension ceremony below (evolution-exclusive by design).*
+
+**7★ Ascension ceremony** (evolution-exclusive peak — a 20–30s set piece, not a sting; the sacred layer at absolute maximum)
+```
+sacred ascension ceremony, solo choir voice over deep organ, cathedral bells tolling in celebration, full choir building wave on wave, funky bassline and jazz drums entering halfway like the world resuming, radiant climax, transcendence, no vocals
+```
+
+### Reuse map
+- Forge / Market / Facilities / Farm → Base hub
+- Guild Hall → Tavern; Guild War → Elite
+- 10 tower zones → standard combat (low bands) / elite (mid) / boss-adjacent tension (top) — per-zone music is v2
+- Chat drawer / modals / codex → no music switch
 
 ---
 
-## 4. Looping — the practical recipe
+## 2.5 Adaptive combat music (fights are shorter than songs — solved)
 
-Suno will not give you a perfect loop; you make one in post:
+1. **Session-persistent BGM**: combat track runs continuously across consecutive floors in a zone; resets only on leaving the tower. (Hades / Slay the Spire model — fits chained-floor climbing perfectly.)
+2. **Layered intensity**: Get Stems on the combat track → drums-less mix plays on Tower Ascent / between fights, full mix crossfades in when combat starts — same timeline, so the drums just "kick in" with the fight. Two synced Web Audio buffers + gain crossfade.
+3. **Boss phase → chorus jump**: on phase transition, seek the boss track to its chorus timestamp (mark once in Audacity). Roadmap already has boss phases; this makes the music feel composed per-fight.
+4. **Jukebox** in Tavern/Hearth ("the bard's repertoire"): unlocked tracks play in full; unlocks tied to progression (clear zone → zone track; first 7★ → Ascension ceremony). OST as collectible content.
+5. **Loop-cut placement**: combat loops start near the hook, not the intro — the first 30s are the only guaranteed listen. Slow intros are for linger-screens only.
 
-1. Generate ~2 min, instrumental.
-2. In Audacity (or ffmpeg): find two points where the music is on the same chord/bar boundary, cut there, and **crossfade the tail into the head** (200–500 ms). Export.
-3. **Do not rely on MP3 + `loop=true`** — MP3 encoding pads silence at the start/end, so [audio.js](frontend/src/audio.js) `bgmAudio.loop = true` will always click/gap. Two fixes:
-   - Encode loops as **OGG Vorbis** (gapless-capable, smaller files), and/or
-   - Better: play BGM through the **Web Audio API** (`decodeAudioData` → `AudioBufferSourceNode` with `loop`, `loopStart`, `loopEnd`) — sample-accurate gapless, and we already have an `AudioContext`. Also enables the intro-then-loop pattern (play intro once, loop the body) which makes tracks feel far less repetitive.
-4. Stingers (victory/defeat/reveal): trim tight, no loop, export as-is.
+## 3. Order of operations
 
-### Suno stinger tip
-Suno is bad at "make me 6 seconds." Generate a 30s piece whose *opening* is the fanfare, then trim to the first phrase.
+1. Lock the winner: favorite it, save its Style, Get Stems, Crop the chorus
+2. Cover chain: Boss → Title → Elite
+3. Inspo chain: Hub → Summon bed + reveal stingers → Victory/Defeat
+4. Engine: Web Audio BGM manager (gapless loops, per-screen routing, crossfade, ducking)
+5. Remaining Inspo tracks: Synthesis, Athenaeum, Tavern regen, Arena, Expeditions, Memorial, Herald
+6. Video-ad music: COVER the winner. Two options (judge rolls by the final 15s — the ending must slam shut, not noodle):
 
-## 5. Engine work needed (I can build all of this)
+   *Instrumental:*
+   ```
+   epic cinematic trailer arrangement, starts sparse and mysterious with solo piano and distant choir, builds with rising drums and slap bass, explodes into full cathedral choir and brass carrying the main melody, dramatic pause before the final hit, huge clean ending, no fade out, no vocals
+   ```
 
-- **BGM manager** in `audio.js`: per-screen track routing, 1s crossfades between screens, gapless Web Audio looping, preload/caching, duck BGM −8 dB under stingers and VO. Files live in `frontend/public/audio/bgm/` and `.../stingers/`.
-- **ffmpeg prep script**: batch loudness-normalize + convert everything Suno exports.
+   *Vocal (Atlus-style anthem — uncheck Instrumental; optionally add "lyrics about climbing an endless tower, defying fate"):*
+   ```
+   epic stylish trailer anthem, confident female vocalist singing a short soaring hook over the main melody, funky slap bass, driving drums, cathedral choir answering the vocal line, church bells, builds to a massive final chorus with a clean powerful ending, no fade out, minimal lyrics, anthemic
+   ```
 
-## 6. SFX verdict
+## 4. Odds and ends
 
-**Keep the synth kit as the base layer** — it was built swap-ready and covers clicks/hits fine. Upgrade only the ~10 hero moments with real samples (ElevenLabs SFX gen, or Sonniss GDC free packs):
-
-card flip, 5★/4★ reveal whoosh, crit hit, chest/reward open, currency gain, evolution/capstone, quest complete, banner pull button, error/denied thunk, chat pop.
-
-## 7. Voice acting verdict
-
-- **Announcer barks: YES.** Cheapest audio-to-hype ratio in the genre. One voice — a deep, solemn herald/monk narrator (ElevenLabs) — and ~10 lines, reused forever: "Victory." "Defeat." "The Tower acknowledges your ascent." (floor milestones) "A legend answers the call." (5★) "Your legend grows." (evolution). Same voice everywhere = brand.
-- **Fairy full VA: NO.** Every future dialogue line would need matching VO, and mismatched/partial VO reads cheaper than none. Middle ground that works great: 3–5 **wordless vocal chirps** (curious hm?, excited!, giggle, gasp) + text-blip sounds, Animal Crossing / Banjo style. Charm without the treadmill.
-- **Per-hero summon voices: hard no** for ~90 heroes. v3 dream.
-
-## 8. Order of operations
-
-1. Remake summon as ritual bed + build the 3 reveal stingers
-2. Title, Base hub, Victory/Defeat stingers
-3. BGM manager + Web Audio gapless looping (engine)
-4. Synthesis, Athenaeum, Memorial
-5. Combat variants, Arena, Expeditions, Herald
-6. Announcer VO pass + hero-moment SFX swap
+- **Suno Studio**: use at post phase for loop-cutting/stem work, not for generation.
+- **Voices (née Personas)**: vocal-identity tool — irrelevant for instrumental OST. Ignored.
+- **Licensing**: everything shipping must be generated while subscribed (Pro). Old f2p favorites can seed Covers/Inspo but can't ship themselves.
+- **Logo**: SVG illuminated wordmark (drop-cap initial, gold leaf) + optional SD-generated emblem. Suno cover-art gen: not for this.
+- **Publishing the OST**: never naked, always wearing the game. No Suno publishing (wrong audience), no pre-launch Spotify album (no discovery value + AI-music platform/backlash friction). DO: trailer, short-form gameplay clips with the boss chorus, teaser tracks in Discord pre-playtest, free OST playlist on the game's YouTube channel at launch.
