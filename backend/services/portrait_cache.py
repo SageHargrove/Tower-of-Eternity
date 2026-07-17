@@ -973,11 +973,29 @@ def make_game_cutout(path: str, mode: str = "auto") -> bool:
                     fg = ~bg
                     if seg_fg is not None:
                         fg = fg | seg_fg
+                    # v5 (2026-07-17, Liam: "images just aren't perfectly cut"):
+                    # keep small detached pieces NEAR the figure (sparks, flame
+                    # tips) — only distant specks die. 1px dilation stops the
+                    # dark antialiased outline being shaved.
                     flbl, n = ndimage.label(fg)
                     if n > 1:
                         sizes = ndimage.sum(fg, flbl, range(1, n + 1))
-                        fg &= ~np.isin(flbl, np.where(sizes < 64)[0] + 1)
-                    mask = ndimage.gaussian_filter(fg.astype(np.float32), sigma=0.7)
+                        main = (sizes >= 64)
+                        near_main = ndimage.binary_dilation(
+                            np.isin(flbl, np.where(main)[0] + 1), iterations=24)
+                        keep = np.isin(flbl, np.where(main)[0] + 1) | (fg & near_main)
+                        fg = keep & fg
+                    fg = ndimage.binary_dilation(fg, iterations=1)
+                    # luminance-keyed glow skirt: auras/embers that fade toward
+                    # black get a smooth alpha ramp instead of a hard chop —
+                    # applied only within ~30px of the figure so far-field
+                    # noise stays fully transparent.
+                    hard = fg.astype(np.float32)
+                    maxc = rgb.max(axis=2).astype(np.float32)
+                    glow = np.clip((maxc - 8.0) / 32.0, 0.0, 1.0)
+                    near = ndimage.binary_dilation(fg, iterations=30)
+                    soft = np.maximum(hard, np.where(near, glow, 0.0))
+                    mask = ndimage.gaussian_filter(soft, sigma=0.7)
                     alpha = np.clip(mask * 255, 0, 255).astype(np.uint8)
                     if _cutout_ok(alpha, rgb):
                         rgba = np.dstack([rgb, alpha])
