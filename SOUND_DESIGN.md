@@ -64,15 +64,19 @@ slow mysterious noir arrangement, brushed drums, upright bass, sparse glassy ele
 
 ### New-melody tracks — via + INSPO with the winner attached
 
-**Base hub** (most-heard track — furniture music: judge by "could I hear this 200 times", not first-listen wow)
+**Base hub — ROTATION SET of 3** (most-heard screen; the BGM manager shuffles per-screen playlists, no back-to-back repeats. Rotation policy: Hub ×3 at launch, Tavern ×2 later, everything else ×1 — expand by exposure in live-service patches.)
 
-*Option A — warm noble groove:*
+*Hub A — warm noble groove:*
 ```
 warm noble home theme, gentle memorable melody on harp and Rhodes electric piano trading phrases, soft bassline, brushed drums, church bells in the distance, quiet choir pad, hopeful and safe after a long climb, understated, background music that never tires, 80 BPM, no vocals
 ```
-*Option B — atmospheric, minimal groove:*
+*Hub B — atmospheric sanctuary:*
 ```
 serene majestic home theme, slow harp arpeggios, warm string pads, distant cathedral choir, occasional soft piano melody, church bells marking time, sanctuary within ancient stone walls, peaceful gravity, 70 BPM, no vocals
+```
+*Hub C — evening hearth (warmth with people in it):*
+```
+gentle homecoming theme, soft Rhodes and harp carrying a tender melody, warm upright bass, light brushed groove, distant bells and low choir pad, the stronghold at evening with fires lit and heroes resting, quiet life and comfort, 75 BPM, no vocals
 ```
 
 **Tavern** (have one — regen under Pro in-theme if the old one clashes)
@@ -100,15 +104,15 @@ quiet late-night jazz study, soft piano, vibraphone, upright bass, brushed drums
 adventurous mid-tempo jazz fusion, traveling groove, warm bassline, bright electric piano, hopeful brass melody, open road under a wide sky, 105 BPM, no vocals
 ```
 
-**Arena / PvP / tournaments**
+**Arena / PvP / tournaments** (v2 — less big-band show, more gladiator)
 ```
-swaggering competitive jazz-funk, strutting slap bass, crisp drums, blazing horn section riffs, confident showy lead melody, tournament banners and crowd energy, 140 BPM, no vocals
-``` this one maybe just redoable. Not sure i'm happy with it.
+hard-hitting competitive battle groove, gritty slap bass, driving aggressive drums, dark brass riffs, two dueling lead melodies trading bars like opponents, choir surges on the impacts, fierce and confident, a coliseum under cathedral banners, 145 BPM, no vocals
+```
 
-**Memorial / Death Ceremony**
+**Memorial / Death Ceremony** (v2 — Suno loves resolving to a major "happy" cadence; forbid it. If a roll is perfect except the ending, just trim the last bars in post instead of discarding.)
 ```
-mournful slow elegy, solo piano, upright bass, distant wordless choir, single tolling church bell, long silences between phrases, grief and honor, 50 BPM, no vocals
-``` maybe a little too happy at the end... i'm not sure how to feel
+mournful slow elegy, solo piano, upright bass, distant wordless choir, single tolling church bell, long silences between phrases, grief and honor, stays in minor key throughout, ends unresolved on a suspended fading chord, no triumphant resolution, 50 BPM, no vocals
+```
 
 **Tower Ascent (floor select / pre-climb)**
 ```

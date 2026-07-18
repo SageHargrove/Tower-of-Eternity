@@ -862,12 +862,15 @@ def _cutout_ok(alpha, rgb) -> bool:
     if opaque < 0.06 or opaque > 0.92:
         return False
     if figure > 0.02:
-        kept_bright = ((alpha > 128) & figure_px).sum() / max(figure_px.sum(), 1)
+        # alpha > 200: content must be kept SOLID — half-alpha ghosting
+        # (v5's glow skirt resurrecting misclassified bodies) must not
+        # satisfy the gate (2026-07-17).
+        kept_bright = ((alpha > 200) & figure_px).sum() / max(figure_px.sum(), 1)
         if kept_bright < 0.90:
             return False
     mid_px = (maxc > 16) & (maxc <= 45)              # dark-body midtones
     if mid_px.sum() / total > 0.01:
-        kept_mid = ((alpha > 128) & mid_px).sum() / max(mid_px.sum(), 1)
+        kept_mid = ((alpha > 200) & mid_px).sum() / max(mid_px.sum(), 1)
         if kept_mid < 0.65:
             return False
     return True
@@ -992,7 +995,12 @@ def make_game_cutout(path: str, mode: str = "auto") -> bool:
                     # noise stays fully transparent.
                     hard = fg.astype(np.float32)
                     maxc = rgb.max(axis=2).astype(np.float32)
-                    glow = np.clip((maxc - 8.0) / 32.0, 0.0, 1.0)
+                    # v6 (2026-07-17): ramp starts at 24, not 8 — dark BODY
+                    # pixels (~15-40) misclassified as bg were being
+                    # resurrected at half-alpha, ghosting whole torsos
+                    # (Liam's trench_stalker/void_horror screenshots). Real
+                    # emissive glows are brighter and still ramp smoothly.
+                    glow = np.clip((maxc - 24.0) / 40.0, 0.0, 1.0)
                     near = ndimage.binary_dilation(fg, iterations=30)
                     soft = np.maximum(hard, np.where(near, glow, 0.0))
                     mask = ndimage.gaussian_filter(soft, sigma=0.7)
