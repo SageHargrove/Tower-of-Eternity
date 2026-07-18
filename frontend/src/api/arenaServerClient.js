@@ -5,7 +5,9 @@
 // (arenaServerUrl) still wins if present, for dev/testing against a
 // different host — settable from the console:
 //   localStorage.setItem('arenaServerUrl', 'http://other-host:8001')
-export const DEFAULT_ARENA_SERVER_URL = 'http://localhost:8001'
+// Production arena on the Oracle VM (Caddy TLS in front of the container).
+// localStorage 'arenaServerUrl' still overrides for local dev.
+export const DEFAULT_ARENA_SERVER_URL = 'https://170.9.255.240.nip.io'
 
 const URL_KEY = 'arenaServerUrl'
 const TOKEN_KEY = 'arenaServerToken'

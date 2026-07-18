@@ -13,14 +13,21 @@
 #
 # Then point DEFAULT_ARENA_SERVER_URL (frontend/src/api/arenaServerClient.js)
 # at http://<your-host>:8001 and rebuild the frontend.
+# NOTE (2026-07-18): build context must be the REPO ROOT, not arena_server/ —
+# combat.py imports the real combat engine from the sibling backend/ package
+# (services/combat_service.py et al), so the image must carry backend/ too:
+#   docker build -f arena_server/Dockerfile -t tower-world-server .
 FROM python:3.11-slim
 
 WORKDIR /app
 
-COPY requirements.txt ./
-RUN pip install --no-cache-dir -r requirements.txt
+COPY arena_server/requirements.txt ./
+COPY backend/requirements.txt ./backend-requirements.txt
+RUN pip install --no-cache-dir -r requirements.txt -r backend-requirements.txt
 
-COPY . .
+# backend lands at /backend — combat.py resolves it as ../backend from /app
+COPY backend /backend
+COPY arena_server /app
 
 # arena.db lives in /app/data so a volume mount survives image rebuilds.
 ENV ARENA_DB_PATH=/app/data/arena.db
