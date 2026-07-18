@@ -132,6 +132,14 @@ def _issue_token(conn, username: str) -> str:
     return token
 
 
+@app.get("/")
+def root_status():
+    """Human-friendly landing so browsing the arena URL doesn't look broken —
+    the real API lives under /auth and /arena; the game client knows the way."""
+    return {"service": "Tower of Eternity — World Server", "status": "ok",
+            "hint": "This is the multiplayer API. Launch the game to play."}
+
+
 @app.post("/auth/register")
 def auth_register(req: AuthRegisterRequest):
     """Account creation for the startup login screen: email + display name +
