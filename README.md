@@ -9,13 +9,92 @@ positioning, gear, class synergy, morale, and a hero's personality (their
 
 ---
 
-## Running It
+## 🎮 Playtest — Send This to Friends
 
-**To just play the game:** run `app_launcher.py` (or the packaged desktop
-build, if you've built one with PyInstaller — see `app_launcher.spec` /
-`InfiniteGacha.spec`). It boots the backend, boots ComfyUI (for portrait
-generation), and opens a desktop window pointed at the game — one step,
-no manual terminals.
+**To play (no coding needed):**
+
+1. Install **Python 3.11 or newer** from [python.org](https://www.python.org/downloads/) — during setup, **check "Add Python to PATH."**
+2. Download this repo: green **`Code`** button above → **Download ZIP** → extract it anywhere.
+3. Double-click **`PLAY.bat`**. The first run installs things for a few minutes, then the game opens in your browser at `http://localhost:8000`.
+4. At the title screen, **make an account** — please use a **throwaway password**, not one you use elsewhere. Multiplayer (PvP, leaderboards) connects automatically.
+
+That's it — you play on the built-in art. Everyone shares the same world server for multiplayer.
+
+**Optional — generate your own unique heroes (needs an NVIDIA GPU, ~12GB free disk):**
+
+1. Double-click **`INSTALL_GENERATION.bat`** once — it downloads the AI art tools and models (~9GB, resume-safe if interrupted).
+2. Launch with `PLAY.bat`, then enter **any API key** in the tutorial or **Settings → AI Generation**. Your summons will now roll brand-new heroes in the game's art style instead of the shared gallery.
+
+No NVIDIA GPU? Skip this — the game plays fine on the built-in art.
+
+---
+
+## 🖥️ Hosting the Multiplayer Server (Liam)
+
+The World server (accounts, PvP, raids) runs in Docker on the Oracle VM at
+**`https://170.9.255.240.nip.io`**. The game client already points at it.
+SSH key: `C:\Users\liamh\.ssh\oracle_toe.key` · admin key:
+`C:\Users\liamh\.ssh\toe_arena_admin_key.txt` (both outside this repo).
+
+```bash
+# SSH in
+ssh -i C:\Users\liamh\.ssh\oracle_toe.key ubuntu@170.9.255.240
+
+# --- Check status ---
+sudo docker ps                       # is world-server running?
+sudo docker logs --tail 50 world-server
+curl -s https://170.9.255.240.nip.io/   # should return a status JSON
+
+# --- Stop the server (players can't reach multiplayer while down) ---
+sudo docker stop world-server
+
+# --- Start it back up ---
+sudo docker start world-server
+
+# --- Restart (e.g. after config change) ---
+sudo docker restart world-server
+```
+
+It's set to `--restart unless-stopped`, so it comes back on its own after a
+reboot or crash — you only ever run `stop`/`start` to deliberately take
+multiplayer offline or bring it back.
+
+**Redeploying after code changes** to `arena_server/` or `backend/` — from
+the repo root on your PC:
+
+```bash
+# 1. bundle both dirs (arena imports the backend combat engine)
+tar czf /tmp/toe_deploy.tgz --exclude=__pycache__ --exclude="*.db" \
+    --exclude=backend/static --exclude=backend/venv --exclude=backend/saves \
+    arena_server backend
+
+# 2. ship + rebuild + relaunch (keeps the arena.db volume + admin key)
+scp -i C:\Users\liamh\.ssh\oracle_toe.key /tmp/toe_deploy.tgz ubuntu@170.9.255.240:/home/ubuntu/
+ssh -i C:\Users\liamh\.ssh\oracle_toe.key ubuntu@170.9.255.240 \
+  "rm -rf arena_server backend && tar xzf toe_deploy.tgz && \
+   sudo docker build -q -f arena_server/Dockerfile -t tower-world-server . && \
+   sudo docker rm -f world-server; \
+   sudo docker run -d --name world-server --restart unless-stopped \
+     -p 127.0.0.1:8001:8001 -e ARENA_ADMIN_KEY=\$(cat ~/admin_key 2>/dev/null || echo changeme) \
+     -v world_data:/app/data tower-world-server"
+```
+
+> The arena `Dockerfile` must be built from the **repo root** (`-f arena_server/Dockerfile .`),
+> not from inside `arena_server/` — the image needs the sibling `backend/`
+> package for the shared combat simulation.
+
+**Wipe multiplayer data** (junk accounts, corruption — playtest data is
+disposable): `sudo docker rm -f world-server && sudo docker volume rm world_data`,
+then run the launch command above to start fresh.
+
+---
+
+## Running It (Development)
+
+**To just play** (packaged flow), use `PLAY.bat` — see the Playtest section
+above. `app_launcher.py` is the older one-step desktop launcher (backend +
+ComfyUI + a native window via PyInstaller specs) and still works if you
+prefer a windowed build:
 
 ```
 python app_launcher.py
@@ -105,7 +184,10 @@ file per profile). DB schema migrations run automatically at startup.
 ## Repository Layout
 
 ```
-app_launcher.py               # One-step desktop launcher (backend + ComfyUI + window)
+PLAY.bat                      # Player launcher — venv bootstrap + game at localhost:8000
+INSTALL_GENERATION.bat        # Optional: local AI hero generation (NVIDIA GPU)
+generation/loras/             # Hero style models (git LFS) pulled by the installer
+app_launcher.py               # Older one-step desktop launcher (backend + ComfyUI + window)
 Dockerfile                    # Container build for the backend
 docs/                         # Design/plan documents
 openspec/                     # Feature specs (openspec workflow)
@@ -149,12 +231,16 @@ arena_server/                 # The World server — separate FastAPI service yo
 
 ## Known Gaps
 
-- **Arena PvP** — fully wired end-to-end (ArenaPage.jsx → arenaServerClient.js
-  → arena_server/, with the main backend exporting team snapshots). Matchmaking
-  and leaderboards are implemented in arena_server/. Not currently running as a
-  live service — game balance is still moving too fast for hosted PvP. **One
-  real gap:** arena_server can't report match results back to a local save, so
-  the PvP-rating achievements stay at 0 progress until that round trip exists.
+- **Arena PvP** — live on the Oracle VM (see Hosting above) and wired
+  end-to-end. **One real gap:** arena_server can't report match results back to
+  a local save, so the PvP-rating achievements stay at 0 progress until that
+  round trip exists.
+- **Personal generation key** — entering an API key switches on local hero
+  generation (Option A, `INSTALL_GENERATION.bat`), but the key's *value* is not
+  yet consumed by a hosted service; it's a local on/off switch for now.
+- **Hydra family** — Hydra, Hydra Spawn, Wyvern Stormrider, and the Hydra
+  Sovereign boss are cut from the roster pending a stronger monster art model;
+  they'll return once `ToE_Monsters_v2` is trained.
 - **Summon Tickets** — implemented (`/gacha/use-ticket`); currently only
   obtainable as Achievement rewards. Tier art (4★–7★) uses placeholders.
 - **Enemy roster art** — floor waves are implemented; enemy art needs polish.
