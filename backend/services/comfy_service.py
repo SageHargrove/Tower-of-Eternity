@@ -382,17 +382,29 @@ def ensure_comfy_running() -> bool:
     if not COMFY_URL.startswith(("http://127.0.0.1", "http://localhost")):
         return False  # remote server — nothing to launch locally
     import subprocess, sys
-    cand = os.getenv("COMFYUI_DIR") or os.path.join(os.path.expanduser("~"), "ComfyUI")
-    main_py = os.path.join(cand, "main.py")
-    if not os.path.exists(main_py):
+    home = os.path.expanduser("~")
+    cands = [c for c in (
+        os.getenv("COMFYUI_DIR"),
+        os.path.join(home, "ComfyUI"),
+        # INSTALL_GENERATION.bat's portable layout
+        os.path.join(home, "ToE-Generation", "ComfyUI_windows_portable", "ComfyUI"),
+    ) if c]
+    cand = next((c for c in cands if os.path.exists(os.path.join(c, "main.py"))), None)
+    if not cand:
         return False
+    # python: dev venv inside the dir, or the portable build's embedded
+    # python one level up (ComfyUI_windows_portable/python_embeded/) —
+    # NEVER sys.executable (the game venv has no torch).
     py = os.path.join(cand, "venv", "Scripts", "python.exe")
     if not os.path.exists(py):
-        py = sys.executable
+        py = os.path.join(os.path.dirname(cand), "python_embeded", "python.exe")
+    if not os.path.exists(py):
+        print(f"[ComfyUI] Found {cand} but no runnable python — skipping auto-start.")
+        return False
     try:
         flags = subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
-        subprocess.Popen([py, main_py, "--listen", "127.0.0.1", "--port",
-                          COMFY_URL.rsplit(":", 1)[-1]],
+        subprocess.Popen([py, "-s", os.path.join(cand, "main.py"), "--listen", "127.0.0.1",
+                          "--port", COMFY_URL.rsplit(":", 1)[-1]],
                          cwd=cand, creationflags=flags,
                          stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         print(f"[ComfyUI] Auto-started from {cand} (warming up).")
