@@ -1149,15 +1149,14 @@ def rename_portrait_for_hero(hero_id: int, old_path: str, hero_name: str):
 # ---------------------------------------------------------------------------
 
 def _generation_unlocked() -> bool:
-    """Player-facing hero generation runs ONLY once an API key is attuned
-    (Liam's launch UX: fresh install = base art everywhere; entering a key
-    in the tutorial/settings is the switch that turns personal generation
-    on). Batch/curation scripts call comfy_service directly and are not
-    affected. The key's VALUE is not consumed yet — local ComfyUI needs no
-    auth — it is reserved for the future hosted-generation path."""
+    """Player-facing portrait generation runs only when the player has turned
+    on image generation (Settings -> AI). Fresh install = OFF = bundled art
+    pool; flipping it on runs local ComfyUI. Independent of the Claude API
+    key (that powers text). Batch/curation scripts call comfy_service
+    directly and are not affected by this gate."""
     try:
-        from routers.settings import get_generation_api_key
-        return bool(get_generation_api_key())
+        from routers.settings import get_image_generation_enabled
+        return get_image_generation_enabled()
     except Exception:
         return False
 

@@ -24,7 +24,7 @@ import GuildHall from './components/GuildHall'
 import Social from './components/Social'
 import ProfileCard from './components/ProfileCard'
 import { emitToast } from './toastBus'
-import { getBase, grantResources, clearDevInventory, setDevLevel, grantInventoryItem, listHeroes, getAchievements, getMailList, getChatLogs, getApiKeyStatus, setApiKey } from './api/client'
+import { getBase, grantResources, clearDevInventory, setDevLevel, grantInventoryItem, listHeroes, getAchievements, getMailList, getChatLogs, getApiKeyStatus, setApiKey, getGenerationEnabled, setGenerationEnabled } from './api/client'
 import { confirmDialog, alertDialog } from './components/DialogHost'
 import { initAudio, setSoundEnabled, isSoundEnabled, playClick, setBgmVolume, setSfxVolume } from './audio'
 
@@ -78,6 +78,8 @@ export default function App() {
   const [apiKeyStatus, setApiKeyStatus] = useState(null)
   const [apiKeyInput, setApiKeyInput] = useState('')
   const [apiKeySaving, setApiKeySaving] = useState(false)
+  const [genEnabled, setGenEnabled] = useState(false)
+  const [genSaving, setGenSaving] = useState(false)
   const [soundOn, setSoundOn] = useState(localStorage.getItem('soundEnabled') !== 'false')
   // Background ornament style — live A/B from Settings, persisted per install
   const [bgVariant, setBgVariant] = useState(localStorage.getItem('toe_bg_variant') || 'starfield')
@@ -136,7 +138,10 @@ export default function App() {
   }
 
   useEffect(() => {
-    if (showSettings) getApiKeyStatus().then(setApiKeyStatus).catch(() => {})
+    if (showSettings) {
+      getApiKeyStatus().then(setApiKeyStatus).catch(() => {})
+      getGenerationEnabled().then(r => setGenEnabled(!!r.enabled)).catch(() => {})
+    }
   }, [showSettings])
 
   useEffect(() => {
@@ -479,18 +484,18 @@ export default function App() {
                 </div>
               </div>
 
-              {/* AI generation — bring your own API key */}
+              {/* AI — Claude key (text) + image generation toggle */}
               <div style={{ marginTop: '1.4rem' }}>
                 <div className="ilm-settings-row" style={{ marginBottom: 6 }}>
-                  <span className="ilm-settings-k">AI GENERATION KEY</span>
+                  <span className="ilm-settings-k">CLAUDE API KEY</span>
                   <span style={{ fontSize: '.72rem', color: apiKeyStatus?.set ? 'var(--green-hi)' : 'var(--muted)' }}>
-                    {apiKeyStatus?.set ? `SET (${apiKeyStatus.masked})` : 'NOT SET'}
+                    {apiKeyStatus?.set ? (apiKeyStatus.env ? 'FROM ENV' : `SET (${apiKeyStatus.masked})`) : 'NOT SET'}
                   </span>
                 </div>
                 <div style={{ display: 'flex', gap: 8 }}>
                   <input
                     type="password"
-                    placeholder={apiKeyStatus?.set ? 'Enter a new key to replace…' : 'Paste your API key…'}
+                    placeholder={apiKeyStatus?.set ? 'Enter a new key to replace…' : 'Paste your Claude API key…'}
                     value={apiKeyInput}
                     onChange={e => setApiKeyInput(e.target.value)}
                     style={{ flex: 1, background: 'rgba(8,6,14,0.9)', border: '1px solid rgba(184,151,98,.3)', borderRadius: 6, color: 'var(--text-hi)', padding: '9px 10px', fontSize: '.85rem' }}
@@ -510,7 +515,32 @@ export default function App() {
                   >{apiKeySaving ? '…' : apiKeyInput.trim() ? 'SAVE' : 'CLEAR'}</button>
                 </div>
                 <div className="text-dim" style={{ fontSize: '0.7rem', fontStyle: 'italic', marginTop: 4 }}>
-                  With a key, hero &amp; monster art is generated uniquely for your world. Without one, the game uses its built-in art pool. Your key stays on this machine.
+                  Powers all written content — hero names, backstories, dialogue, and the appearance descriptions used for portraits. Your key stays on this machine.
+                </div>
+
+                {/* Image generation on/off (independent of the key) */}
+                <div className="ilm-settings-row" style={{ marginTop: '1.1rem', marginBottom: 6 }}>
+                  <span className="ilm-settings-k">HERO PORTRAIT GENERATION</span>
+                  <button
+                    disabled={genSaving}
+                    onClick={async () => {
+                      setGenSaving(true)
+                      try {
+                        const res = await setGenerationEnabled(!genEnabled)
+                        setGenEnabled(!!res.enabled)
+                      } catch (e) { emitToast(e.message, 'error') }
+                      setGenSaving(false)
+                    }}
+                    style={{
+                      padding: '5px 14px', cursor: 'pointer', borderRadius: 20, fontSize: '.72rem', letterSpacing: '.08em',
+                      border: `1px solid ${genEnabled ? 'var(--green-hi)' : 'rgba(184,151,98,.4)'}`,
+                      background: genEnabled ? 'rgba(80,200,120,.15)' : 'rgba(12,7,24,.5)',
+                      color: genEnabled ? 'var(--green-hi)' : 'var(--muted)',
+                    }}
+                  >{genSaving ? '…' : genEnabled ? 'ON' : 'OFF'}</button>
+                </div>
+                <div className="text-dim" style={{ fontSize: '0.7rem', fontStyle: 'italic', marginTop: 4 }}>
+                  When ON, your summons render unique portraits on this machine's GPU (needs a local NVIDIA GPU + ComfyUI — see INSTALL_GENERATION.bat). When OFF, heroes use the built-in art pool. Turn it off anytime to free up your GPU mid-session.
                 </div>
               </div>
 

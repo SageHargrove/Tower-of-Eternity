@@ -1,9 +1,16 @@
-"""Install-wide settings (not per-profile): currently the player's own
-image-generation API key. Stored in saves/settings.json on the player's
-machine — it's their key on their disk, plaintext is acceptable; it is
-never sent to the world server. The key is the opt-in for personal AI art
-generation: without one (and without a local ComfyUI), heroes come from the
-bundled default art pool."""
+"""Install-wide settings (not per-profile), stored in saves/app_settings.json
+on the player's own machine — their keys on their disk, plaintext acceptable,
+never sent to the world server. Two independent controls:
+
+  • LLM API key (Anthropic/Claude) — powers ALL text generation: hero names,
+    backstories, the appearance descriptions that feed portrait generation,
+    combat narration, chatter, flavor. Without it, text falls back to built-in
+    placeholders. (Env var ANTHROPIC_API_KEY still works as a dev fallback.)
+  • Image generation on/off — whether local ComfyUI renders custom hero
+    portraits on this machine's GPU. Independent of the key: you can have rich
+    Claude-written heroes while portraits come from the bundled art pool, or
+    pause portrait generation mid-session to free up the GPU.
+"""
 import json
 import os
 from fastapi import APIRouter, HTTPException, Body
@@ -27,19 +34,31 @@ def _save(data: dict):
     json.dump(data, open(_SETTINGS_PATH, "w", encoding="utf-8"), indent=2)
 
 
-def get_generation_api_key() -> str | None:
-    """For the generation pipeline: returns the stored key or None."""
-    return _load().get("generation_api_key") or None
+# ─── LLM (Claude) API key ───────────────────────────────────────────────────
+
+def get_llm_api_key() -> str | None:
+    """The Anthropic/Claude key that powers text generation. Prefers the
+    key entered in-game; falls back to the ANTHROPIC_API_KEY env var (dev),
+    then the legacy `generation_api_key` field for older saves."""
+    data = _load()
+    return (data.get("llm_api_key")
+            or os.getenv("ANTHROPIC_API_KEY")
+            or data.get("generation_api_key")
+            or None)
 
 
 @router.get("/apikey")
 def apikey_status():
-    """Masked status only — the full key never leaves the settings file."""
-    key = get_generation_api_key()
+    """Masked status only — the full key never leaves the settings file.
+    `env` flags whether the key is coming from the environment (so the UI can
+    say 'already configured' without the player re-entering it)."""
+    data = _load()
+    stored = data.get("llm_api_key") or data.get("generation_api_key")
+    key = stored or os.getenv("ANTHROPIC_API_KEY")
     if not key:
-        return {"set": False, "masked": None}
-    masked = key[:4] + "…" + key[-4:] if len(key) > 10 else "•" * len(key)
-    return {"set": True, "masked": masked}
+        return {"set": False, "masked": None, "env": False}
+    masked = key[:7] + "…" + key[-4:] if len(key) > 14 else "•" * len(key)
+    return {"set": True, "masked": masked, "env": not stored}
 
 
 @router.post("/apikey")
@@ -47,11 +66,43 @@ def set_apikey(payload: dict = Body(...)):
     key = (payload.get("api_key") or "").strip()
     data = _load()
     if not key:
-        data.pop("generation_api_key", None)
+        data.pop("llm_api_key", None)
+        data.pop("generation_api_key", None)  # clear legacy too
         _save(data)
         return {"set": False}
     if len(key) < 8 or len(key) > 300:
         raise HTTPException(status_code=400, detail="That doesn't look like a valid API key")
-    data["generation_api_key"] = key
+    data["llm_api_key"] = key
+    data.pop("generation_api_key", None)  # migrate off the legacy field
     _save(data)
     return {"set": True}
+
+
+# ─── Image generation on/off ────────────────────────────────────────────────
+
+def get_image_generation_enabled() -> bool:
+    """Whether local ComfyUI portrait generation runs on this machine.
+    Defaults OFF — fresh installs use the bundled art pool until the player
+    opts in (needs a local NVIDIA GPU + ComfyUI, see INSTALL_GENERATION.bat)."""
+    return bool(_load().get("image_generation_enabled", False))
+
+
+@router.get("/generation")
+def generation_status():
+    return {"enabled": get_image_generation_enabled()}
+
+
+@router.post("/generation")
+def set_generation(payload: dict = Body(...)):
+    enabled = bool(payload.get("enabled"))
+    data = _load()
+    data["image_generation_enabled"] = enabled
+    _save(data)
+    # Turning it on mid-session should bring ComfyUI up without a restart.
+    if enabled:
+        try:
+            from services.comfy_service import ensure_comfy_running
+            ensure_comfy_running()
+        except Exception:
+            pass
+    return {"enabled": enabled}

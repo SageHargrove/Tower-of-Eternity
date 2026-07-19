@@ -7,8 +7,8 @@ REM
 REM Requirements: an NVIDIA GPU (8GB+ VRAM recommended) and ~12GB free disk.
 REM Downloads: ComfyUI portable (~1.5GB), the art model (~7GB), the game's
 REM style models (~450MB). Resume-safe — rerun if interrupted.
-REM After it finishes: launch the game with PLAY.bat and enter any API key
-REM in the tutorial or Settings -> AI Generation to switch generation on.
+REM After it finishes: launch the game with PLAY.bat and turn ON
+REM "Hero Portrait Generation" under Settings -> AI.
 
 where nvidia-smi >nul 2>nul
 if errorlevel 1 (
@@ -46,9 +46,9 @@ echo [4/4] Registering with the game...
 setx COMFYUI_DIR "%COMFY%" >nul
 
 echo.
-echo   ✔ Done. Start the game with PLAY.bat, then enter any API key in
-echo     Settings -^> AI Generation (or during the tutorial). The generator
-echo     starts with the game automatically from now on.
+echo   ✔ Done. Start the game with PLAY.bat, then turn ON "Hero Portrait
+echo     Generation" under Settings -^> AI. The generator starts with the
+echo     game automatically from now on.
 pause
 exit /b 0
 

@@ -87,6 +87,8 @@ export const completeTutorial = () => request('/base/tutorial/complete', { metho
 export const chooseFairy = (fairy_gender) => request('/base/fairy', { method: 'POST', body: JSON.stringify({ fairy_gender }) })
 export const getApiKeyStatus = () => request('/settings/apikey')
 export const setApiKey = (api_key) => request('/settings/apikey', { method: 'POST', body: JSON.stringify({ api_key }) })
+export const getGenerationEnabled = () => request('/settings/generation')
+export const setGenerationEnabled = (enabled) => request('/settings/generation', { method: 'POST', body: JSON.stringify({ enabled }) })
 export const upgradeBase = () => request('/base/upgrade', { method: 'POST' })
 export const restHeroes = () => request('/base/rest', { method: 'POST' })
 export const runDailyDungeon = (type, tier = 1) => request(`/base/daily_dungeon/${type}?tier=${tier}`, { method: 'POST' })

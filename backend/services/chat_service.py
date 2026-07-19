@@ -2,7 +2,7 @@ import json
 import random
 from datetime import datetime
 from database import db
-from services.llm_service import _generate_with_fallback, generate_with_claude, _clean_json
+from services.llm_service import generate_with_claude, _clean_json
 
 
 def _time_of_day_bucket(hour: int) -> tuple[str, str]:
@@ -33,15 +33,10 @@ def is_night_owl(hero_id: int) -> bool:
 
 
 def _generate_chat_text(prompt: str, max_tokens: int, temperature: float) -> str:
-    """Hero chatter prefers Claude/Haiku for voice (see llm_service's
-    CLAUDE_CHAT_MODEL comment) — falls back to Gemini if no Anthropic key
-    is configured yet, or if the Claude call itself fails, so this doesn't
-    just break for anyone who hasn't added ANTHROPIC_API_KEY."""
-    try:
-        return generate_with_claude(prompt, max_tokens=max_tokens, temperature=temperature)
-    except Exception as e:
-        print(f"[Chat] Claude unavailable ({e}), falling back to Gemini")
-        return _generate_with_fallback(prompt, max_tokens=max_tokens, temperature=temperature)
+    """Hero chatter runs on Claude/Haiku (see llm_service's CLAUDE_CHAT_MODEL).
+    Raises if no key is configured — the chat worker catches it and simply
+    skips this tick, so chatter is quietly absent rather than broken."""
+    return generate_with_claude(prompt, max_tokens=max_tokens, temperature=temperature)
 
 
 def _tower_era(highest_floor: int) -> tuple[str, str]:

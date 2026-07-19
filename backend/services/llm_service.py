@@ -3,38 +3,44 @@ import json
 import re
 import random
 import concurrent.futures
-from google import genai
-from google.genai import types
 from pydantic import BaseModel
 from dotenv import load_dotenv
 
 load_dotenv()
 
-client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
-
-# Claude/Haiku is now the PRIMARY text-generation provider for every
-# narrative call in this file (hero bios, combat narration, event text,
-# zone themes, boss naming, legacy text, lore entries, creative-craft
-# flavor) — cheaper and reads noticeably better than Gemini across the
-# board, not just for hero chatter. Gemini is kept only as an automatic
-# fallback (see _generate_with_claude_fallback) for a save running before
-# ANTHROPIC_API_KEY is configured, or if a Claude call itself fails — so
-# nothing breaks outright if that key ever lapses again.
-_anthropic_client = None
-if os.getenv("ANTHROPIC_API_KEY"):
-    import anthropic
-    _anthropic_client = anthropic.Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
-
+# Claude/Haiku is the ONLY text-generation provider — hero bios, combat
+# narration, event text, zone themes, boss naming, legacy text, lore
+# entries, creative-craft flavor, chatter. (Gemini was removed 2026-07-19:
+# Haiku reads better and is cheaper; the API key is entered in-game via
+# Settings -> AI, which is what powers all of this.)
 CLAUDE_CHAT_MODEL = "claude-haiku-4-5-20251001"
 
+# Anthropic clients are built lazily and cached per-key, so the key the
+# player enters in Settings takes effect immediately without a restart (and
+# a changed key rebuilds the client). Falls back to the ANTHROPIC_API_KEY
+# env var for dev — see routers.settings.get_llm_api_key.
+_anthropic_clients: dict = {}
+
+def _get_anthropic_client():
+    from routers.settings import get_llm_api_key
+    key = get_llm_api_key()
+    if not key:
+        return None
+    client = _anthropic_clients.get(key)
+    if client is None:
+        import anthropic
+        client = anthropic.Anthropic(api_key=key)
+        _anthropic_clients[key] = client
+    return client
+
 def generate_with_claude(prompt: str, max_tokens: int = 600, temperature: float = 0.9) -> str:
-    """Raises on failure (no ANTHROPIC_API_KEY, or the call itself errors) —
-    caller decides the fallback. See _generate_with_claude_fallback for the
-    version every generate_* function in this file actually uses, which
-    catches this and falls back to Gemini automatically."""
-    if _anthropic_client is None:
-        raise RuntimeError("ANTHROPIC_API_KEY not set — cannot use Claude/Haiku.")
-    response = _anthropic_client.messages.create(
+    """Raises on failure (no key configured, or the call itself errors) —
+    callers already tolerate this: hero enrichment keeps the placeholder
+    identity, flavor text uses its local fallback, chatter is skipped."""
+    client = _get_anthropic_client()
+    if client is None:
+        raise RuntimeError("No Claude API key configured — set one in Settings -> AI.")
+    response = client.messages.create(
         model=CLAUDE_CHAT_MODEL,
         max_tokens=max_tokens,
         temperature=temperature,
@@ -64,17 +70,6 @@ def await_flavor_text(future, timeout=1.5, fallback=None):
     except Exception:
         return fallback
 
-# Fallback chain 
-MODELS_BY_PRIORITY = [
-    "gemini-2.5-pro",
-    # gemini-1.5-pro was removed from the API (404 NOT_FOUND on every call,
-    # confirmed) — it used to silently eat a full fallback slot (and the
-    # round-trip time) on every single LLM call before ever reaching a model
-    # that could actually respond.
-    "gemini-2.5-flash",
-    "gemini-2.5-flash-lite",
-]
-
 RARITY_FLAVOR = {
     1: "a common peasant, laborer, or wanderer with humble origins",
     2: "a minor adventurer or soldier with some experience",
@@ -100,60 +95,15 @@ class HeroProfile(BaseModel):
     battle_tendency: str = "Stoic"
 
 
-def _generate_with_fallback(prompt: str, max_tokens: int = 600, temperature: float = 0.9) -> str:
-    """Try each Gemini model in order, falling back on rate limit errors."""
-    last_error = None
-    for model in MODELS_BY_PRIORITY:
-        try:
-            config_kwargs = {
-                "temperature": temperature,
-                "max_output_tokens": max_tokens,
-            }
-            # thinking_budget=0 (disable extended thinking, for speed/cost)
-            # only works on the flash variants — gemini-2.5-pro rejects it
-            # outright ("Budget 0 is invalid. This model only works in
-            # thinking mode"), which used to get misclassified as a fatal
-            # API-key error below and abort the whole fallback chain before
-            # ever trying the flash models that would've worked fine.
-            if "pro" not in model:
-                config_kwargs["thinking_config"] = types.ThinkingConfig(thinking_budget=0)
-            response = client.models.generate_content(
-                model=model,
-                contents=prompt,
-                config=types.GenerateContentConfig(**config_kwargs),
-            )
-            return response.text.strip()
-        except Exception as e:
-            err = str(e)
-            if "429" in err or "RESOURCE_EXHAUSTED" in err:
-                print(f"[LLM] {model} rate limited, trying next...")
-                last_error = e
-                continue
-            elif "API_KEY_INVALID" in err:
-                print(f"[LLM] FATAL API key error ({model}): {e}")
-                raise
-            else:
-                # Any other failure (including a plain 400 INVALID_ARGUMENT,
-                # which is usually a per-model quirk, not an account-wide
-                # problem) falls through to the next model instead of
-                # aborting the whole chain.
-                print(f"[LLM] {model} failed: {type(e).__name__}: {e}")
-                last_error = e
-                continue
-    raise Exception(f"All Gemini models exhausted. Last error: {last_error}")
 
 
 def _generate_with_claude_fallback(prompt: str, max_tokens: int = 600, temperature: float = 0.9) -> str:
-    """The primary entry point every generate_* function below actually
-    calls: Claude/Haiku first, and only falls back to the Gemini chain
-    (_generate_with_fallback) if Claude is unavailable or errors — same
-    resilience pattern chat_service.py already used for hero chatter,
-    just applied to every narrative call in this file now."""
-    try:
-        return generate_with_claude(prompt, max_tokens=max_tokens, temperature=temperature)
-    except Exception as e:
-        print(f"[LLM] Claude/Haiku unavailable ({e}), falling back to Gemini")
-        return _generate_with_fallback(prompt, max_tokens=max_tokens, temperature=temperature)
+    """The single entry point every generate_* function below calls. Now a
+    thin wrapper over Claude/Haiku (Gemini fallback removed 2026-07-19). On
+    failure it raises — callers already handle that path (hero enrichment
+    keeps its placeholder, flavor uses call_with_timeout's fallback, chatter
+    is skipped), which is exactly how the game behaved before with no keys."""
+    return generate_with_claude(prompt, max_tokens=max_tokens, temperature=temperature)
 
 
 def _clean_json(raw: str) -> str:

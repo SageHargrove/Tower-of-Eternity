@@ -59,13 +59,13 @@ async def startup():
     from routers.gacha import reconcile_pending_profiles
     reconcile_pending_profiles()
     threading.Thread(target=_reconcile_loop, daemon=True).start()
-    # Launch-everything UX: if the player has attuned a generation key and a
+    # Launch-everything UX: if the player has image generation turned on and a
     # local ComfyUI install exists, bring the generator up with the game so
-    # hero generation Just Works. No key / no install = base-art mode.
+    # portraits Just Work. Off / no install = bundled-art mode.
     def _gen_boot():
         try:
-            from routers.settings import get_generation_api_key
-            if get_generation_api_key():
+            from routers.settings import get_image_generation_enabled
+            if get_image_generation_enabled():
                 from services.comfy_service import ensure_comfy_running
                 ensure_comfy_running()
         except Exception as e:

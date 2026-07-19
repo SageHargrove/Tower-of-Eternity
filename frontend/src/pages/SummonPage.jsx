@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react'
-import { pullHeroes, getOdds, getEquipmentOdds, getBase, getPityInfo, redeemSpark, redeemEquipSpark, pullEquipment, getSparkWishlist, getFreePullStatus, freePull, getSeason, getApiKeyStatus } from '../api/client'
+import { pullHeroes, getOdds, getEquipmentOdds, getBase, getPityInfo, redeemSpark, redeemEquipSpark, pullEquipment, getSparkWishlist, getFreePullStatus, freePull, getSeason, getGenerationEnabled } from '../api/client'
 import SummoningOverlay from '../components/SummoningOverlay'
 import FairyTip from '../components/FairyTip'
 import { confirmDialog } from '../components/DialogHost'
@@ -119,7 +119,7 @@ export default function SummonPage({ onGoldChange }) {
   const [season, setSeason] = useState(null)
   // Base-gallery notice: shown until an API key is set (personal hero gen)
   // or the player dismisses it for this browser.
-  const [apiKeySet, setApiKeySet] = useState(true)
+  const [genOn, setGenOn] = useState(true)
   const [galleryChipDismissed, setGalleryChipDismissed] = useState(
     () => localStorage.getItem('base_gallery_chip_dismissed') === 'true'
   )
@@ -157,7 +157,7 @@ export default function SummonPage({ onGoldChange }) {
     getSparkWishlist().then(d => setWishlistCount((d.classes || []).length)).catch(() => {})
     getFreePullStatus().then(setFreeStatus).catch(() => {})
     getSeason().then(setSeason).catch(() => setSeason(null))
-    getApiKeyStatus().then(s => setApiKeySet(!!s?.set)).catch(() => {})
+    getGenerationEnabled().then(r => setGenOn(!!r?.enabled)).catch(() => {})
   }
 
   async function doFreePull() {
@@ -273,7 +273,7 @@ export default function SummonPage({ onGoldChange }) {
         <SummoningOverlay results={results} onComplete={() => setShowAnimation(false)} />
       )}
 
-      {!apiKeySet && !galleryChipDismissed && (
+      {!genOn && !galleryChipDismissed && (
         <div style={{
           display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap',
           background: 'rgba(168,139,224,0.08)', border: '1px solid rgba(168,139,224,0.4)',
@@ -281,11 +281,11 @@ export default function SummonPage({ onGoldChange }) {
         }}>
           <span style={{ fontSize: '0.82rem', color: '#cfc4ea' }}>
             <b style={{ color: '#a88be0' }}>SHARED GALLERY</b> — your summons draw from the Tower's base art.
-            Attune your own key and the Gate forges heroes that exist only for you.
+            Turn on portrait generation and the Gate forges heroes that exist only for you.
           </span>
           <button className="btn" style={{ fontSize: '0.78rem', padding: '0.3rem 0.8rem' }}
             onClick={() => window.dispatchEvent(new CustomEvent('toe-open-settings'))}>
-            Attune Key
+            Turn On
           </button>
           <button className="btn" style={{ fontSize: '0.78rem', padding: '0.3rem 0.6rem', opacity: 0.6 }}
             onClick={() => { localStorage.setItem('base_gallery_chip_dismissed', 'true'); setGalleryChipDismissed(true) }}>

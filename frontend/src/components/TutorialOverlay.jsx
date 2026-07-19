@@ -27,8 +27,8 @@ export default function TutorialOverlay({ fairyGender, onComplete }) {
       body: "Once you've got a team, the Tower is where you'll spend most of your time. Each floor is its own fight — sometimes worse than a fight. Clear floors to push higher, earn rewards, and grow stronger. Losing a fight isn't always the end, but it's never free.",
     },
     {
-      title: 'Your Own Forge',
-      body: "One more secret. Right now every hero you summon steps out of the Tower's shared gallery — faces every Master has seen before. But feed the Gate a key of your own, and it will forge heroes that exist for you alone: new faces, never repeated. You can paste one here, or add it any time under Settings → AI Generation.",
+      title: 'The Living Chronicle',
+      body: "One more secret. Every hero's name, life story, and voice is written fresh by an AI — but that needs a Claude API key of your own. Paste one here (or add it any time under Settings → AI) and your heroes come alive with unique backstories and dialogue. Without it, they get simple placeholder names. Portrait art has its own switch in Settings — flip it on if you've got an NVIDIA GPU.",
       isApiKeyStep: true,
     },
     {
