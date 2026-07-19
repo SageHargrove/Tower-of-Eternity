@@ -231,16 +231,17 @@ arena_server/                 # The World server — separate FastAPI service yo
 
 ## Known Gaps
 
-- **Arena PvP** — live on the Oracle VM (see Hosting above) and wired
-  end-to-end. **One real gap:** arena_server can't report match results back to
-  a local save, so the PvP-rating achievements stay at 0 progress until that
-  round trip exists.
-- **Personal generation key** — entering an API key switches on local hero
-  generation (Option A, `INSTALL_GENERATION.bat`), but the key's *value* is not
-  yet consumed by a hosted service; it's a local on/off switch for now.
-- **Hydra family** — Hydra, Hydra Spawn, Wyvern Stormrider, and the Hydra
-  Sovereign boss are cut from the roster pending a stronger monster art model;
-  they'll return once `ToE_Monsters_v2` is trained.
-- **Summon Tickets** — implemented (`/gacha/use-ticket`); currently only
-  obtainable as Achievement rewards. Tier art (4★–7★) uses placeholders.
-- **Enemy roster art** — floor waves are implemented; enemy art needs polish.
+- **Enemy roster art** — every enemy has art, but some of the harder monsters
+  are placeholder-quality, and the Hydra family (Hydra, Hydra Spawn, Wyvern
+  Stormrider, and the Hydra Sovereign boss) is temporarily cut from the roster
+  pending a stronger monster art model (`ToE_Monsters_v2`, to be trained).
+
+## Roadmap (working as designed, not gaps)
+
+- **Personal generation** — local hero generation works today for NVIDIA-GPU
+  players (`INSTALL_GENERATION.bat`), toggled on by entering any API key. A
+  hosted path — so players *without* a GPU can pay for their own renders via a
+  real API key — is future work, not built.
+- **Summon Tickets** — fully working (`/gacha/use-ticket`, tier art 4★–7★).
+  Deliberately super-rare; surfaced through Achievements now, and event rewards
+  once events ship.
