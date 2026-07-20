@@ -15,6 +15,7 @@ import itertools
 import random
 import os
 import re
+import shutil
 import time
 import database
 from database import db
@@ -117,6 +118,20 @@ FRAMING = (
     "both legs and both feet clearly lit and visible, "
     "fully clothed, wearing a detailed outfit, plain empty background"
 )
+
+# When generating with transparency (LayerDiffuse), a "black background"
+# instruction fights the alpha generation — strip the bg tags so the model
+# renders the subject alone. Applied only in transparent mode.
+_BG_PHRASE_RE = re.compile(
+    r'\(?\b(?:simple|dark|black|plain\s+empty|plain\s+simple\s+dark|void|gradient|solid)\s+background(?::[0-9.]+)?\)?',
+    re.IGNORECASE,
+)
+
+def _strip_bg_for_transparent(prompt: str) -> str:
+    p = _BG_PHRASE_RE.sub('', prompt)
+    p = re.sub(r'\s*,(\s*,)+', ', ', p)      # collapse doubled commas
+    p = re.sub(r'\s{2,}', ' ', p).strip().strip(',').strip()
+    return p
 
 # Pose/camera variety — the old FRAMING hard-coded "standing heroic pose",
 # which produced the same stiff mannequin stance on every hero. One of these
@@ -934,6 +949,163 @@ def _rembg_remove(im):
     return remove(im, session=_REMBG_SESSION)
 
 
+# ── Master retention + erosion self-heal ────────────────────────────────────
+# make_game_cutout() rewrites a portrait IN PLACE, destroying the black-bg
+# original. When the cut goes wrong (a dark cloak/hair read as background and
+# erased — the "half a hero" bug), there was nothing left to recover from
+# without a full GPU regeneration. So we now KEEP the black-bg master aside
+# before cutting, detect a botched (eroded) cut against it, and re-cut with a
+# dependency-free border flood-fill — no numpy/scipy/rembg, no regeneration,
+# the exact same face preserved.
+MASTERS_DIR = "static/portraits/masters"
+
+
+def _save_master(path: str) -> str | None:
+    """Copy the black-bg original aside BEFORE make_game_cutout mutates it, so
+    a bad cutout is always re-cuttable. Idempotent; one file per basename."""
+    try:
+        os.makedirs(MASTERS_DIR, exist_ok=True)
+        dst = os.path.join(MASTERS_DIR, os.path.basename(path))
+        if not os.path.exists(dst):
+            shutil.copy2(path, dst)
+        return dst
+    except Exception as e:
+        print(f"[Cutout] master save failed for {path}: {e}")
+        return None
+
+
+def _find_master(cutout_path: str) -> str | None:
+    """The black-bg master for a cutout: the retained masters dir, or the
+    curated confirmed_heroes/ pool (its art is copied to heroes verbatim)."""
+    base = os.path.basename(cutout_path)
+    for cand in (os.path.join(MASTERS_DIR, base),
+                 os.path.join("static/portraits/confirmed_heroes", base)):
+        if os.path.exists(cand):
+            return cand
+    return None
+
+
+def _border_flood_cutout(master_path: str, out_path: str) -> bool:
+    """Dependency-free cutout for the clean black-void masters this pipeline
+    produces: flood-fill the FRAME-connected near-black background and keep
+    everything else — including attached dark cloaks/hair that the threshold +
+    rembg path erodes. Refuses (returns False) when the master's border isn't
+    a genuine dark void, so lit/gradient backdrops are left to the ML path."""
+    try:
+        from PIL import Image, ImageDraw
+        im = Image.open(master_path).convert("RGB")
+        w, h = im.size
+        px = im.load()
+        border_max = 0
+        for x in range(0, w, 7):
+            for y in (0, 1, 2, h - 1, h - 2, h - 3):
+                border_max = max(border_max, max(px[x, y]))
+        for y in range(0, h, 7):
+            for x in (0, 1, 2, w - 1, w - 2, w - 3):
+                border_max = max(border_max, max(px[x, y]))
+        if border_max > 24:
+            return False  # not a clean void — not this method's job
+        MARK = (255, 0, 255)
+        work = im.copy()
+        wp = work.load()
+        seeds = []
+        for x in range(0, w, 24):
+            seeds += [(x, 1), (x, h - 2)]
+        for y in range(0, h, 24):
+            seeds += [(1, y), (w - 2, y)]
+        for (x, y) in seeds:
+            r, g, b = wp[x, y]
+            if (r, g, b) != MARK and max(r, g, b) <= 16:
+                ImageDraw.floodfill(work, (x, y), MARK, thresh=22)
+        out = Image.new("RGBA", (w, h))
+        outp = out.load()
+        op = im.load()
+        for y in range(h):
+            for x in range(w):
+                outp[x, y] = (0, 0, 0, 0) if wp[x, y] == MARK else (*op[x, y], 255)
+        # Match the ML path's framing where numpy is available; skip if not.
+        try:
+            import numpy as _np
+            out = Image.fromarray(_trim_rgba(_np.asarray(out)), "RGBA")
+        except Exception:
+            pass
+        out.save(out_path)
+        return True
+    except Exception as e:
+        print(f"[Cutout] border-flood failed for {master_path}: {e}")
+        return False
+
+
+def _has_real_alpha(path: str) -> bool:
+    """True if a PNG already carries a genuine cutout — a meaningful spread of
+    BOTH transparent and opaque pixels. Native transparent generation
+    (LayerDiffuse) produces this, so there's nothing to cut. A black-bg RGB
+    render has no alpha channel and returns False (→ gets cut as before)."""
+    try:
+        from PIL import Image
+        im = Image.open(path)
+        if im.mode not in ("RGBA", "LA", "PA"):
+            return False
+        a = im.convert("RGBA").getchannel("A").resize((48, 72))
+        px = list(a.getdata())
+        n = len(px)
+        transp = sum(1 for p in px if p < 30) / n
+        opaque = sum(1 for p in px if p > 225) / n
+        return transp > 0.08 and opaque > 0.08
+    except Exception:
+        return False
+
+
+def _cutout_with_heal(path: str, mode: str = "auto") -> bool:
+    """make_game_cutout + safety net. Two guarantees:
+      1. the black-bg master is kept aside FIRST, so any cut that slips through
+         wrong is always re-cuttable later (recut_from_master) with no GPU;
+      2. if the ML cut HARD-FAILS (rembg missing / result rejected by the
+         sanity gate) we fall back to the dependency-free border flood instead
+         of stranding the hero on a black box.
+    We deliberately do NOT auto-second-guess a cut that 'succeeded' — a body
+    part that visually vanished is only a few % of pixels, indistinguishable
+    from normal edge-trim by any cheap metric, so an auto-detector there just
+    risks downgrading good cuts. Recovery for that rarer case is a one-call
+    recut_from_master once it's actually spotted."""
+    # Native transparent generation (LayerDiffuse) already produced a clean
+    # cutout — no black bg to remove, nothing to erode. Leave it untouched.
+    if _has_real_alpha(path):
+        return True
+    master = _save_master(path) or path
+    # PRIMARY: border-connected flood. Hero art is generated on a clean black
+    # void, and connectivity CANNOT erode an attached dark cloak/hair (they're
+    # part of the figure, not reachable from the frame edge) — which is the
+    # exact "half a hero" bug the threshold+rembg path produced. It refuses a
+    # non-void backdrop (returns False), so anything unusual falls through to
+    # the ML cutout. Verified across a fresh generation batch 2026-07-19; also
+    # dependency-free (no numpy/scipy/rembg needed).
+    if _border_flood_cutout(master, path):
+        return True
+    # FALLBACK: the rembg/void-mask cutout, for a non-void / lit backdrop.
+    return make_game_cutout(path, mode=mode)
+
+
+def recut_from_master(cutout_path: str, save_backup: bool = True) -> bool:
+    """Repair ONE portrait that lost a body part, from its retained black-bg
+    master, with the dependency-free border flood — no GPU, exact same art.
+    The go-to fix when a bad cutout is spotted. Requires the master to still
+    exist (curated pool, or a generation made after master-retention shipped).
+    Returns True on success."""
+    m = _find_master(cutout_path)
+    if not m:
+        print(f"[Cutout] no master for {cutout_path} — can't re-cut without regenerating")
+        return False
+    if save_backup:
+        bak = cutout_path + ".prev.bak"
+        if not os.path.exists(bak):
+            try:
+                shutil.copy2(cutout_path, bak)
+            except Exception:
+                pass
+    return _border_flood_cutout(m, cutout_path)
+
+
 def make_game_cutout(path: str, mode: str = "auto") -> bool:
     """Convert a black-bg portrait into game-ready transparent art IN PLACE —
     but ONLY if the result passes a sanity check; on failure the original
@@ -1167,8 +1339,10 @@ def _generate_one_cached(birth_star: int):
     if get_cache_counts().get(birth_star, 0) >= MAX_PER_STAR.get(birth_star, 999):
         return
     try:
-        from services.comfy_service import generate_portrait_comfy
+        from services.comfy_service import generate_portrait_comfy, transparent_enabled
         prompt, gender, hero_class = build_varied_prompt(birth_star)
+        if transparent_enabled():
+            prompt = _strip_bg_for_transparent(prompt)
         os.makedirs(CACHE_DIR, exist_ok=True)
         filename = f"{CACHE_DIR}/cached_{birth_star}star_{int(time.time())}_{random.randint(1000, 9999)}.png"
         # hires=True: two-pass upscale-refine. Cache fill is a background
@@ -1176,7 +1350,7 @@ def _generate_one_cached(birth_star: int):
         # what rescues small faces/eyes at full-body framing.
         success = generate_portrait_comfy(prompt, filename, negative=negative_for_class(hero_class), hires=True, lora_override=HERO_LORA)
         if success:
-            make_game_cutout(filename)  # game art is transparent; only datasets stay black-bg
+            _cutout_with_heal(filename)  # transparent + keep master & self-heal an eroded cut
             add_to_cache(birth_star, filename, gender, hero_class)
             print(f"[Cache] Generated {birth_star}★ {hero_class} ({gender}) portrait -> {filename}")
         else:
@@ -1200,9 +1374,12 @@ def _generate_custom_portrait(hero_id: int, portrait_prompt: str, hero_name: str
             f"{gender_tag}, looking at viewer, {_quality_tag(5)}, "
             f"{FRAMING}, {BASE_STYLE}, " + portrait_prompt
         )
+        from services.comfy_service import transparent_enabled
+        if transparent_enabled():
+            full_prompt = _strip_bg_for_transparent(full_prompt)
         success = generate_portrait_comfy(full_prompt, filename, negative=NEGATIVE_STYLE, lora_override=HERO_LORA)
         if success:
-            make_game_cutout(filename)  # game art is transparent
+            _cutout_with_heal(filename)  # transparent + keep master & self-heal an eroded cut
             update_hero_portrait(hero_id, filename)
             _prewarm_card(hero_id, filename)
             print(f"[Cache] Custom portrait ready for hero {hero_id}")

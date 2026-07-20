@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react'
 import PageTitle from '../components/PageTitle'
 import { SectionHeader } from '../components/ilm/Ilm'
-import { getAllTeams, getBase, enterFloor, resolveEvent, resolveExplore, previewFloor, getNarrative, getHero, getLegacies, getSupportBoons } from '../api/client'
+import { getAllTeams, getBase, enterFloor, resolveEvent, resolveExplore, previewFloor, getNarrative, getHero, getLegacies, getSupportBoons, finalizeCombat } from '../api/client'
 
 // Compact chips for the deploy panel — which support boons ride into THIS
 // climb (combat-relevant only; economy boons live in their facilities).
@@ -33,7 +33,7 @@ import DailyDungeons from '../components/DailyDungeons'
 import StakesBanner from '../components/StakesBanner'
 import { arenaUpdateFloor, getArenaToken } from '../api/arenaServerClient'
 import { emitToast } from '../toastBus'
-import { playDeedChime, playVictoryFanfare, playDefeatToll } from '../audio'
+import { playDeedChime, setBgmScene, playMusicStinger } from '../audio'
 import { scanCombatForDiscoveries } from '../codexBus'
 import CombatArena from '../components/CombatArena'
 import FairyGuide from '../components/FairyGuide'
@@ -787,6 +787,10 @@ export default function TowerPage({ onGoldChange, onNavigate }) {
   // fight. On remount we restore it and fast-forward the animation by
   // exactly how long the player was gone, instead of replaying from turn 1.
   const [resumeTurnIndex, setResumeTurnIndex] = useState(-1)
+  // Guards concludeCombat so a fight's deferred deaths are finalized exactly
+  // once — the multi-arena onComplete and React's double-invoked state
+  // updaters could otherwise fire it twice. Reset when a new fight begins.
+  const combatFinalizedRef = React.useRef(false)
   // Indexed by team/arena position — one AI-narrated line per turn, swapped
   // in for the raw damage-number log line once it arrives (see pollTurnNarrative).
   const [turnNarrations, setTurnNarrations] = useState({})
@@ -800,7 +804,11 @@ export default function TowerPage({ onGoldChange, onNavigate }) {
     // played" from real elapsed time and fast-forward CombatArena to it.
     const active = loadActiveCombat()
     if (active) {
-      const speedMult = localStorage.getItem('combatSpeed2x') === '1' ? 2 : 1
+      // Match CombatArena's current speed store (combatSpeed = 1|2|4), with a
+      // fallback to the legacy combatSpeed2x flag — the old code only read the
+      // legacy key, so 4× players resumed at the wrong fast-forward point.
+      const sv = parseInt(localStorage.getItem('combatSpeed') || '')
+      const speedMult = (sv === 2 || sv === 4) ? sv : (localStorage.getItem('combatSpeed2x') === '1' ? 2 : 1)
       const elapsedTurns = Math.floor((Date.now() - active.deployedAt) / (TURN_DELAY_MS / speedMult))
       setLastResult(active.result)
       setResolvedFloor(active.resolvedFloor)
@@ -853,14 +861,17 @@ export default function TowerPage({ onGoldChange, onNavigate }) {
     }
   }, [highestFloor])
 
-  async function refresh() {
-    setLoading(true)
+  // silent=true skips the full-page loading flag — used after a fight
+  // finalizes (to fold the now-revealed deaths into the deploy roster)
+  // without flashing the "Loading..." screen over the post-combat report.
+  async function refresh(silent = false) {
+    if (!silent) setLoading(true)
     try {
       const [teamsData, baseData] = await Promise.all([getAllTeams(), getBase()]);
       setHighestFloor(baseData.highest_floor || 0);
       setTeam(teamsData)
       setBase(baseData)
-      
+
       if (!lastResult && baseData.highest_floor > 0) {
         const nextFloor = baseData.highest_floor + 1
         setSelectedFloor(nextFloor)
@@ -869,7 +880,7 @@ export default function TowerPage({ onGoldChange, onNavigate }) {
     } catch (e) {
       console.error(e)
     } finally {
-      setLoading(false)
+      if (!silent) setLoading(false)
     }
   }
 
@@ -923,6 +934,7 @@ export default function TowerPage({ onGoldChange, onNavigate }) {
     setArenasFinished(0)
     setTurnNarrations({})
     setResumeTurnIndex(-1)
+    combatFinalizedRef.current = false
     clearActiveCombat()
 
     try {
@@ -955,12 +967,25 @@ export default function TowerPage({ onGoldChange, onNavigate }) {
         setPendingExplore(result)
       } else if (skipAnimation) {
         // Already seen this floor — jump straight to the resolution screen
-        // instead of replaying the full combat animation.
+        // instead of replaying the full combat animation. No animation means
+        // no timeline to spoil, so reveal the fallen immediately (the refresh
+        // below then folds the deaths into the roster).
+        combatFinalizedRef.current = true
+        try { await finalizeCombat(result.pending_combat_id ?? null) } catch {}
         setPostCombatPhase(true)
       } else {
         // A real animation is about to play — save it so leaving and
         // returning to this tab can resume instead of losing it.
         saveActiveCombat(result, floorNumber)
+        // Battle music: boss floors (every 10th, or a boss-typed floor) get the
+        // boss theme; miniboss floors get the elite theme; everything else the
+        // standard combat theme. The manager keeps it continuous across floors.
+        const ft = zoneFloorTypes[floorNumber]?.floor_type
+        setBgmScene(
+          (floorNumber % 10 === 0 || ft === 'boss') ? 'boss'
+            : (ft && ft.startsWith('miniboss')) ? 'elite'
+              : 'combat'
+        )
       }
 
       await refresh()
@@ -985,6 +1010,23 @@ export default function TowerPage({ onGoldChange, onNavigate }) {
     return enterFloorFlow(resolvedFloor || selectedFloor, { skipAnimation: true })
   }
 
+  // Fired when a fight's animation finishes playing. The fallen's deaths were
+  // deferred server-side so they wouldn't spoil on other tabs mid-fight — now
+  // that the player has actually watched the battle play out, reveal them:
+  // finalize (applies the death + legacy at the DB) BEFORE we flip to the
+  // post-combat screen, so the Death Ceremony and Memorial see the legacy,
+  // then silently refresh the deploy roster so the fallen drops off the team.
+  async function concludeCombat({ won = null } = {}) {
+    clearActiveCombat()
+    if (won != null) playMusicStinger(won ? 'victory' : 'defeat')
+    if (!combatFinalizedRef.current) {
+      combatFinalizedRef.current = true
+      try { await finalizeCombat(lastResult?.pending_combat_id ?? null) } catch {}
+      refresh(true)  // fold now-revealed deaths into the roster, no loading flash
+    }
+    setPostCombatPhase(true)
+  }
+
   // "The battle fights on" — the first time a player leaves an ongoing fight,
   // explain that combat resolves on its own and they can return anytime.
   const [stepAwayOpen, setStepAwayOpen] = useState(false)
@@ -1001,6 +1043,7 @@ export default function TowerPage({ onGoldChange, onNavigate }) {
 
   function handleExit() {
     clearActiveCombat()
+    setBgmScene('towerAscent')  // back to the floor-select bed
     setLastResult(null)
     setEventResolution(null)
     setExploreResolution(null)
@@ -1026,6 +1069,7 @@ export default function TowerPage({ onGoldChange, onNavigate }) {
         setArenasFinished(0)
         setTurnNarrations({})
         setResumeTurnIndex(-1)
+        combatFinalizedRef.current = false
         setCombatEntities(mergedCombatEntities(result))
         saveActiveCombat(result, resolvedFloor || selectedFloor)
         const tnIds = result.turn_narrative_ids || (result.turn_narrative_id != null ? [result.turn_narrative_id] : [])
@@ -1057,6 +1101,7 @@ export default function TowerPage({ onGoldChange, onNavigate }) {
       setArenasFinished(0)
       setTurnNarrations({})
       setResumeTurnIndex(-1)
+      combatFinalizedRef.current = false
       setCombatEntities(mergedCombatEntities(result))
       setPendingExplore(null)
       saveActiveCombat(result, resolvedFloor || selectedFloor)
@@ -1188,8 +1233,9 @@ export default function TowerPage({ onGoldChange, onNavigate }) {
                     setArenasFinished(prev => {
                       const next = prev + 1
                       if (next >= teamResults.length) {
-                        clearActiveCombat()
-                        setPostCombatPhase(true)
+                        // All parallel arenas done — reveal the fallen and
+                        // conclude (guarded so this runs once).
+                        concludeCombat()
                       }
                       return next
                     })
@@ -1212,9 +1258,8 @@ export default function TowerPage({ onGoldChange, onNavigate }) {
                     environment={floorArtFor(lastResult?.floor)}
                     combatData={lastResult?.combat || lastResult}
                     onComplete={() => {
-                      clearActiveCombat(); setPostCombatPhase(true)
                       const won = (lastResult?.combat || lastResult)?.winner === 'heroes'
-                      won ? playVictoryFanfare() : playDefeatToll()
+                      concludeCombat({ won })
                     }}
                     turnNarrations={turnNarrations[0]}
                     initialTurnIndex={resumeTurnIndex}

@@ -26,7 +26,7 @@ import ProfileCard from './components/ProfileCard'
 import { emitToast } from './toastBus'
 import { getBase, grantResources, clearDevInventory, setDevLevel, grantInventoryItem, listHeroes, getAchievements, getMailList, getChatLogs, getApiKeyStatus, setApiKey, getGenerationEnabled, setGenerationEnabled } from './api/client'
 import { confirmDialog, alertDialog } from './components/DialogHost'
-import { initAudio, setSoundEnabled, isSoundEnabled, playClick, setBgmVolume, setSfxVolume } from './audio'
+import { initAudio, setSoundEnabled, isSoundEnabled, playClick, setBgmVolume, setSfxVolume, setBgmScene } from './audio'
 
 const TABS = [
   { id: 'summon', label: 'Summon' },
@@ -294,6 +294,20 @@ export default function App() {
     setSoundOn(next)
     setSoundEnabled(next)
   }
+
+  // Coarse per-screen BGM routing. Deeper screens (TowerPage combat/boss,
+  // ArenaPage matches, dedicated facilities) override this from their own
+  // components; leaving the tab re-asserts the tab's scene here. Same-scene
+  // calls are no-ops in the manager, so this never restarts a running track.
+  useEffect(() => {
+    if (!account || !activeProfile) { setBgmScene('title'); return }
+    const SCENE_FOR_TAB = {
+      summon: 'summon', heroes: 'hub', inventory: 'hub',
+      tower: 'towerAscent', arena: 'world', achievements: 'hub',
+      base: 'hub', more: 'hub',
+    }
+    setBgmScene(SCENE_FOR_TAB[tab] || 'hub')
+  }, [tab, baseSubTab, account, activeProfile, soundOn])
 
   // AuthGate is the whole front door now: account sign-in (or offline) and
   // save selection are one step — one account, one save. ProfileSelect is

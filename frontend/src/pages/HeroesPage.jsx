@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react'
 import { listHeroes, setTeam, removeHeroFromTeam, reorderTeam, dismissHero, dismissHeroesBulk, synthesizeHero, ascendHero, getAscensionInfo, promoteHero, getEvolutionInfo, regeneratePortraits, evolveHero, listEquipment, equipItem, unequipItem, autoEquipHero, unequipAllHero, egoAutoTeam, getEgoRecommendation, assignTeamLeader, getBonds, equipConsumable, getInventory, getBase, toggleFavorite } from '../api/client'
+import { playTakeover } from '../audio'
 import { emitToast } from '../toastBus'
 import { CLASS_FAMILIES, FRONTLINE_FAMILIES } from '../components/HeroCard'
 import HeroDetail from '../components/HeroDetail'
@@ -420,6 +421,7 @@ export default function HeroesPage({ onNavigate }) {
       if (result.failed) {
         setMsg(`Ascension failed! ${result.message || ''}`)
       } else {
+        playTakeover('ascension')  // the game's peak — full ceremony seizes the audio
         setMsg(`Ascension successful! ${result.message || ''}`)
       }
       await load()
@@ -629,102 +631,117 @@ export default function HeroesPage({ onNavigate }) {
             ent-* entrance animations end on transform:translateY(0), so every
             ent-* block is its own stacking context — without this the later
             grid (.ent-2) painted over this header's menus. */}
-        <div className="ent-1" style={{ position: 'relative', zIndex: 20, display: 'flex', alignItems: 'flex-end', gap: 18, flexWrap: 'wrap', marginBottom: 14 }}>
-          <div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 2 }}>
-              <span style={{ width: 9, height: 9, transform: 'rotate(45deg)', background: 'var(--gold)', display: 'inline-block' }} />
-              <span style={{ fontFamily: "'Cinzel',serif", fontWeight: 600, letterSpacing: '.5em', fontSize: 13, color: 'var(--gold)' }}>SQUAD OVERVIEW</span>
-              <span style={{ fontFamily: "'Cinzel',serif", letterSpacing: '.22em', fontSize: 11, color: 'var(--muted)' }}>
-                {baseHeroes.length} SOULS SWORN
-              </span>
-            </div>
-            <div className="ilm-title-stack">
-              <div className="ghost">{activeTab === 'favorites' ? 'BELOVED' : 'LEGION'}</div>
-              <div className="solid">{activeTab === 'favorites' ? 'FAVORITES' : 'ROSTER'}</div>
-            </div>
-          </div>
-          <button onClick={() => setSynthChamberOpen(true)} title="Fuse heroes"
-            style={{ ...chipStyle('#e08585', 'rgba(192,64,64,.4)'), letterSpacing: '.14em', padding: '6px 14px', marginBottom: 24 }}>
-            ⚗ SYNTHESIS ›
-          </button>
-          <span style={{ flex: 1 }} />
-
-          {selected.size > 0 && (
-            <>
-              <span style={{ fontFamily: "'Cinzel',serif", fontSize: 9, letterSpacing: '.14em', color: '#8fbf9f' }}>{selected.size} SELECTED</span>
-              {selected.size === 2 && (
-                <button onClick={() => setCompareHeroesOpen(true)} style={chipStyle('#c9bfa8', 'rgba(184,151,98,.35)')}>⇄ COMPARE</button>
-              )}
-              {one && heroes.find(h => h.id === one)?.is_on_team > 0 && (
-                <button onClick={(e) => handleAssignLeader(one, e)}
-                  style={{ ...chipStyle('#ffd88a', 'rgba(255,216,138,.5)'), fontWeight: 600, letterSpacing: '.14em' }}>
-                  ★ SET LEADER
-                </button>
-              )}
-              <div style={{ position: 'relative' }}>
-                <button onClick={() => { setAssignOpen(o => !o); setSortOpen(false); setFilterOpen(false) }} disabled={saving}
-                  style={{ cursor: 'pointer', fontFamily: "'Cinzel',serif", fontWeight: 700, fontSize: 9, letterSpacing: '.14em', color: '#0a0710', background: 'linear-gradient(120deg,#c8a9f5,#8b46d6)', border: 'none', padding: '6px 14px', clipPath: 'polygon(6px 0,100% 0,calc(100% - 6px) 100%,0 100%)' }}>
-                  {saving ? 'ASSIGNING…' : `ASSIGN TO TEAM ${ROMAN[assignTargetTeam]} ▾`}
-                </button>
-                {assignOpen && (
-                  <div style={{ position: 'absolute', right: 0, top: 28, zIndex: 9, border: '1px solid rgba(184,151,98,.45)', background: '#140b22', boxShadow: '0 12px 30px rgba(0,0,0,.6)', minWidth: 130 }}>
-                    {[1, 2, 3, 4, 5].map(t => (
-                      <div key={t} style={menuItemStyle(t === assignTargetTeam)}
-                        onClick={() => { setAssignOpen(false); setAssignTargetTeam(t); saveTeamFromAll(t) }}>
-                        TEAM {ROMAN[t]}
-                      </div>
-                    ))}
-                  </div>
-                )}
+        <div className="ent-1" style={{ position: 'relative', zIndex: 20, marginBottom: 12 }}>
+          {/* ROW 1 — identity + the always-present sort/filter/search. Nothing
+              here appears or disappears, so this row never moves. */}
+          <div style={{ display: 'flex', alignItems: 'flex-end', gap: 18, flexWrap: 'wrap' }}>
+            <div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 2 }}>
+                <span style={{ width: 9, height: 9, transform: 'rotate(45deg)', background: 'var(--gold)', display: 'inline-block' }} />
+                <span style={{ fontFamily: "'Cinzel',serif", fontWeight: 600, letterSpacing: '.5em', fontSize: 13, color: 'var(--gold)' }}>SQUAD OVERVIEW</span>
+                <span style={{ fontFamily: "'Cinzel',serif", letterSpacing: '.22em', fontSize: 11, color: 'var(--muted)' }}>
+                  {baseHeroes.length} SOULS SWORN
+                </span>
               </div>
-              <button onClick={removeFromTeamFromAll} disabled={saving} style={chipStyle('#e08585', 'rgba(192,64,64,.4)')}>REMOVE</button>
-              <button onClick={handleDismissSelected} disabled={saving} style={chipStyle('#e08585', 'rgba(192,64,64,.4)')}>✕ DISMISS</button>
-              <span style={{ width: 1, height: 18, background: 'rgba(184,151,98,.3)' }} />
-            </>
-          )}
-
-          <div style={{ position: 'relative' }}>
-            <button onClick={() => { setSortOpen(o => !o); setFilterOpen(false); setAssignOpen(false) }} style={chipStyle('#c9bfa8', 'rgba(184,151,98,.35)')}>
-              SORT · {sortLabel} <span style={{ fontSize: 8, color: 'var(--muted)' }}>▾</span>
-            </button>
-            {sortOpen && (
-              <div style={{ position: 'absolute', right: 0, top: 28, zIndex: 9, border: '1px solid rgba(184,151,98,.45)', background: '#140b22', boxShadow: '0 12px 30px rgba(0,0,0,.6)', minWidth: 130 }}>
-                {SORTS.map(([k, label]) => (
-                  <div key={k} style={menuItemStyle(k === sortBy)} onClick={() => { setSortBy(k); setSortOpen(false) }}>{label}</div>
-                ))}
+              <div className="ilm-title-stack">
+                <div className="ghost">{activeTab === 'favorites' ? 'BELOVED' : 'LEGION'}</div>
+                <div className="solid">{activeTab === 'favorites' ? 'FAVORITES' : 'ROSTER'}</div>
               </div>
-            )}
-          </div>
-          <div style={{ position: 'relative' }}>
-            <button onClick={() => { setFilterOpen(o => !o); setSortOpen(false); setAssignOpen(false) }} style={chipStyle('#c9bfa8', 'rgba(184,151,98,.35)')}>
-              FILTER · {filterLabel} <span style={{ fontSize: 8, color: 'var(--muted)' }}>▾</span>
-            </button>
-            {filterOpen && (
-              <div style={{ position: 'absolute', right: 0, top: 28, zIndex: 9, border: '1px solid rgba(184,151,98,.45)', background: '#140b22', boxShadow: '0 12px 30px rgba(0,0,0,.6)', minWidth: 150 }}>
-                {FILTERS.map(([k, label]) => (
-                  <div key={k} style={menuItemStyle(k === filterBy)} onClick={() => { setFilterBy(k); setFilterOpen(false) }}>{label}</div>
-                ))}
-                <div style={{ ...menuItemStyle(false), color: '#e08585', borderBottom: 'none' }}
-                  onClick={() => { setFilterOpen(false); handleDismissFiltered() }}>
-                  ✕ DISMISS ALL SHOWN ({displayHeroes.length})
+            </div>
+            <span style={{ flex: 1 }} />
+            <div style={{ position: 'relative' }}>
+              <button onClick={() => { setSortOpen(o => !o); setFilterOpen(false); setAssignOpen(false) }} style={chipStyle('#c9bfa8', 'rgba(184,151,98,.35)')}>
+                SORT · {sortLabel} <span style={{ fontSize: 8, color: 'var(--muted)' }}>▾</span>
+              </button>
+              {sortOpen && (
+                <div style={{ position: 'absolute', right: 0, top: 28, zIndex: 9, border: '1px solid rgba(184,151,98,.45)', background: '#140b22', boxShadow: '0 12px 30px rgba(0,0,0,.6)', minWidth: 130 }}>
+                  {SORTS.map(([k, label]) => (
+                    <div key={k} style={menuItemStyle(k === sortBy)} onClick={() => { setSortBy(k); setSortOpen(false) }}>{label}</div>
+                  ))}
                 </div>
-              </div>
+              )}
+            </div>
+            <div style={{ position: 'relative' }}>
+              <button onClick={() => { setFilterOpen(o => !o); setSortOpen(false); setAssignOpen(false) }} style={chipStyle('#c9bfa8', 'rgba(184,151,98,.35)')}>
+                FILTER · {filterLabel} <span style={{ fontSize: 8, color: 'var(--muted)' }}>▾</span>
+              </button>
+              {filterOpen && (
+                <div style={{ position: 'absolute', right: 0, top: 28, zIndex: 9, border: '1px solid rgba(184,151,98,.45)', background: '#140b22', boxShadow: '0 12px 30px rgba(0,0,0,.6)', minWidth: 150 }}>
+                  {FILTERS.map(([k, label]) => (
+                    <div key={k} style={menuItemStyle(k === filterBy)} onClick={() => { setFilterBy(k); setFilterOpen(false) }}>{label}</div>
+                  ))}
+                  <div style={{ ...menuItemStyle(false), color: '#e08585', borderBottom: 'none' }}
+                    onClick={() => { setFilterOpen(false); handleDismissFiltered() }}>
+                    ✕ DISMISS ALL SHOWN ({displayHeroes.length})
+                  </div>
+                </div>
+              )}
+            </div>
+            <input
+              type="text"
+              placeholder="Search…"
+              value={searchQuery}
+              onChange={e => setSearchQuery(e.target.value)}
+              style={{ width: 130, fontFamily: "'Cormorant Garamond',serif", fontStyle: 'italic', fontSize: 14, color: 'var(--text-hi)', background: 'rgba(12,7,24,.5)', border: '1px solid rgba(184,151,98,.35)', padding: '4px 10px', outline: 'none' }}
+            />
+          </div>
+
+          {/* ROW 2 — action bar. A fixed min-height reserves the space whether
+              or not any heroes are selected, so the contextual tools (compare,
+              assign, remove…) fade in on the RIGHT without ever reflowing the
+              roster grid below. Synthesis anchors the left as the primary act. */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, minHeight: 40, marginTop: 12, flexWrap: 'nowrap' }}>
+            <button onClick={() => setSynthChamberOpen(true)} title="Fuse two heroes into a stronger one"
+              style={{
+                cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 9, flex: 'none',
+                fontFamily: "'Cinzel',serif", fontWeight: 700, fontSize: 11, letterSpacing: '.2em',
+                color: '#f2dede', background: 'linear-gradient(120deg, rgba(192,64,64,.30), rgba(120,40,40,.14))',
+                border: '1px solid rgba(224,133,133,.55)', padding: '10px 22px',
+                clipPath: 'polygon(8px 0,100% 0,calc(100% - 8px) 100%,0 100%)',
+              }}>
+              ⚗ SYNTHESIS <span style={{ opacity: .55, fontSize: 13 }}>›</span>
+            </button>
+            <span style={{ flex: 1 }} />
+
+            {selected.size > 0 && (
+              <>
+                <span style={{ fontFamily: "'Cinzel',serif", fontSize: 9, letterSpacing: '.14em', color: '#8fbf9f' }}>{selected.size} SELECTED</span>
+                {selected.size === 2 && (
+                  <button onClick={() => setCompareHeroesOpen(true)} style={chipStyle('#c9bfa8', 'rgba(184,151,98,.35)')}>⇄ COMPARE</button>
+                )}
+                {one && heroes.find(h => h.id === one)?.is_on_team > 0 && (
+                  <button onClick={(e) => handleAssignLeader(one, e)}
+                    style={{ ...chipStyle('#ffd88a', 'rgba(255,216,138,.5)'), fontWeight: 600, letterSpacing: '.14em' }}>
+                    ★ SET LEADER
+                  </button>
+                )}
+                <div style={{ position: 'relative' }}>
+                  <button onClick={() => { setAssignOpen(o => !o); setSortOpen(false); setFilterOpen(false) }} disabled={saving}
+                    style={{ cursor: 'pointer', fontFamily: "'Cinzel',serif", fontWeight: 700, fontSize: 9, letterSpacing: '.14em', color: '#0a0710', background: 'linear-gradient(120deg,#c8a9f5,#8b46d6)', border: 'none', padding: '6px 14px', clipPath: 'polygon(6px 0,100% 0,calc(100% - 6px) 100%,0 100%)' }}>
+                    {saving ? 'ASSIGNING…' : `ASSIGN TO TEAM ${ROMAN[assignTargetTeam]} ▾`}
+                  </button>
+                  {assignOpen && (
+                    <div style={{ position: 'absolute', right: 0, top: 28, zIndex: 9, border: '1px solid rgba(184,151,98,.45)', background: '#140b22', boxShadow: '0 12px 30px rgba(0,0,0,.6)', minWidth: 130 }}>
+                      {[1, 2, 3, 4, 5].map(t => (
+                        <div key={t} style={menuItemStyle(t === assignTargetTeam)}
+                          onClick={() => { setAssignOpen(false); setAssignTargetTeam(t); saveTeamFromAll(t) }}>
+                          TEAM {ROMAN[t]}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+                <button onClick={removeFromTeamFromAll} disabled={saving} style={chipStyle('#e08585', 'rgba(192,64,64,.4)')}>REMOVE</button>
+                <button onClick={handleDismissSelected} disabled={saving} style={chipStyle('#e08585', 'rgba(192,64,64,.4)')}>✕ DISMISS</button>
+              </>
             )}
           </div>
-          <input
-            type="text"
-            placeholder="Search…"
-            value={searchQuery}
-            onChange={e => setSearchQuery(e.target.value)}
-            style={{ width: 130, fontFamily: "'Cormorant Garamond',serif", fontStyle: 'italic', fontSize: 14, color: 'var(--text-hi)', background: 'rgba(12,7,24,.5)', border: '1px solid rgba(184,151,98,.35)', padding: '4px 10px', outline: 'none' }}
-          />
-        </div>
 
-        {msg && (
-          <div style={{ fontStyle: 'italic', fontSize: 14, marginBottom: 10, color: /saved|complete|Added|Removed|successful|Dismissed|cleared|leader/i.test(msg) ? '#8fbf9f' : '#e08585' }}>
+          {/* status line — reserved height so a message never nudges the grid. */}
+          <div style={{ minHeight: 20, marginTop: 6, fontStyle: 'italic', fontSize: 14, color: /saved|complete|Added|Removed|successful|Dismissed|cleared|leader/i.test(msg || '') ? '#8fbf9f' : '#e08585' }}>
             {msg}
           </div>
-        )}
+        </div>
 
         {/* roster grid — the spec's 4-column compact rows. Paged, never
             scrolled: overflow past PAGE_SIZE becomes numbered pages below. */}

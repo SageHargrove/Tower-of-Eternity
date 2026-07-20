@@ -239,6 +239,9 @@ export const redeemEquipSpark = () => request('/gacha/equip-spark-redeem', { met
 
 // Tower / Runs
 export const enterFloor = (floorNumber, teamIds, stance = 'balanced') => request('/tower/floor/enter', { method: 'POST', body: JSON.stringify({ floor_number: floorNumber, team_ids: Array.isArray(teamIds) ? teamIds : [teamIds], stance }) })
+// Called the instant a fight's animation finishes — reveals the fallen NOW
+// (deaths are deferred server-side so they don't spoil on other tabs mid-fight).
+export const finalizeCombat = (pendingCombatId = null) => request('/tower/floor/finalize', { method: 'POST', body: JSON.stringify({ pending_combat_id: pendingCombatId }) })
 export const getNarrative = (narrativeId) => request(`/tower/narrative/${narrativeId}`)
 export const previewFloor = (floorNumber) => request(`/tower/floor/preview/${floorNumber}`)
 export const resolveEvent = (floorNumber, teamId, templateId, choiceId, theme) => request('/tower/floor/event/resolve', { method: 'POST', body: JSON.stringify({ floor_number: floorNumber, team_id: teamId, template_id: templateId, choice_id: choiceId, theme: theme }) })

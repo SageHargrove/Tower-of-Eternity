@@ -21,8 +21,11 @@ export function isSoundEnabled() {
 export function setBgmVolume(vol) {
   globalBgmVolume = vol
   localStorage.setItem('bgmVolume', vol)
-  if (bgmAudio) {
-    bgmAudio.volume = globalBgmVolume
+  if (masterBgmGain && audioCtx) {
+    const now = audioCtx.currentTime
+    masterBgmGain.gain.cancelScheduledValues(now)
+    masterBgmGain.gain.setValueAtTime(Math.max(0.0001, masterBgmGain.gain.value), now)
+    masterBgmGain.gain.linearRampToValueAtTime(Math.max(0.0001, _bedVol()), now + 0.1)
   }
 }
 
@@ -39,11 +42,13 @@ export function initAudio() {
   try {
     audioCtx = new (window.AudioContext || window.webkitAudioContext)()
     
-    // Ensure it resumes on any user interaction
+    _ensureGraph()
+
+    // Ensure it resumes on any user interaction, and (re)start BGM if the
+    // browser's autoplay policy blocked the initial start.
     const resumeAudio = () => {
-      if (audioCtx && audioCtx.state === 'suspended') {
-        audioCtx.resume()
-      }
+      if (audioCtx && audioCtx.state === 'suspended') audioCtx.resume()
+      if (soundEnabled && !curVoice && !takeoverActive) playBgm()
       document.removeEventListener('click', resumeAudio)
     }
     document.addEventListener('click', resumeAudio)
@@ -313,21 +318,192 @@ export function playEvolveSurge() {
   _tone(2093, { type: 'triangle', vol: 0.015, at: 0.6, dur: 0.8 })
 }
 
-let bgmAudio = null
+// ─── BGM manager (scene-based, Web Audio, gapless-capable) ──────────────────
+// Real music now lives in /public/audio/*.ogg (see scripts/encode_audio.mjs).
+// Screens set a SCENE; each scene maps to one or more tracks that rotate
+// (shuffled, no immediate repeat). Switching scenes crossfades. Combat is
+// session-persistent: re-asserting the same scene never restarts it.
 
-function stopBgm() {
-  if (bgmAudio) {
-    bgmAudio.pause()
-    bgmAudio = null
+const AUDIO_BASE = '/audio/'
+// Ceiling on BGM so the volume slider's top end sits at a comfortable level
+// rather than blasting the -16 LUFS masters at full gain. Effective bed volume
+// = slider (0..1) × this.
+const BGM_MASTER = 0.45
+const _bedVol = () => globalBgmVolume * BGM_MASTER
+
+// scene id → rotation pool of track slugs
+const SCENES = {
+  title:       ['title'],
+  hub:         ['hub_1', 'hub_2', 'hub_3', 'hub_4'],
+  summon:      ['summon_altar'],
+  towerAscent: ['tower_ascent'],
+  combat:      ['combat'],
+  elite:       ['elite'],
+  boss:        ['boss'],
+  world:       ['world_1', 'world_2'],
+  arena:       ['arena_1', 'arena_2'],
+  tavern:      ['tavern_1', 'tavern_2'],
+  synthesis:   ['synthesis_chamber'],
+  athenaeum:   ['athenaeum'],
+  memorial:    ['memorial'],
+  expeditions: ['expeditions'],
+  herald:      ['herald'],
+}
+// Optional per-track seamless loop points {slug: [startSec, endSec]} — tune
+// later without re-encoding; default loops the whole buffer.
+const LOOP_POINTS = {}
+
+const _bufCache = new Map()   // slug -> Promise<AudioBuffer>
+let masterBgmGain = null      // all BGM voices route through here (= volume)
+let curVoice = null           // { slug, source, gain }
+let curScene = null
+let lastPlayed = {}           // scene -> last slug (avoid immediate repeat)
+let takeoverActive = false
+let pendingScene = null       // scene to resume after a takeover ends
+let sceneGen = 0              // bumped every switch; stale async starts self-cancel
+
+function _ensureGraph() {
+  if (!audioCtx) return false
+  if (!masterBgmGain) {
+    masterBgmGain = audioCtx.createGain()
+    masterBgmGain.gain.value = _bedVol()
+    masterBgmGain.connect(audioCtx.destination)
   }
+  return true
 }
 
-function playBgm() {
+function _loadBuffer(slug) {
+  if (_bufCache.has(slug)) return _bufCache.get(slug)
+  const p = fetch(`${AUDIO_BASE}${slug}.ogg`)
+    .then(r => { if (!r.ok) throw new Error(`missing ${slug}.ogg`); return r.arrayBuffer() })
+    .then(ab => audioCtx.decodeAudioData(ab))
+    .catch(e => { _bufCache.delete(slug); console.warn('[bgm] load failed', slug, e.message); throw e })
+  _bufCache.set(slug, p)
+  return p
+}
+
+function _pick(scene) {
+  const pool = SCENES[scene]
+  if (!pool || !pool.length) return null
+  if (pool.length === 1) return pool[0]
+  let choice = pool[Math.floor(Math.random() * pool.length)]
+  if (choice === lastPlayed[scene]) choice = pool[(pool.indexOf(choice) + 1) % pool.length]
+  lastPlayed[scene] = choice
+  return choice
+}
+
+function _startVoice(slug, { loop = true, fadeIn = 0.8 } = {}) {
+  return _loadBuffer(slug).then(buf => {
+    if (audioCtx.state === 'suspended') audioCtx.resume()
+    const source = audioCtx.createBufferSource()
+    source.buffer = buf
+    source.loop = loop
+    const lp = LOOP_POINTS[slug]
+    if (loop && lp) { source.loopStart = lp[0]; source.loopEnd = lp[1] }
+    const gain = audioCtx.createGain()
+    const now = audioCtx.currentTime
+    gain.gain.setValueAtTime(0.0001, now)
+    gain.gain.exponentialRampToValueAtTime(1, now + fadeIn)
+    source.connect(gain); gain.connect(masterBgmGain)
+    source.start(now)
+    return { slug, source, gain }
+  }).catch(() => null)
+}
+
+function _fadeOutVoice(voice, dur = 0.8) {
+  if (!voice) return
+  try {
+    const now = audioCtx.currentTime
+    voice.gain.gain.cancelScheduledValues(now)
+    voice.gain.gain.setValueAtTime(Math.max(0.0001, voice.gain.gain.value), now)
+    voice.gain.gain.exponentialRampToValueAtTime(0.0001, now + dur)
+    voice.source.stop(now + dur + 0.05)
+  } catch {}
+}
+
+// Public: route the BGM to a scene. Same-scene calls are ignored (this is what
+// makes combat music continuous across floors). Called by screens.
+export function setBgmScene(scene) {
+  if (!SCENES[scene]) return
+  if (takeoverActive) { pendingScene = scene; return }
+  if (scene === curScene && curVoice) return
+  curScene = scene
   if (!soundEnabled) return
-  stopBgm() // Stop existing
-  
-  bgmAudio = new Audio('/bgm.mp3')
-  bgmAudio.loop = true
-  bgmAudio.volume = globalBgmVolume
-  bgmAudio.play().catch(e => console.error("BGM blocked by browser", e))
+  if (!_ensureGraph()) return
+  const slug = _pick(scene)
+  if (!slug) return
+  // Generation guard: a track load is async, so rapid scene switches can have
+  // several starts in flight. Stamp this switch; when a start resolves, adopt
+  // it only if it's still the latest — otherwise stop it so nothing stacks.
+  const gen = ++sceneGen
+  _fadeOutVoice(curVoice, 1.0)
+  curVoice = null
+  _startVoice(slug).then(v => {
+    if (!v) return
+    if (gen !== sceneGen) { try { v.source.stop() } catch {} return }
+    curVoice = v
+  })
+}
+
+// Full-track takeover for the biggest moments (6★ pull, 7★ ascension): ducks
+// and stops BGM, plays the whole track once, keeps playing even if the player
+// navigates away, then restores the scene BGM. One per event.
+export function playTakeover(slug) {
+  if (!soundEnabled || !_ensureGraph() || takeoverActive) return
+  takeoverActive = true
+  pendingScene = curScene
+  _fadeOutVoice(curVoice, 0.4); curVoice = null
+  _loadBuffer(slug).then(buf => {
+    if (audioCtx.state === 'suspended') audioCtx.resume()
+    const source = audioCtx.createBufferSource()
+    source.buffer = buf
+    const gain = audioCtx.createGain()
+    gain.gain.value = 1
+    source.connect(gain); gain.connect(masterBgmGain)
+    source.onended = () => {
+      takeoverActive = false
+      const resume = pendingScene; curScene = null
+      if (resume) setBgmScene(resume)
+    }
+    source.start()
+  }).catch(() => { takeoverActive = false })
+}
+
+// One-shot MUSIC stinger (victory/defeat) that ducks the BGM under it.
+export function playMusicStinger(slug, { duckTo = 0.3, duckMs = 250 } = {}) {
+  if (!soundEnabled || !_ensureGraph()) return
+  _loadBuffer(slug).then(buf => {
+    if (audioCtx.state === 'suspended') audioCtx.resume()
+    const now = audioCtx.currentTime
+    // duck the bed
+    masterBgmGain.gain.cancelScheduledValues(now)
+    masterBgmGain.gain.setValueAtTime(masterBgmGain.gain.value, now)
+    masterBgmGain.gain.linearRampToValueAtTime(_bedVol() * duckTo, now + duckMs / 1000)
+    const source = audioCtx.createBufferSource()
+    source.buffer = buf
+    const gain = audioCtx.createGain()
+    gain.gain.value = globalBgmVolume
+    source.connect(gain); gain.connect(audioCtx.destination)
+    source.onended = () => {
+      const t = audioCtx.currentTime
+      masterBgmGain.gain.cancelScheduledValues(t)
+      masterBgmGain.gain.setValueAtTime(masterBgmGain.gain.value, t)
+      masterBgmGain.gain.linearRampToValueAtTime(_bedVol(), t + 0.6)
+    }
+    source.start()
+  }).catch(() => {})
+}
+
+function stopBgm() {
+  _fadeOutVoice(curVoice, 0.3)
+  curVoice = null
+}
+
+// Resume/assert the current scene (used by sound-enable + autoplay-resume).
+function playBgm() {
+  if (!soundEnabled || takeoverActive) return
+  if (!_ensureGraph()) return
+  const scene = curScene || 'title'
+  curScene = null           // force setBgmScene to (re)start it
+  setBgmScene(scene)
 }

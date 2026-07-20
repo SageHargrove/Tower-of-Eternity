@@ -35,7 +35,7 @@ export default function DeathCeremony({ hero, onClose }) {
         <div style={{ fontFamily: "'Cinzel',serif", letterSpacing: '.5em', fontSize: '0.66rem', color: 'var(--gold-hi)', textAlign: 'center' }}>FLOOR {h.floor} · THE ASHEN COURT</div>
 
         <div className="ilm-death-portrait">
-          {h.id ? <img src={`/heroes/${h.id}/card-image`} alt={h.name} onError={e => { e.target.style.display = 'none' }} /> : <span className="ilm-death-silhouette">☙</span>}
+          {h.id ? <img src={h.portrait_path ? `/${h.portrait_path}` : `/heroes/${h.id}/card-image?mini=1`} alt={h.name} onError={e => { e.target.style.display = 'none' }} /> : <span className="ilm-death-silhouette">☙</span>}
           <div className="ilm-death-fade" />
         </div>
 

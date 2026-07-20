@@ -14,6 +14,11 @@ backend/venv/
 # Node
 frontend/node_modules/
 
+# Audio WAV masters (~700MB source-of-truth; the shipped, playable OGGs live in
+# frontend/public/audio/ and ARE committed — regenerate OGGs from masters with
+# frontend/scripts/encode_audio.mjs). Masters themselves are too large for git.
+audio_masters/
+
 # pywebview's Edge WebView2 runtime profile/cache — regenerated on launch
 webview_data/
 

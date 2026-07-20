@@ -13,6 +13,7 @@ import {
 } from '../api/arenaServerClient'
 import { receiveMail, payLocalFee, setGuildBoons } from '../api/client'
 import { emitToast } from '../toastBus'
+import { useBgmScene } from '../useBgmScene'
 import CombatArena from './CombatArena'
 import StakesBanner from './StakesBanner'
 import { GuildPerks, GuildWar } from './GuildViews'
@@ -186,6 +187,7 @@ function GuildChat({ kinCount }) {
 }
 
 export default function GuildHall({ onClose }) {
+  useBgmScene('tavern')  // the guild hall shares the tavern's convivial bed
   const [tab, setTab] = useState('roster')
   const [view, setView] = useState(null)     // null | 'perks' | 'war' — hall sub-screens
   const [data, setData] = useState(null)     // /guild/mine response

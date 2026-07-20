@@ -1,6 +1,7 @@
 import React, { useState } from 'react'
 import { synthesizeHero } from '../api/client'
 import { playRiteHum } from '../audio'
+import { useBgmScene } from '../useBgmScene'
 import { CLASS_FAMILIES } from './HeroCard'
 
 /*
@@ -45,6 +46,7 @@ function SoulDiamond({ hero, accent }) {
 const microStyle = { fontFamily: "'Cinzel',serif", letterSpacing: '.14em', fontSize: 9 }
 
 export default function SynthesisChamber({ heroes, onClose, onComplete }) {
+  useBgmScene('synthesis')  // ominous sacrifice bed while the rite is open
   const [vesselId, setVesselId] = useState(null)
   const [offerIds, setOfferIds] = useState([])
   const [picker, setPicker] = useState(null) // 'vessel' | 'offering' | null

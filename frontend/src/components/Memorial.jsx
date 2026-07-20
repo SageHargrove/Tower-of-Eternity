@@ -6,6 +6,7 @@
  */
 import React, { useState, useEffect } from 'react'
 import { getLegacies, getHeroDeeds } from '../api/client'
+import { useBgmScene } from '../useBgmScene'
 import Sigil from './Sigil'
 
 const FILTERS = ['ALL WHO FELL', 'THE SACRIFICED', 'CLAIMED IN COMBAT']
@@ -23,6 +24,7 @@ const BOND_LABELS = [
 ]
 
 export default function Memorial({ onClose }) {
+  useBgmScene('memorial')  // requiem for the fallen
   const [filter, setFilter] = useState('ALL WHO FELL')
   const [data, setData] = useState(null)
   const [err, setErr] = useState(null)

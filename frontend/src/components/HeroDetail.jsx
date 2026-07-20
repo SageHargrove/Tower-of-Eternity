@@ -255,7 +255,9 @@ export default function HeroDetail({ hero, onManageEquipment, onManageConsumable
                   ))}
                 </div>
                 <div style={{ display: 'flex', gap: 7, marginTop: 12, flexWrap: 'wrap' }}>
-                  {hero.defense != null && <span style={{ fontFamily: "'Cinzel',serif", fontSize: 9, letterSpacing: '.12em', color: '#c9bfa8', border: '1px solid rgba(184,151,98,.35)', padding: '2px 8px' }}>DEF {hero.defense}</span>}
+                  {/* DEF removed — 'defense' is a legacy/inert stat; endurance
+                      replaced it (mitigation + drives max_health), so it reads
+                      as out of place next to the six real attributes. */}
                   {!!hero.crit_chance && <span style={{ fontFamily: "'Cinzel',serif", fontSize: 9, letterSpacing: '.12em', color: '#c9bfa8', border: '1px solid rgba(184,151,98,.35)', padding: '2px 8px' }}>CRIT {Math.round(hero.crit_chance * 100)}%</span>}
                   {!!hero.dodge_chance && <span style={{ fontFamily: "'Cinzel',serif", fontSize: 9, letterSpacing: '.12em', color: '#c9bfa8', border: '1px solid rgba(184,151,98,.35)', padding: '2px 8px' }}>DODGE {Math.round(hero.dodge_chance * 100)}%</span>}
                   {!!hero.dmg_reduction_pct && <span style={{ fontFamily: "'Cinzel',serif", fontSize: 9, letterSpacing: '.12em', color: '#c9bfa8', border: '1px solid rgba(184,151,98,.35)', padding: '2px 8px' }}>DR {Math.round(hero.dmg_reduction_pct * 100)}%</span>}

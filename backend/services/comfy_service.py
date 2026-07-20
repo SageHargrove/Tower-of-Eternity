@@ -26,12 +26,86 @@ FACE_DETAIL = os.getenv("COMFY_FACE_DETAILER", "1") == "1"
 # checkpoint's tendency to humanise them. See _build_workflow's control path.
 CONTROLNET_MODEL = os.getenv("COMFY_CONTROLNET", "xinsir-union-promax.safetensors")
 
+# ── Transparent generation (LayerDiffuse) ───────────────────────────────────
+# The durable fix for the "cutout ate part of the hero" problem: generate the
+# figure WITH an alpha channel so there is no black-bg-removal step to erode
+# anything. Requires the ComfyUI-layerdiffuse custom nodes + their SDXL
+# transparent weights installed in ComfyUI. OFF by default — flip COMFY_TRANSPARENT=1
+# once installed; if the nodes are missing the workflow queue is rejected and
+# generate_portrait_comfy automatically retries the normal black-bg path (which
+# still runs the cutout), so enabling it can never harden-fail a generation.
+TRANSPARENT = os.getenv("COMFY_TRANSPARENT", "0") == "1"
+# Apply-node config. "SDXL, Conv Injection" is the standard SDXL foreground
+# (transparent subject) mode; "SDXL, Attention Injection" is the alternative.
+LAYERDIFFUSE_CONFIG = os.getenv("COMFY_LAYERDIFFUSE_CONFIG", "SDXL, Conv Injection")
+LAYERDIFFUSE_WEIGHT = float(os.getenv("COMFY_LAYERDIFFUSE_WEIGHT", "1.0"))
 
-def _build_workflow(prompt: str, negative: str = "", seed: int = None, init_image_name: str = None, denoise: float = 0.45, width: int = 832, height: int = 1216, hires: bool = False, hires_denoise: float = 0.62, lora_override: str = None, lora_strength_override: float = None, face_detail: bool = None, control_image_name: str = None, control_strength: float = 0.55, control_end: float = 0.5, control_mode: str = 'canny') -> dict:
+
+def transparent_enabled() -> bool:
+    return TRANSPARENT
+
+# ── Content-aware cutout in-workflow (rembg / isnet-anime) ───────────────────
+# The ADOPTED fix for "cutout ate part of the hero". A tiny custom node
+# (ComfyUI/custom_nodes/toe_rembg) runs rembg isnet-anime at the end of the
+# graph, so the portrait comes back already background-removed. Content-aware
+# segmentation keeps dark cloaks/hair that the void-mask/border-flood cutouts
+# shred. ON by default; if the node isn't installed the queue is rejected and
+# generation retries without it (the backend then cuts with border-flood).
+REMBG_CUTOUT = os.getenv("COMFY_REMBG_CUTOUT", "1") == "1"
+
+
+def rembg_cutout_enabled() -> bool:
+    return REMBG_CUTOUT
+
+
+def rembg_node_preflight() -> dict:
+    """Confirm the ToE Rembg Cutout node is registered in the running ComfyUI."""
+    try:
+        info = requests.get(f"{COMFY_URL}/object_info", timeout=5.0).json()
+        ok = "ToE_RembgCutout" in info
+        return {"ok": ok, "detail": None if ok else
+                "ToE_RembgCutout node not found — ensure ComfyUI/custom_nodes/toe_rembg "
+                "exists, `pip install rembg onnxruntime` in ComfyUI's python, and restart ComfyUI."}
+    except Exception as e:
+        return {"ok": False, "detail": f"ComfyUI not reachable: {e}"}
+
+
+def layerdiffuse_preflight() -> dict:
+    """Ask the running ComfyUI what nodes it has, so a missing-install is a
+    clear message instead of a silent fallback. Returns
+    {ok, apply, decode, detail}. Cheap; call it when COMFY_TRANSPARENT is on."""
+    try:
+        resp = requests.get(f"{COMFY_URL}/object_info", timeout=5.0)
+        info = resp.json()
+        apply_ok = "LayeredDiffusionApply" in info
+        decode_ok = "LayeredDiffusionDecodeRGBA" in info
+        return {
+            "ok": apply_ok and decode_ok,
+            "apply": apply_ok,
+            "decode": decode_ok,
+            "detail": None if (apply_ok and decode_ok) else
+                      "ComfyUI-layerdiffuse nodes not found — install github.com/huchenlei/ComfyUI-layerdiffuse "
+                      "and its SDXL transparent weights, then restart ComfyUI.",
+        }
+    except Exception as e:
+        return {"ok": False, "apply": False, "decode": False, "detail": f"ComfyUI not reachable: {e}"}
+
+
+def _build_workflow(prompt: str, negative: str = "", seed: int = None, init_image_name: str = None, denoise: float = 0.45, width: int = 832, height: int = 1216, hires: bool = False, hires_denoise: float = 0.62, lora_override: str = None, lora_strength_override: float = None, face_detail: bool = None, control_image_name: str = None, control_strength: float = 0.55, control_end: float = 0.5, control_mode: str = 'canny', transparent: bool = False, rembg_cutout: bool = False) -> dict:
     if face_detail is None:
         face_detail = FACE_DETAIL
+    # LayerDiffuse (transparent) already yields RGBA — never double-cut.
+    if transparent:
+        rembg_cutout = False
     if seed is None:
         seed = random.randint(0, 2**32 - 1)
+
+    # LayerDiffuse's RGBA decode requires both image dims to be multiples of
+    # 64 (asserts otherwise). The base 832×1216 already is, but the 1.5× hires
+    # upscale (→1824) is not, so snap dims down to /64 in transparent mode.
+    if transparent:
+        width = (int(width) // 64) * 64
+        height = (int(height) // 64) * 64
 
     full_prompt = prompt
 
@@ -117,6 +191,17 @@ def _build_workflow(prompt: str, negative: str = "", seed: int = None, init_imag
             "class_type": "RescaleCFG"
         }
         model_source = ["20", 0]
+
+    # LayerDiffuse: patch the model so sampling encodes transparency, then the
+    # decode node (added after VAEDecode below) extracts the alpha. Sits last
+    # in the model chain so every sampler (base, hires, FaceDetailer) inherits
+    # the transparent-aware model.
+    if transparent:
+        workflow["50"] = {
+            "inputs": {"config": LAYERDIFFUSE_CONFIG, "weight": LAYERDIFFUSE_WEIGHT, "model": model_source},
+            "class_type": "LayeredDiffusionApply",
+        }
+        model_source = ["50", 0]
 
     workflow["6"] = {
         "inputs": {"text": full_prompt, "clip": clip_source},
@@ -236,12 +321,15 @@ def _build_workflow(prompt: str, negative: str = "", seed: int = None, init_imag
     }
 
     if hires and not init_image_name:
+        # LayerDiffuse needs the final image on a /64 grid (see the snap at the
+        # top); round the hires target to /64 in transparent mode, else /8.
+        _grid = 64 if transparent else 8
         workflow["13"] = {
             "inputs": {
                 "samples": ["3", 0],
                 "upscale_method": "bislerp",
-                "width": (int(width * 1.5) // 8) * 8,
-                "height": (int(height * 1.5) // 8) * 8,
+                "width": (int(width * 1.5) // _grid) * _grid,
+                "height": (int(height * 1.5) // _grid) * _grid,
                 "crop": "disabled"
             },
             "class_type": "LatentUpscale"
@@ -310,6 +398,32 @@ def _build_workflow(prompt: str, negative: str = "", seed: int = None, init_imag
         }
         # save the detailed image instead of the raw decode
         workflow["9"]["inputs"]["images"] = ["30", 0]
+
+    # LayerDiffuse decode: turn the final RGB (raw decode or FaceDetailer'd)
+    # plus the final latent into an RGBA image — the transparency is derived
+    # from the transparent-aware latent, so the subject comes out already cut.
+    if transparent:
+        rgb_src = workflow["9"]["inputs"]["images"]  # ["8",0] or ["30",0]
+        workflow["51"] = {
+            "inputs": {
+                "samples": final_samples_source,
+                "images": rgb_src,
+                "sd_version": "SDXL",
+                "sub_batch_size": 16,
+            },
+            "class_type": "LayeredDiffusionDecodeRGBA",
+        }
+        workflow["9"]["inputs"]["images"] = ["51", 0]
+
+    # Content-aware cutout (rembg isnet-anime) as the LAST step — runs on the
+    # final RGB (raw decode or FaceDetailer'd) and outputs RGBA. The portrait
+    # comes back already cut, so the backend skips its own cutout.
+    if rembg_cutout:
+        workflow["52"] = {
+            "inputs": {"images": workflow["9"]["inputs"]["images"], "post_process": True},
+            "class_type": "ToE_RembgCutout",
+        }
+        workflow["9"]["inputs"]["images"] = ["52", 0]
 
     return workflow
 
@@ -428,10 +542,15 @@ def _upload_image(file_path: str) -> str | None:
         return None
 
 
-def generate_portrait_comfy(prompt: str, save_path: str, init_image_path: str = None, denoise: float = 0.45, negative: str = "", width: int = 832, height: int = 1216, hires: bool = False, hires_denoise: float = 0.62, lora_override: str = None, lora_strength_override: float = None, _noise_retry: bool = False, control_image_path: str = None, control_strength: float = 0.55, control_end: float = 0.5, control_mode: str = 'canny') -> bool:
+def generate_portrait_comfy(prompt: str, save_path: str, init_image_path: str = None, denoise: float = 0.45, negative: str = "", width: int = 832, height: int = 1216, hires: bool = False, hires_denoise: float = 0.62, lora_override: str = None, lora_strength_override: float = None, _noise_retry: bool = False, control_image_path: str = None, control_strength: float = 0.55, control_end: float = 0.5, control_mode: str = 'canny', transparent: bool = None, rembg_cutout: bool = None) -> bool:
     if not is_comfy_running():
         print("[ComfyUI] Server not running — skipping.")
         return False
+
+    if transparent is None:
+        transparent = TRANSPARENT
+    if rembg_cutout is None:
+        rembg_cutout = REMBG_CUTOUT
 
     init_image_name = None
     if init_image_path and os.path.exists(init_image_path):
@@ -441,11 +560,26 @@ def generate_portrait_comfy(prompt: str, save_path: str, init_image_path: str = 
     if control_image_path and os.path.exists(control_image_path):
         control_image_name = _upload_image(control_image_path)
 
-    def _wf(fd=None):
-        return _build_workflow(prompt, negative=negative, init_image_name=init_image_name, denoise=denoise, width=width, height=height, hires=hires, hires_denoise=hires_denoise, lora_override=lora_override, lora_strength_override=lora_strength_override, face_detail=fd, control_image_name=control_image_name, control_strength=control_strength, control_end=control_end, control_mode=control_mode)
+    def _wf(fd=None, tp=None, rb=None):
+        return _build_workflow(prompt, negative=negative, init_image_name=init_image_name, denoise=denoise, width=width, height=height, hires=hires, hires_denoise=hires_denoise, lora_override=lora_override, lora_strength_override=lora_strength_override, face_detail=fd, control_image_name=control_image_name, control_strength=control_strength, control_end=control_end, control_mode=control_mode, transparent=(transparent if tp is None else tp), rembg_cutout=(rembg_cutout if rb is None else rb))
 
     workflow = _wf()
     prompt_id = _queue_prompt(workflow)
+    if not prompt_id and rembg_cutout:
+        # ToE_RembgCutout node not installed (or rejected) — retry without it;
+        # the backend's own cutout (border-flood) then handles the black-bg output.
+        print("[ComfyUI] Queue failed with rembg cutout node — retrying without it.")
+        rembg_cutout = False
+        workflow = _wf()
+        prompt_id = _queue_prompt(workflow)
+    if not prompt_id and transparent:
+        # LayerDiffuse nodes not installed (or rejected the graph) — fall back
+        # to the normal black-bg workflow so the hero still generates. The
+        # caller's cutout step then runs as before (output won't be transparent).
+        print("[ComfyUI] Queue failed with LayerDiffuse — retrying opaque (black-bg + cutout).")
+        transparent = False
+        workflow = _wf()
+        prompt_id = _queue_prompt(workflow)
     if not prompt_id and FACE_DETAIL:
         # Most likely the Impact Pack nodes aren't available — retry the
         # same generation without the FaceDetailer pass rather than failing.
@@ -470,6 +604,12 @@ def generate_portrait_comfy(prompt: str, save_path: str, init_image_path: str = 
     if not _download_image(filename, save_path):
         return False
 
+    # A transparent render (LayerDiffuse OR the rembg cutout node) has no
+    # black-void background, so the noise-soup detector below (which keys off
+    # "has a large dark region") would wrongly flag every good image. Skip it.
+    if transparent or rembg_cutout:
+        return True
+
     # Rare v-pred seed collapse produces full-frame noise soup. Every valid
     # render on this pipeline has a large near-black region (the void
     # background); noise soup has none. Detect and retry once with a fresh
@@ -481,7 +621,8 @@ def generate_portrait_comfy(prompt: str, save_path: str, init_image_path: str = 
                                        hires=hires, hires_denoise=hires_denoise,
                                        lora_override=lora_override, lora_strength_override=lora_strength_override,
                                        _noise_retry=True, control_image_path=control_image_path,
-                                       control_strength=control_strength, control_end=control_end, control_mode=control_mode)
+                                       control_strength=control_strength, control_end=control_end, control_mode=control_mode,
+                                       transparent=transparent, rembg_cutout=rembg_cutout)
     return True
 
 

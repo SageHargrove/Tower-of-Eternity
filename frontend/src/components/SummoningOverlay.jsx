@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react'
 import HeroCard from './HeroCard'
 import { EquipmentTypeIcon } from './EquipmentTypeIcon'
-import { playClick, playFlip, playRevealStinger, playArrayThud } from '../audio'
+import { playClick, playFlip, playRevealStinger, playArrayThud, playTakeover } from '../audio'
 
 // ── Rarity → the RGB the revealed face is tinted with (mirrors index.css
 // --star*; the card back is uniform, so rarity lives ONLY on the flipped face).
@@ -273,6 +273,13 @@ function TarotSpread({ results, onComplete, onInspect }) {
 export default function SummoningOverlay({ results, onComplete }) {
   const isSpread = results.length > 1
   const [inspectHero, setInspectHero] = useState(null)
+
+  // MUSICAL TAKEOVER: if this batch's best pull is 6★+ (hero) / top-grade
+  // equipment, the full hype track seizes the audio for the whole reveal —
+  // one per event, persists even if the player navigates away.
+  useEffect(() => {
+    if (results?.length && Math.max(...results.map(itemTier)) >= 6) playTakeover('6_star_pull')
+  }, [])
 
   return (
     <div style={{

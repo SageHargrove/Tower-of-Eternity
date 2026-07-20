@@ -114,7 +114,14 @@ def _clean_json(raw: str) -> str:
     return raw.strip()
 
 
-def generate_hero_profile(birth_star: int, aptitudes: dict, extra_prompt: str = "") -> HeroProfile:
+def generate_hero_profile(birth_star: int, aptitudes: dict, extra_prompt: str = "", fixed_name: str = None) -> HeroProfile:
+    # fixed_name: when the hero ALREADY has a permanent name (the re-enrichment
+    # / reconcile path — the player has already seen it, so it can't change),
+    # the backstory MUST be written about that exact person. Otherwise the LLM
+    # invents a fresh name for the story while the card keeps the old one, and
+    # the Chronicle ends up narrating a stranger ("Zaina was born…" on a hero
+    # named Elara). We instruct the model to use the fixed name and then force
+    # it regardless of what the model returned.
     apt_names = {
         "apt_combat": "combat prowess",
         "apt_tactical": "tactical genius",
@@ -154,11 +161,21 @@ def generate_hero_profile(birth_star: int, aptitudes: dict, extra_prompt: str = 
     except Exception:
         pass
 
+    fixed_name_clause = ""
+    if fixed_name:
+        fixed_name_clause = (
+            f"\n\nCRITICAL — THIS HERO'S NAME IS ALREADY FIXED as \"{fixed_name}\". "
+            f"You are ONLY writing their lore. Set the \"name\" field to exactly \"{fixed_name}\", "
+            f"and write the title, backstory, and personality about a person named \"{fixed_name}\" — "
+            f"wherever the story names them, use \"{fixed_name}\" (or their first name from it). "
+            f"Do NOT invent any other name for this character."
+        )
+
     prompt = f"""You are generating a hero for a dark fantasy roguelike tower-climbing game.
 
 Hero rarity: {birth_star}★ — {RARITY_FLAVOR[birth_star]}
 This hero has a notable hidden gift in: {top_apt_label} (do NOT state this directly — hint at it through personality and backstory)
-{extra_prompt}
+{extra_prompt}{fixed_name_clause}
 
 Generate a hero profile. Be creative, grounded, and avoid clichés.
 The world is dark, morally complex, and dangerous. Heroes are people, not archetypes.
@@ -197,6 +214,11 @@ Respond ONLY with valid JSON and nothing else — no markdown, no backticks, no 
 
     if data.get("battle_tendency") not in BATTLE_TENDENCIES:
         data["battle_tendency"] = random.choice(BATTLE_TENDENCIES)
+
+    # Force the fixed name regardless of what the model returned, so the card
+    # name and the story it tells can never drift apart.
+    if fixed_name:
+        data["name"] = fixed_name
 
     return HeroProfile(**data)
 

@@ -18,7 +18,8 @@ Instrumental, acid-jazz fusion with gothic orchestral flourishes,
 Every track sets one dial: funk ↔ sacred. The groove is the gacha's seduction; the choir is what it costs.
 - **Funk-forward**: Arena, Tavern, Expeditions, Herald
 - **Balanced**: Combat, Boss, Elite, Hub, Tower Ascent, Title, Athenaeum
-- **Sacred-only (no groove)**: Synthesis, Memorial, Summon ritual bed, reveal stingers, Ascension ceremony
+- **Sacred-only (no groove)**: Synthesis, Memorial, Summon ritual bed
+- **Sacred + MAX energy (the exception)**: 6★ flourish, 7★ Ascension — these are hype payoffs; full band + choir together, NOT solemn (see HYPE PRINCIPLE in stingers).
 Tonal misfits are fixed by sliding THAT track's dial darker, never by re-litigating the direction.
 
 ### House palette
@@ -33,6 +34,16 @@ Tonal misfits are fixed by sliding THAT track's dial darker, never by re-litigat
 3. **Saved Style** — save the winner's expanded style text (right panel → Styles) and reuse it.
 4. House prefix + palette words in every prompt.
 
+**Inspo bleed-through** (the chorus reappearing near-identically across Inspo tracks): a MOTIF recurring = good (cohesion); a literal 15–30s arrangement REPEAT = bad. Fixes, cheapest first: (a) **vary the reference** — don't Inspo everything off the combat track; use a calmer keeper (Tavern/Athenaeum) as the reference for calm tracks; (b) **drop Inspo** on identity-critical tracks and rely on prompt + house palette (Synthesis/Memorial already Inspo-free); (c) lower the influence slider if present. **Matters most for the Hub ×3 rotation** — if all three share the same chunk the rotation is pointless, so vary-reference or drop-Inspo across A/B/C. Barely matters for screens never heard back-to-back.
+
+### Length rule
+Err longer, NEVER shorter. Loops get loop-cut to a seamless internal section in-engine; one-shots get cropped to their payoff — so source length barely matters, and a shorter loop only repeats more often. 2:30–4:00 = ideal loop length (all tracks fine here). **Arena short-loop RESOLVED: made 2 Arena tracks instead of extending → Arena joins the rotation club** (better than a long loop — real variety, like Tavern/World/Hub). Extend was finicky (regenerates in a different key/feel); 2 tracks was the cleaner fix.
+
+**Download format: WAV for ALL** (Pro perk). These are masters — I normalize/loop-cut/compress-once in post; starting from lossless avoids generation loss. WAV masters don't ship, size is a non-issue.
+
+### MUSICAL TAKEOVER (6★ Pull + 7★ Ascension) — Liam idea 2026-07-19
+These two are NOT cropped — they play FULL as an audio takeover: the reveal ducks normal BGM and plays the whole track start-to-finish, continuing even if the player navigates away, so the hype moment is unmissable. Engine rules: (1) ONE takeover per event — best rarity in a multi-pull fires one, no stacking/restarting per card; (2) skippable navigation but audio keeps playing until the track ends or combat/another takeover starts. These are the only full-length-as-composed tracks in the OST.
+
 ### Post-production (later, in Suno Studio + Audacity/ffmpeg)
 - Crop chorus → victory stinger raw material; Get Stems → drums-less low-intensity variants.
 - Loop-cut at bar boundaries, crossfade tail→head.
@@ -40,6 +51,16 @@ Tonal misfits are fixed by sliding THAT track's dial darker, never by re-litigat
 - Loudness-normalize: −16 LUFS loops, stingers ~3 dB hotter.
 
 ---
+
+## Status (2026-07-19)
+
+**KEPT (~19):** Combat, Boss, Elite, Title, Tavern 1, Tavern 2, Summon Altar, Synthesis, Athenaeum, Expeditions, Tower Ascent, Herald, Memorial, Victory, Defeat, Arena, World 1 (swaggering) + World 2 (orchestral ambient — both kept, different vibes), Hub 1.
+
+6★ flourish DONE (nailed it), 7★ Ascension DONE (Option C coronation), Hub 1 + Hub 2 DONE.
+
+**Still to generate — ONE track left: Hub 3** (nocturne or lounge, funk prefix, moodier — see below).
+
+**Cut to SFX kit (no longer OST tracks):** all rarity reveals (except 6★ flourish), all 2★–6★ evolution stings.
 
 ## 2. Track list + prompts (all get the house prefix)
 
@@ -64,19 +85,23 @@ slow mysterious noir arrangement, brushed drums, upright bass, sparse glassy ele
 
 ### New-melody tracks — via + INSPO with the winner attached
 
-**Base hub — ROTATION SET of 3** (most-heard screen; the BGM manager shuffles per-screen playlists, no back-to-back repeats. Rotation policy: Hub ×3 at launch, Tavern ×2 later, everything else ×1 — expand by exposure in live-service patches.)
+**Base hub — ROTATION SET of 3** (most-heard screen; the BGM manager shuffles per-screen playlists, no back-to-back repeats. Rotation policy: Hub ×4, Tavern ×2, World ×2, Arena ×2, everything else ×1 — expand by exposure in live-service patches.)
 
-*Hub A — warm noble groove:*
+**Hub 1 KEPT** (cinematic chamber folk, 75 BPM, brushed groove, soft Rhodes/harp — owns the soft/restful lane). First A/B/C attempts all DIED — they were all "gentle & warm" = lifeless furniture. Hub 2/3 need DIFFERENT moods with a PULSE (melody or groove), plain-gen (no Inspo — avoids combat bleed + cloning Hub 1). Judge by "unobtrusive but not dead."
+
+*Hub 2 — cozy, grooving, base-is-alive:*
 ```
-warm noble home theme, gentle memorable melody on harp and Rhodes electric piano trading phrases, soft bassline, brushed drums, church bells in the distance, quiet choir pad, hopeful and safe after a long climb, understated, background music that never tires, 80 BPM, no vocals
+cozy warm home theme with a gentle groove, soft walking upright bass, lightly swinging brushed drums, mellow Rhodes and vibraphone trading a relaxed melody, faint choir pad and distant bells, the stronghold bustling with life between climbs, comfortable and unhurried, 90 BPM, no vocals
 ```
-*Hub B — atmospheric sanctuary:*
+**Hub 2 KEPT** (cozy grooving, 90 BPM). Hub 3 still needed — "hopeful dawn" (orchestral prefix, bright/major) FAILED; keep the FUNK prefix and go MOODIER (winners are restful + lively; missing mood = reflective). Last track needed:
+
+*Hub 3 — late-night nocturne (rec):*
 ```
-serene majestic home theme, slow harp arpeggios, warm string pads, distant cathedral choir, occasional soft piano melody, church bells marking time, sanctuary within ancient stone walls, peaceful gravity, 70 BPM, no vocals
+late-night nocturne, smoky Rhodes and soft muted trumpet trading a wistful melody, gentle upright bass, brushes on the drums, distant choir pad and low bells, the quiet hours in the stronghold, reflective and warm, bittersweet calm, 70 BPM, no vocals
 ```
-*Hub C — evening hearth (warmth with people in it):*
+*Hub 3 — alt (elegant noble lounge):*
 ```
-gentle homecoming theme, soft Rhodes and harp carrying a tender melody, warm upright bass, light brushed groove, distant bells and low choir pad, the stronghold at evening with fires lit and heroes resting, quiet life and comfort, 75 BPM, no vocals
+elegant noble lounge theme, graceful piano melody, warm bass, soft brushed swing, tasteful brass swells and harp flourishes, gentle choir and bells woven through, refined and calm with quiet dignity, 85 BPM, no vocals
 ```
 
 **Tavern** (have one — regen under Pro in-theme if the old one clashes)
@@ -109,6 +134,11 @@ adventurous mid-tempo jazz fusion, traveling groove, warm bassline, bright elect
 hard-hitting competitive battle groove, gritty slap bass, driving aggressive drums, dark brass riffs, two dueling lead melodies trading bars like opponents, choir surges on the impacts, fierce and confident, a coliseum under cathedral banners, 145 BPM, no vocals
 ```
 
+**World / overworld map** (distinct from Expeditions — the "OST - World" roll used the deprecated swaggering-arena prompt; regen with this. Grand and exploratory, not a battle groove.)
+```
+grand exploratory overworld theme, sweeping mid-tempo groove, warm walking bassline, wide string pads, bright electric piano and harp motif, distant cathedral choir and bells, a vast world seen from above, wonder and forward pull, 100 BPM, no vocals
+```
+
 **Memorial / Death Ceremony** (v2 — Suno loves resolving to a major "happy" cadence; forbid it. If a roll is perfect except the ending, just trim the last bars in post instead of discarding.)
 ```
 mournful slow elegy, solo piano, upright bass, distant wordless choir, single tolling church bell, long silences between phrases, grief and honor, stays in minor key throughout, ends unresolved on a suspended fading chord, no triumphant resolution, 50 BPM, no vocals
@@ -126,52 +156,38 @@ smoldering minor-key jazz groove, low brass, crackling hand percussion, embers r
 
 ### Stingers (non-looping; trim tight)
 
+**On length:** Suno ignores "10 seconds" etc. and always makes a full track — that's EXPECTED and fine. Stingers are carved out in post: generate full, scrub the whole clip (the big choir/bell payoff is often ~15–20s in, NOT at the start), crop the best 3–8s window. Crop in Suno (Edit ▸ Crop) or Audacity (zero-crossing cut + fast fade-out to kill end-clicks — worth it for stingers). Loops don't care: longer = repeats less often = better.
+
 **Victory** — COVER of the winning combat track (so the jingle bursts with the combat melody — FF-style), style text:
 ```
 short triumphant victory fanfare, brass and bells over a funky bass run, one big choir hit, celebratory, resolves cleanly within ten seconds, no vocals
 ```
 Fallback if covers come out weird at short form: plain generation with the same prompt. All OTHER stingers (Defeat, reveals, evo stings, Ascension) = plain generations, NO Inspo — the choir/bell language carries the consistency, and a funk battle reference would drag them toward groove.
+I like this one; it is 28 seconds tohugh, but since suno can generate 30 second ones apparently sometimes, I'm fine with that.
 
-**Defeat**
+**Defeat** (v2 — old one was a limp fade; this is a gut-punch then hollow silence. Two flavors, pick whichever lands.)
 ```
-somber descending piano phrase, single tolling church bell, breath of choir fading to silence, ends unresolved, no vocals
+sudden crushing defeat sting, one heavy dissonant low brass and organ swell collapsing downward, a single cracked bell, choir gasping then cut to cold silence, final and hollow, no vocals
 ```
-
-**Rarity reveals — 3 musical tiers, shared by hero AND equipment banners** (the sound signals rarity, not item type; 1–3★ are SFX-kit territory, no music):
-
-**4★ reveal**
+*Quieter alt:*
 ```
-short bright shimmer, small bell cascade and brief choir swell, pleasant arrival, three seconds, no vocals
+quiet devastating defeat, a low piano chord falling into emptiness, distant bell, a breath of choir dying away, the weight of loss, ends unresolved in silence, no vocals
 ```
 
-**5★ reveal**
-```
-big sacred choir hit with cathedral bell bloom, harp cascade over one deep bass note, radiant arrival, five seconds of golden light, no vocals
-```
+**HYPE PRINCIPLE (correction 2026-07-19):** the 6★/7★ payoffs are the game's most EXCITING moments, and hype ≠ grandeur. Sacred/choral/solemn = holy, not thrilling. Euphoria needs ENERGY — tempo, driving drums, slap bass, and a DROP. Earlier "sacred-only, no groove" was wrong for these. Fix: sacred-jazz fusion at MAX energy, structured build → DROP → triumphant sustain, full choir+organ+brass ON TOP of the full band, not alone.
 
-**6★ reveal** (top summonable rarity — the jackpot; pair with a rising pre-reveal tell before the flip)
+**Rarity reveals — DROPPED as OST tracks (Liam call 2026-07-19: bespoke music per rarity is overkill).** 1★–5★ reveals = **SFX kit** (graphics-synced shimmer/chime/whoosh). ONE exception: a short **6★ jackpot flourish** (the top pull's payoff burst):
 ```
-rising anticipation swell into a massive cathedral choir and organ hit, deep bells blooming, harp glissando raining down, overwhelming golden radiance, the rarest arrival, no vocals
+explosive triumphant jackpot hit, a fast rising choir-and-bell swell that SLAMS into a full drop, massive cathedral choir and deep organ over driving slap bass and pounding drums all hitting together, brass fanfare on top, euphoric and overwhelming, the best possible outcome, high energy, no vocals
 ```
+(Plain-gen, or Crop the drop out of a triumphant combat Cover.)
 
-**Evolution stings** — evolutions NEVER play summon reveal stingers (summon sounds = luck, evolution sounds = earned progress; keep the associations pure). Tiered by target star:
+**Evolution stings — 2★–6★ DROPPED as OST (Liam call 2026-07-19), use SFX kit.** Evolution music shrinks to ONE piece: the 7★ Ascension — being the only evolution with real music is what sells 7★ as the game's peak.
 
-*Standard (evolving to 2★–5★):*
-```
-radiant ascending choir swell, quick harp run, warm bells, triumphant short bloom, eight seconds, no vocals
-```
-
-*Grand (evolving to 6★)* — same musical phrase, bigger arrangement:
-```
-radiant ascending choir swell blooming into full cathedral choir, harp cascade, deep resonant bells, triumphant and majestic, ten seconds, no vocals
-```
-
-*7★ = the Ascension ceremony below (evolution-exclusive by design).*
-
-**7★ Ascension ceremony** (evolution-exclusive peak — a 20–30s set piece, not a sting; the sacred layer at absolute maximum)
-```
-sacred ascension ceremony, solo choir voice over deep organ, cathedral bells tolling in celebration, full choir building wave on wave, funky bassline and jazz drums entering halfway like the world resuming, radiant climax, transcendence, no vocals
-```
+**7★ Ascension ceremony** (evolution-exclusive peak — 20–30s set piece; sacred AND hype). 6★ NAILED IT; Ascension kept failing (inspo/cover/standalone) because its slow "sacred build that explodes" arc doesn't land — the reverent intro isn't hype and the payoff comes too late. Lesson from 6★: **immediate + triumphant beats slow + sacred.**
+- *Best: EXTEND the winning 6★* into the full ceremony (Edit ▸ Extend) — build it from the sound that already works. Continuation text: `continue into a soaring sustained climax, full cathedral choir and organ over driving drums and funky slap bass, blazing brass fanfares, church bells pealing in celebration, euphoric victory growing wave on wave, no vocals`
+- *Stay-hype anthem:* `triumphant coronation anthem, immediately huge and euphoric, driving drums and funky slap bass locked in, full cathedral choir and blazing brass carrying a soaring heroic melody, deep organ and pealing church bells, relentless celebration that keeps climbing, the pinnacle achieved, 150 BPM, no vocals`
+- *Coronation (choir as accent, if sacred layer muddies it):* `epic triumphant fanfare anthem with funk energy, huge brass fanfares and pounding taiko drums, driving slap-bass groove, soaring string melody, choir and church bells as bright accents, glorious and celebratory, a hero crowned in golden light, powerful and hype, 155 BPM, no vocals`
 
 ### Reuse map
 - Forge / Market / Facilities / Farm → Base hub
@@ -191,12 +207,13 @@ sacred ascension ceremony, solo choir voice over deep organ, cathedral bells tol
 
 ## 3. Order of operations
 
-1. Lock the winner: favorite it, save its Style, Get Stems, Crop the chorus
-2. Cover chain: Boss → Title → Elite
-3. Inspo chain: Hub → Summon bed + reveal stingers → Victory/Defeat
-4. Engine: Web Audio BGM manager (gapless loops, per-screen routing, crossfade, ducking)
-5. Remaining Inspo tracks: Synthesis, Athenaeum, Tavern regen, Arena, Expeditions, Memorial, Herald
-6. Video-ad music: COVER the winner. Two options (judge rolls by the final 15s — the ending must slam shut, not noodle):
+1. ~~Lock the winner, Cover chain, most Inspo tracks~~ — DONE (14 kept, see Status).
+2. **Hub ×3 rotation set** (Inspo) — top remaining priority.
+3. Regen: **Defeat** (v2), **World** (World/Arena v2).
+4. **7★ Ascension ceremony** (plain gen).
+5. **SFX kit**: reveal + evolution sounds (synth kit or ElevenLabs samples), optional 6★ flourish.
+6. Engine: Web Audio BGM manager (gapless loops, per-screen routing, crossfade, ducking, session-persistent combat, stem layering).
+7. Video-ad music: COVER the winner. Two options (judge rolls by the final 15s — the ending must slam shut, not noodle):
 
    *Instrumental:*
    ```
@@ -207,6 +224,12 @@ sacred ascension ceremony, solo choir voice over deep organ, cathedral bells tol
    ```
    epic stylish trailer anthem, confident female vocalist singing a short soaring hook over the main melody, funky slap bass, driving drums, cathedral choir answering the vocal line, church bells, builds to a massive final chorus with a clean powerful ending, no fade out, minimal lyrics, anthemic
    ```
+
+## ENGINE — BUILT 2026-07-19 ✅
+- 25 WAV masters → normalized OGG in `frontend/public/audio/` via `frontend/scripts/encode_audio.mjs` (ffmpeg-static, loudnorm I=-16 loops / -14 hot). Re-run the script whenever masters change (700MB WAV → 70MB OGG).
+- `frontend/src/audio.js` = scene-based Web Audio BGM manager: lazy decode+cache, rotation (Hub×4 / Tavern×2 / World×2 / Arena×2, no immediate repeat), 1s crossfades, session-persistent combat (same-scene = no restart), `setBgmScene(scene)`, `playMusicStinger` (ducks bed) for Victory/Defeat, `playTakeover` (full-track override, one-per-event, persists across navigation) for 6★ pull + 7★ Ascension. `useBgmScene(scene)` hook (src/useBgmScene.js) for panels.
+- Wired (ALL screens): App.jsx tab→scene; TowerPage combat / boss (10th or boss-typed) / elite (miniboss floors) + victory/defeat + ascent; SummoningOverlay 6★ takeover; HeroesPage handleAscend → ascension takeover; Synthesis/Memorial/Athenaeum panels; BasePage Dining Hall + Tavern facilities → tavern; GuildHall → tavern; ArenaPage bout → arena, else world.
+- NOT wired (enhancements only, not screen routing): per-track seamless LOOP_POINTS (whole-buffer loop for now — tune if a seam clicks); stem-layered intensity + boss-phase chorus jump; SFX real-sample upgrades. Old `public/bgm.mp3` now unused (safe to delete).
 
 ## 4. Odds and ends
 

@@ -15,6 +15,7 @@
  */
 import React, { useState, useEffect, useRef, useCallback } from 'react'
 import { getAthenaeumState, studyAthenaeumNode } from '../api/client'
+import { useBgmScene } from '../useBgmScene'
 import { alertDialog } from './DialogHost'
 
 // ── canvas geometry (unscaled units) ──────────────────────────────────────
@@ -114,6 +115,7 @@ const TIER_ROMAN = ['I', 'II', 'III', 'IV']
 const tierLabel = (t) => t.mastered ? 'MASTERED' : `TIER ${TIER_ROMAN[Math.min(t.tiers_done, 3)]}`
 
 export default function AthenaeumPanel({ aether, onResourceChange }) {
+  useBgmScene('athenaeum')  // candlelit study bed
   const [state, setState] = useState(null)
   const [selected, setSelected] = useState(null) // {treeId, nodeId} | {treeId, knot:true}
   const [busy, setBusy] = useState(false)

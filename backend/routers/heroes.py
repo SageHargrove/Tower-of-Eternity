@@ -4,6 +4,7 @@ from database import db
 from pydantic import BaseModel
 from services.level_service import get_revealed_aptitudes, recalculate_hero_level, get_talent_title, estimate_talent_rarity
 from services.materials_service import get_material_total, consume_material
+from services.combat_reveal_service import reveal_due_combats
 import json
 import random
 import os
@@ -64,6 +65,7 @@ def get_hero_card_image(hero_id: int, mini: bool = False):
 @router.get("/")
 def list_heroes(alive_only: bool = False):
     import datetime
+    reveal_due_combats()  # apply any fight whose animation window has elapsed
     with db() as conn:
         now = datetime.datetime.utcnow().isoformat()
         conn.execute("UPDATE heroes SET condition = 'Normal', condition_until = NULL WHERE condition_until IS NOT NULL AND condition_until < ?", (now,))
@@ -109,6 +111,7 @@ def list_heroes(alive_only: bool = False):
 @router.get("/legacies")
 def list_legacies():
     """List all fallen hero legacies and their bonuses."""
+    reveal_due_combats()  # a just-fallen hero's legacy shows here — reveal first
     from services.legacy_service import get_all_legacies, get_active_legacy_bonuses
     return {
         "legacies": get_all_legacies(),
@@ -282,6 +285,7 @@ def hero_relationships(hero_id: int):
 
 @router.get("/{hero_id}")
 def get_hero(hero_id: int):
+    reveal_due_combats()  # apply any fight whose animation window has elapsed
     with db() as conn:
         row = conn.execute("SELECT * FROM heroes WHERE id = ?", (hero_id,)).fetchone()
         if not row:
@@ -508,6 +512,7 @@ def get_team_leader_recommendation(team_id: int):
 
 @router.get("/team/current")
 def get_team():
+    reveal_due_combats()  # apply any fight whose animation window has elapsed
     with db() as conn:
         rows = conn.execute(
             "SELECT * FROM heroes WHERE is_on_team = 1 AND is_alive = 1 ORDER BY team_position ASC, id ASC"
@@ -519,6 +524,7 @@ def get_team():
 # anti-pattern as /{hero_id} vs /legacies and /bonds elsewhere in this file.
 @router.get("/team/{team_id}")
 def get_team_by_id(team_id: int):
+    reveal_due_combats()  # apply any fight whose animation window has elapsed
     with db() as conn:
         rows = conn.execute(
             "SELECT * FROM heroes WHERE is_on_team = ? AND is_alive = 1 ORDER BY team_position ASC, id ASC", (team_id,)
@@ -527,6 +533,7 @@ def get_team_by_id(team_id: int):
 
 @router.get("/teams/all")
 def get_all_teams():
+    reveal_due_combats()  # apply any fight whose animation window has elapsed
     with db() as conn:
         rows = conn.execute(
             "SELECT * FROM heroes WHERE is_on_team > 0 AND is_alive = 1 ORDER BY is_on_team ASC, team_position ASC, id ASC"

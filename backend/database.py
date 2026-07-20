@@ -853,6 +853,24 @@ WHERE NOT EXISTS (SELECT 1 FROM recipes WHERE name = 'Void Ring');
             )
         """)
 
+        # A fight is resolved instantly server-side, but the player watches it
+        # play out as a timed animation. Committing hero DEATHS immediately
+        # spoiled them on the Heroes/Memorial tabs the instant you entered a
+        # floor — long before the animation reached that turn. So a fallen
+        # hero's death is DEFERRED into a row here and only applied once the
+        # fight's real-time timeline has elapsed (client calls /floor/finalize
+        # when its animation ends, or a hero read lazily reveals overdue rows).
+        # See services/combat_reveal_service.py.
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS pending_combat (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                floor_number INTEGER,
+                dead_ids TEXT NOT NULL,
+                reveal_at REAL NOT NULL,
+                created_at REAL NOT NULL
+            )
+        """)
+
         # Migrate existing DB — add columns if they don't exist
         existing = [r[1] for r in conn.execute("PRAGMA table_info(heroes)").fetchall()]
         migrations = [

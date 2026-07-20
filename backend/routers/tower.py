@@ -9,6 +9,7 @@ from services.floor_templates import (
     generate_explore_floor, get_explore_choice, resolve_explore_loot,
 )
 from services.enemy_families import get_miniboss_override, get_boss_override, get_raid_boss_override, get_generic_boss
+from services.combat_reveal_service import register_pending_deaths, apply_pending, reveal_due_combats
 import json
 import random
 from pydantic import BaseModel
@@ -264,30 +265,19 @@ def _resolve_real_combat(conn, hero_teams, floor_number, is_boss, is_miniboss, z
 
     import datetime
     from services.bonds_service import get_bond
-    
-    dead_ids = []
-    for dead_hero_row in combat_result["dead_heroes"]:
-        dead_id = dead_hero_row if isinstance(dead_hero_row, int) else dead_hero_row["id"]
-        dead_ids.append(dead_id)
-        
-        # Determine if they meet the legacy threshold (unique_floors_cleared >= 10)
-        hr = conn.execute("SELECT * FROM heroes WHERE id = ?", (dead_id,)).fetchone()
-        if hr:
-            hr_dict = dict(hr)
-            # Automatic Legacy Check
-            if hr_dict.get("unique_floors_cleared", 0) >= 10:
-                clears = hr_dict["unique_floors_cleared"]
-                # Calculate legacy buffs based on clears
-                # 10 clears = base 5% atk/hp, +1% per clear above 10
-                buff_pct = min(25, 5 + (clears - 10))
-                buffs = json.dumps({"primary_bonus": {"stat": "str_pct", "label": "ATK", "value": buff_pct * 0.01, "desc": f"+{buff_pct}% ATK to all"}})
-                conn.execute(
-                    "INSERT INTO legacies (hero_id, hero_name, hero_star, title, flavor_text, bonus_json, score, is_sacrifice) VALUES (?, ?, ?, ?, ?, ?, 1000, 1)",
-                    (hr_dict["id"], hr_dict["name"], hr_dict.get("birth_star", 1), f"Memory of {hr_dict['name']}", f"Fell on Floor {floor_number} after {clears} unique clears.", buffs)
-                )
-            pending_legacies.append((hr_dict, False))
-            
-        conn.execute("UPDATE heroes SET is_alive = 0, is_on_team = 0 WHERE id = ?", (dead_id,))
+
+    # A fallen hero's DEATH is DEFERRED, not applied here — the player is about
+    # to watch this fight play out as an animation, and committing the death
+    # now would spoil it (they'd show up dead on the Heroes/Memorial tabs the
+    # instant the floor is entered). The kill + their legacy + portrait cleanup
+    # are registered below and applied only once the fight's real-time timeline
+    # has elapsed (see services/combat_reveal_service). We still gather the dead
+    # ids now for the SURVIVORS' witness-death trauma, which is a survivor
+    # effect and does apply instantly.
+    dead_ids = [
+        (d if isinstance(d, int) else d["id"])
+        for d in combat_result["dead_heroes"]
+    ]
 
     # Survival logic: Survivor's Guilt & Bonds
     if dead_ids:
@@ -333,6 +323,12 @@ def _resolve_real_combat(conn, hero_teams, floor_number, is_boss, is_miniboss, z
                 WHERE id = ?
             """, (len(dead_ids) * trauma_data["trauma_delta"],
                   len(dead_ids) * trauma_data["stress_delta"], surv_id))
+
+    # Defer the fallen's actual death (kill + legacy + portrait) to reveal
+    # only once the player's fight animation has played out — the client echoes
+    # this id back to /floor/finalize, and any hero read reveals it lazily
+    # once its real-time window has passed (combat_reveal_service).
+    result["pending_combat_id"] = register_pending_deaths(conn, floor_number, dead_ids, combat_result)
 
     for s in combat_result["surviving_heroes"]:
         hid = s["id"]
@@ -478,6 +474,10 @@ def preview_floor(floor_number: int):
 @router.post("/floor/enter")
 def enter_floor(req: EnterFloorRequest):
     """Resolve a single floor for a specific team without any 'Run' constraints."""
+    # Any fight left pending from a prior floor is conceptually over the moment
+    # a new one starts — apply its deferred deaths first so a "dead" hero can't
+    # be re-deployed or linger through the next fight.
+    apply_pending()
     pending_legacies = []
     with db() as conn:
         # Tower entry is free — the old per-entry supply toll went away with
@@ -802,6 +802,29 @@ def enter_floor(req: EnterFloorRequest):
         result["ego_rebellions"] = ego_rebellions
     return result
 
+
+class FinalizeCombatRequest(BaseModel):
+    # The id returned as `pending_combat_id` when the fight was resolved.
+    # Optional — omitting it just sweeps whatever's overdue.
+    pending_combat_id: int | None = None
+
+
+@router.post("/floor/finalize")
+def finalize_combat(req: FinalizeCombatRequest):
+    """Called by the client the instant a fight's animation finishes — reveal
+    the fallen NOW (at whatever playback speed the player watched), so a hero
+    only ever shows dead once the battle has actually played out that far.
+    Also sweeps any other overdue fights. Idempotent: a no-op if the death
+    was already revealed (by a lazy read, or a double call)."""
+    if req.pending_combat_id:
+        revealed = apply_pending(pending_ids=[req.pending_combat_id])
+        # Also clear anything else overdue while we're here.
+        revealed += apply_pending(only_due=True)
+    else:
+        revealed = apply_pending(only_due=True)
+    return {"ok": True, "revealed": [f["id"] for f in revealed]}
+
+
 class ResolveEventRequest(BaseModel):
     floor_number: int
     team_id: int
@@ -815,6 +838,7 @@ def resolve_event_floor(data: ResolveEventRequest):
     narrative + stat effects, but some (trigger_combat) turn hostile after
     the narrative beat, and some (trait) leave a permanent mark on the
     hero beyond the temporary gold/health/stress nudge."""
+    apply_pending()  # settle any prior fight's deferred deaths first
     pending_legacies = []
     with db() as conn:
         base_row = conn.execute("SELECT highest_floor FROM base WHERE id = 1").fetchone()
@@ -1013,6 +1037,7 @@ def resolve_explore_floor_choice(data: ResolveExploreRequest):
     (difficulty_mult, not just enemy count — a handful of weak swarmers
     and a single elite can land at the same real threat level) and the
     post-win loot odds. It doesn't skip combat."""
+    apply_pending()  # settle any prior fight's deferred deaths first
     pending_legacies = []
     with db() as conn:
         base_row = conn.execute("SELECT highest_floor FROM base WHERE id = 1").fetchone()

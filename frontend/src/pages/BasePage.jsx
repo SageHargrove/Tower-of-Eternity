@@ -1,5 +1,6 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useRef } from 'react'
 import { StackedTitle, Panel, Meter, SectionHeader } from '../components/ilm/Ilm'
+import { setBgmScene } from '../audio'
 import { getBase, getFacilities, buildFacility, upgradeFacility, assignFacility, removeFacility, listHeroes, configTraining, getMageTowerUpgrades, buyResearchUpgrade, craftMaterialEquipment, craftBandages, getBaseFloors, assignBaseFloor, getLegacies, getHearth, upgradeBase, getMarketCatalog, purchaseMarketItem, getBaseUpgrades, buyBaseUpgrade, getMailList, claimMail, getShip, buildShip, renameShip, refitShip, buyRefitPoint, getSupportBoons } from '../api/client'
 import MirrorOfFate from '../components/MirrorOfFate'
 import ItemIcon from '../components/ItemIcon'
@@ -218,6 +219,16 @@ export default function BasePage({ onGoldChange, onSubTabChange, tourTargetSubTa
   const [baseHeroes, setBaseHeroes] = useState([])
   const [msg, setMsg] = useState(null)
   const [facilityLoading, setFacilityLoading] = useState(false)
+  // Facility BGM: the Dining Hall & Tavern play the tavern track while open;
+  // the ref means we only revert to hub when leaving a tavern facility, so we
+  // never stomp an overlay scene (Memorial/Synthesis) that set its own music.
+  const facSceneRef = useRef(false)
+  useEffect(() => {
+    const fac = facilitiesData?.built?.find(f => f.id === selFacId)
+    const isTavern = fac && (fac.type === 'Dining Hall' || fac.type === 'Tavern')
+    if (isTavern) { setBgmScene('tavern'); facSceneRef.current = true }
+    else if (facSceneRef.current) { setBgmScene('hub'); facSceneRef.current = false }
+  }, [selFacId, facilitiesData])
   const [mageUpgrades, setMageUpgrades] = useState(null)
   const [crafting, setCrafting] = useState(false)
   const [bandageQty, setBandageQty] = useState(1)

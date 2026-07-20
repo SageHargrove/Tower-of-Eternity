@@ -124,7 +124,7 @@ _name_gen_lock = threading.Lock()
 
 def finalize_hero_async(hero_id: int, birth_star: int, aptitudes: dict, extra_prompt: str,
                          needs_custom_portrait: bool, fallback_gender: str, fallback_portrait_prompt: str,
-                         preserve_identity: bool = False):
+                         preserve_identity: bool = False, fixed_name: str = None):
     """
     Call the LLM in the background and enrich the hero's name/lore once it
     responds. Runs after the pull has already returned to the player.
@@ -151,7 +151,7 @@ def finalize_hero_async(hero_id: int, birth_star: int, aptitudes: dict, extra_pr
                             f"\nAnother hero in this same batch was just given one of these names — "
                             f"do NOT reuse them or close variants: {', '.join(in_flight)}."
                         )
-                    profile = generate_hero_profile(birth_star, aptitudes, extra)
+                    profile = generate_hero_profile(birth_star, aptitudes, extra, fixed_name=fixed_name)
 
                     with db() as conn:
                         exists = conn.execute("SELECT 1 FROM heroes WHERE name = ? AND id != ?", (profile.name, hero_id)).fetchone()
@@ -248,9 +248,74 @@ def reconcile_pending_profiles():
             hero["id"], hero["birth_star"], aptitudes, "",
             needs_custom_portrait=False, fallback_gender="unknown", fallback_portrait_prompt="",
             preserve_identity=True,  # never rename a hero the player already saw
+            fixed_name=hero["name"],  # …and tell the LLM to write the lore about THAT name
         )
     if rows:
         print(f"[Gacha] Re-queued {len(rows)} hero profile(s) left on placeholder identity from a previous session.")
+    # Heal any Chronicles that already drifted onto the wrong name (see below).
+    repair_mismatched_backstories()
+
+
+# Sentence-opening words that read as capitalized but are NOT a protagonist's
+# name — never mistake one of these for the (mis)named hero.
+_NON_NAME_OPENERS = {
+    "the", "a", "an", "he", "she", "they", "it", "his", "her", "their", "its",
+    "born", "raised", "orphaned", "abandoned", "exiled", "alone", "child",
+    "son", "daughter", "in", "on", "at", "when", "as", "after", "before",
+    "during", "once", "long", "for", "no", "some", "most", "many", "every",
+    "this", "that", "there", "here", "from", "by", "though", "although", "even",
+}
+
+
+def _swap_name(text, wrong, right):
+    import re
+    if not text:
+        return text
+    return re.sub(rf'\b{re.escape(wrong)}\b', right, text)
+
+
+def repair_mismatched_backstories():
+    """Offline self-heal for the old reconcile bug: a hero whose first
+    enrichment failed got RE-enriched with freshly-invented lore, so the
+    Chronicle narrated an invented name ("Zaina was born…") while the card
+    kept its real one ("Elara Blood"). The forward fix (fixed_name in
+    finalize_hero_async) stops this recurring; this repairs the ones already
+    written. The story itself is fine — only the name token is wrong — so we
+    just swap it, no LLM/regeneration. Idempotent: once the hero's own name is
+    in their story, they're skipped."""
+    import re
+    fixed = 0
+    with db() as conn:
+        rows = conn.execute(
+            "SELECT id, name, backstory, personality, title FROM heroes WHERE backstory IS NOT NULL AND backstory != ''"
+        ).fetchall()
+        updates = []
+        for r in rows:
+            name, back = r["name"], r["backstory"]
+            if not name or not back:
+                continue
+            first = name.split()[0]
+            # Hero named somewhere in their own story → it's about them, leave it.
+            if re.search(rf'\b{re.escape(first)}\b', back):
+                continue
+            # Stories open "<Name> was…"; take the leading capitalized token.
+            m = re.match(r'\s*["“\'‘]?\s*([A-Z][a-zA-Z\'\-]{1,})\b', back)
+            if not m:
+                continue
+            wrong = m.group(1)
+            if wrong == first or wrong.lower() in _NON_NAME_OPENERS:
+                continue
+            updates.append((
+                _swap_name(back, wrong, first),
+                _swap_name(r["personality"], wrong, first),
+                _swap_name(r["title"], wrong, first),
+                r["id"],
+            ))
+        for u in updates:
+            conn.execute("UPDATE heroes SET backstory=?, personality=?, title=? WHERE id=?", u)
+        fixed = len(updates)
+    if fixed:
+        print(f"[Gacha] Repaired {fixed} hero Chronicle(s) that named the wrong protagonist.")
 
 
 _last_reconcile_check = 0.0
@@ -268,6 +333,11 @@ def maybe_reconcile_pending_profiles():
     if now - _last_reconcile_check < 120:  # at most once every 2 minutes
         return
     _last_reconcile_check = now
+    # Cheap offline pass — heals name/story mismatches even without a restart.
+    try:
+        repair_mismatched_backstories()
+    except Exception as e:
+        print(f"[Gacha] backstory repair error: {e}")
     with db() as conn:
         pending = conn.execute(
             "SELECT COUNT(*) AS c FROM heroes WHERE personality = ?", (_PLACEHOLDER_PERSONALITY,)

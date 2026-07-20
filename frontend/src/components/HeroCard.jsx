@@ -502,9 +502,12 @@ export default function HeroCard({ hero, onAssign, onManageEquipment, onManageCo
         {hero.portrait_path && !imgError && !hero.portrait_path.includes('default_') ? (
           <img
             key={retryKey}
-            src={cardImgError
+            src={(showFull || cardImgError)
+              // Full view shows the raw transparent cutout on the CSS CardFrame
+              // (the old baked-in ornate card composite is retired — Liam). Mini
+              // grid thumbs still use the server face-crop.
               ? `/${hero.portrait_path}?t=${new Date().getTime()}`
-              : `/heroes/${hero.id}/card-image?mini=${!showFull}&t=${new Date().getTime()}`}
+              : `/heroes/${hero.id}/card-image?mini=1&t=${new Date().getTime()}`}
             alt={hero.name}
             className="hero-portrait"
             draggable={false}

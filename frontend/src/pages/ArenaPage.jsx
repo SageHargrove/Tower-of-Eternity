@@ -11,6 +11,7 @@ import Pennant from '../components/Pennant'
 import StakesBanner from '../components/StakesBanner'
 import { TournamentRegistration, ScoutReport } from '../components/FeatureModals'
 import { receiveMail, applyTraining, listHeroes, recordArenaResult } from '../api/client'
+import { setBgmScene } from '../audio'
 
 export default function ArenaPage() {
   const [serverUrl, setServerUrl] = useState(getArenaServerUrl())
@@ -57,6 +58,10 @@ export default function ArenaPage() {
     getAllTeams().then(setTeams).catch(() => {})
     listHeroes(true).then(setAllHeroes).catch(() => {})
   }, [])
+
+  // The arena battle theme plays while a bout is on screen; otherwise the
+  // World overworld bed (App routes the arena tab to 'world' by default).
+  useEffect(() => { setBgmScene(fightResult ? 'arena' : 'world') }, [fightResult])
 
   useEffect(() => {
     if (serverUrl) refreshLeaderboard()
